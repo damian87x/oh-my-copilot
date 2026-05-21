@@ -8,8 +8,8 @@ import { resolveProjectPaths } from '../src/project.js';
 function hashCanonicalSkills() {
   const paths = resolveProjectPaths({ cwd: process.cwd() });
   return Object.fromEntries(
-    ['grill', 'grill-me', 'verify', 'jira-ticket', 'code-review', 'qa']
-      .map((name) => path.join(paths.workspaceRoot, '.agents', 'skills', name, 'SKILL.md'))
+    ['grill', 'grill-me', 'ralplan', 'team', 'ralph', 'verify', 'jira-ticket', 'code-review', 'qa']
+      .map((name) => path.join(paths.packageRoot, '.agents', 'skills', name, 'SKILL.md'))
       .filter((file) => existsSync(file))
       .map((file) => [file, createHash('sha256').update(readFileSync(file)).digest('hex')]),
   );

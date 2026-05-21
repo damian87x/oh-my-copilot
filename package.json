@@ -9,6 +9,8 @@
     "omc": "dist/src/cli.js"
   },
   "files": [
+    ".agents",
+    ".claude",
     "catalog",
     "dist",
     "docs",
@@ -21,9 +23,9 @@
     "catalog:list": "npm run build && node dist/src/cli.js catalog list",
     "project:inspect": "npm run build && node dist/src/cli.js project inspect",
     "test": "vitest run",
-    "lint:skills": "npm run build && node dist/src/cli.js lint:skills --root ..",
-    "sync:dry-run": "npm run build && node dist/src/cli.js sync:dry-run --root ..",
-    "jira:dry-run": "npm run build && node dist/src/cli.js jira:dry-run --root .."
+    "lint:skills": "npm run build && node dist/src/cli.js lint:skills --root .",
+    "sync:dry-run": "npm run build && node dist/src/cli.js sync:dry-run --root .",
+    "jira:dry-run": "npm run build && node dist/src/cli.js jira:dry-run --root ."
   },
   "keywords": [
     "copilot",

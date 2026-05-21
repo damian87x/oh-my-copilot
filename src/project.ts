@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export interface ProjectPaths {
   cwd: string;
   packageRoot: string;
-  workspaceRoot: string;
+  repoRoot: string;
   catalogDir: string;
   defaultSkillsRoot: string;
 }
@@ -44,8 +44,8 @@ export function packageRoot(...segments: string[]): string {
   return resolve(findUp(process.cwd(), "package.json") ?? process.cwd(), ...segments);
 }
 
-export function workspaceRoot(...segments: string[]): string {
-  return resolve(dirname(packageRoot()), ...segments);
+export function repoRoot(...segments: string[]): string {
+  return resolve(packageRoot(), ...segments);
 }
 
 function inferPackageRoot(cwd: string): string {
@@ -63,13 +63,13 @@ function inferPackageRoot(cwd: string): string {
 export function resolveProjectPaths(options: { cwd?: string; packageRoot?: string } = {}): ProjectPaths {
   const cwd = resolve(options.cwd ?? process.cwd());
   const resolvedPackageRoot = resolve(options.packageRoot ?? inferPackageRoot(cwd));
-  const resolvedWorkspaceRoot = dirname(resolvedPackageRoot);
+  const resolvedRepoRoot = resolvedPackageRoot;
   return {
     cwd,
     packageRoot: resolvedPackageRoot,
-    workspaceRoot: resolvedWorkspaceRoot,
+    repoRoot: resolvedRepoRoot,
     catalogDir: join(resolvedPackageRoot, "catalog"),
-    defaultSkillsRoot: join(resolvedWorkspaceRoot, ".agents", "skills"),
+    defaultSkillsRoot: join(resolvedRepoRoot, ".agents", "skills"),
   };
 }
 
@@ -91,7 +91,7 @@ export function readText(path: string): string {
   return readFileSync(path, "utf8");
 }
 
-export function listSkillNames(root = workspaceRoot()): string[] {
+export function listSkillNames(root = repoRoot()): string[] {
   const skillsDir = join(root, ".agents", "skills");
   if (!existsSync(skillsDir)) return [];
   return readdirSync(skillsDir, { withFileTypes: true })

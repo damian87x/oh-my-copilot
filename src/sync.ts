@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { loadCatalogBundle, type SkillProjection } from './catalog.js';
 import { packageRootFromImportMeta } from './project.js';
 
@@ -47,8 +47,7 @@ function fallbackFor(skill: SkillProjection): string {
 }
 
 function canonicalSkill(skill: SkillProjection, packageRoot: string): { path: string; text: string; sha256: string } {
-  const workspaceRoot = dirname(packageRoot);
-  const canonicalPath = resolve(workspaceRoot, skill.sourcePath);
+  const canonicalPath = resolve(packageRoot, skill.sourcePath);
   if (!existsSync(canonicalPath)) {
     throw new Error(`missing canonical skill source for ${skill.name}: ${skill.sourcePath}`);
   }

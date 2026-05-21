@@ -1,6 +1,6 @@
 # General Skills MVP
 
-The canonical skill source is the workspace `.agents/skills` directory. `oh-my-copilot` reads catalog metadata and renders provider-specific invocation surfaces without editing canonical skill bodies.
+The canonical skill source is the repo-local `.agents/skills` directory. `oh-my-copilot` reads catalog metadata and renders provider-specific invocation surfaces without editing canonical skill bodies.
 
 ## Canonical skills
 
@@ -15,6 +15,25 @@ The canonical skill source is the workspace `.agents/skills` directory. `oh-my-c
 | `ralplan` | `ralplan`, `planning.consensus` | Consensus planning handoff. |
 | `team` | `team`, `execution.parallel` | Thin parallel-execution handoff. |
 | `ralph` | `ralph`, `execution.single-owner` | Thin single-owner execution handoff. |
+
+
+## Repo-local layout
+
+The repo is self-contained. Do not point canonical skills at a parent workspace directory.
+
+```text
+oh-my-copilot/
+  .agents/skills/<skill>/SKILL.md   # canonical source of truth
+  .claude/skills -> ../.agents/skills # symlink, no copied Claude fork
+  .github/copilot/...               # generated provider wrappers only
+```
+
+Rules:
+
+- Edit `.agents/skills/*/SKILL.md` first.
+- Keep `.claude/skills` as a symlink to `../.agents/skills`.
+- Do not create workspace-level `.agents` or `.claude` dependencies for this repo.
+- Provider-specific wrappers may reference/embed canonical skill text, but must not become source of truth.
 
 ## Provider projections
 

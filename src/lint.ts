@@ -35,7 +35,7 @@ function listSkillNames(skillsRoot: string): Set<string> {
 
 export function lintSkills(rootOrOptions: string | { cwd?: string; packageRoot?: string } = {}): LintIssue[] {
   const paths = typeof rootOrOptions === 'string'
-    ? resolveProjectPaths({ cwd: resolve(rootOrOptions, 'oh-my-copilot') })
+    ? resolveProjectPaths({ cwd: resolve(rootOrOptions) })
     : resolveProjectPaths(rootOrOptions);
   const issues: LintIssue[] = [];
   const bundle = loadCatalogBundle(paths.catalogDir);
@@ -47,7 +47,7 @@ export function lintSkills(rootOrOptions: string | { cwd?: string; packageRoot?:
 
   const presentSkills = listSkillNames(paths.defaultSkillsRoot);
   for (const skill of bundle.skills.skills.filter((entry) => entry.sourcePath.startsWith('.agents/skills/'))) {
-    const file = resolve(paths.workspaceRoot, skill.sourcePath);
+    const file = resolve(paths.packageRoot, skill.sourcePath);
     const skillDir = skill.sourcePath.split('/').at(-2) ?? skill.name;
     if (!presentSkills.has(skillDir) || !existsSync(file)) {
       issues.push({ level: 'error', code: 'skill.missing', message: `missing skill file for ${skill.name}`, file });
@@ -72,7 +72,7 @@ export function lintSkills(rootOrOptions: string | { cwd?: string; packageRoot?:
     }
   }
 
-  const grillMe = resolve(paths.workspaceRoot, '.agents/skills/grill-me/SKILL.md');
+  const grillMe = resolve(paths.packageRoot, '.agents/skills/grill-me/SKILL.md');
   if (!existsSync(grillMe)) {
     issues.push({ level: 'error', code: 'alias.missing', message: 'missing grill-me alias skill', file: grillMe });
   } else if (!readFileSync(grillMe, 'utf8').includes('canonical `grill`')) {

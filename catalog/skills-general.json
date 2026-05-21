@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "canonicalRoot": "../.agents/skills",
+  "canonicalRoot": ".agents/skills",
   "commandPrefix": "/",
   "skills": [
     {
