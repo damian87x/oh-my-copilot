@@ -11,7 +11,7 @@ export interface ProjectPaths {
 }
 
 export interface ProjectInspection extends ProjectPaths {
-  hasAgentsSkills: boolean;
+  hasCopilotSkills: boolean;
   hasCatalog: boolean;
   hasPackageJson: boolean;
 }
@@ -69,7 +69,7 @@ export function resolveProjectPaths(options: { cwd?: string; packageRoot?: strin
     packageRoot: resolvedPackageRoot,
     repoRoot: resolvedRepoRoot,
     catalogDir: join(resolvedPackageRoot, "catalog"),
-    defaultSkillsRoot: join(resolvedRepoRoot, ".agents", "skills"),
+    defaultSkillsRoot: join(resolvedRepoRoot, ".github", "skills"),
   };
 }
 
@@ -77,7 +77,7 @@ export function inspectProject(options: { cwd?: string; packageRoot?: string } =
   const paths = resolveProjectPaths(options);
   return {
     ...paths,
-    hasAgentsSkills: existsSync(paths.defaultSkillsRoot),
+    hasCopilotSkills: existsSync(paths.defaultSkillsRoot),
     hasCatalog: existsSync(paths.catalogDir),
     hasPackageJson: existsSync(join(paths.packageRoot, "package.json")),
   };
@@ -92,7 +92,7 @@ export function readText(path: string): string {
 }
 
 export function listSkillNames(root = repoRoot()): string[] {
-  const skillsDir = join(root, ".agents", "skills");
+  const skillsDir = join(root, ".github", "skills");
   if (!existsSync(skillsDir)) return [];
   return readdirSync(skillsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())

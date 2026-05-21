@@ -7,7 +7,7 @@ description: Backward-compatible alias for canonical `grill`; interview the user
 
 This skill is a compatibility alias for the canonical `grill` skill.
 
-Follow `.agents/skills/grill/SKILL.md` exactly:
+Follow `.github/skills/grill/SKILL.md` exactly:
 
 - Explore the codebase, docs, and plans before asking when the answer is locally discoverable.
 - Ask one question at a time.

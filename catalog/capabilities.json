@@ -1,7 +1,16 @@
 {
   "schemaVersion": 1,
-  "providerStates": ["native", "projected", "handoff", "stub", "unsupported"],
-  "compatProviderStates": ["supported", "fallback", "unsupported"],
+  "providerStates": [
+    "native",
+    "handoff",
+    "stub",
+    "unsupported"
+  ],
+  "compatProviderStates": [
+    "supported",
+    "fallback",
+    "unsupported"
+  ],
   "capabilities": [
     {
       "id": "grill",
@@ -13,12 +22,17 @@
       "defaultCommand": "grill",
       "phase1": true,
       "sourceSkill": "grill",
-      "providers": { "copilot": "supported", "codex": "supported", "claude": "supported" },
-      "support": { "copilot": "projected", "codex": "native", "claude": "projected" },
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
       "providerSupport": {
-        "copilot": { "state": "projected", "notes": "Render as /grill wrapper around the provider-neutral skill." },
-        "codex": { "state": "native", "notes": "Invoke the local skill through the existing agent skill surface." },
-        "claude": { "state": "projected", "notes": "Render as slash-command wrapper around the same skill text." }
+        "copilot": {
+          "state": "native",
+          "notes": "Use the /grill project skill for the Copilot-compatible skill."
+        }
       }
     },
     {
@@ -31,12 +45,17 @@
       "defaultCommand": "ralplan",
       "phase1": true,
       "sourceSkill": "ralplan",
-      "providers": { "copilot": "fallback", "codex": "supported", "claude": "fallback" },
-      "support": { "copilot": "handoff", "codex": "native", "claude": "handoff" },
+      "providers": {
+        "copilot": "fallback"
+      },
+      "support": {
+        "copilot": "handoff"
+      },
       "providerSupport": {
-        "copilot": { "state": "handoff", "notes": "Emit plan checklist and hand off to available planning runtime; no Copilot-native durable runtime in Phase 1." },
-        "codex": { "state": "native", "notes": "Use OMX $ralplan when available." },
-        "claude": { "state": "handoff", "notes": "Use a slash-command wrapper that preserves the consensus-planning contract." }
+        "copilot": {
+          "state": "handoff",
+          "notes": "Emit plan checklist and hand off to available planning runtime; no Copilot-native durable runtime in Phase 1."
+        }
       }
     },
     {
@@ -44,17 +63,22 @@
       "name": "team",
       "title": "Parallel execution handoff",
       "category": "execution",
-      "summary": "Project a thin handoff for parallel lanes when a provider runtime exists; otherwise explain unsupported state.",
+      "summary": "Provide a thin handoff for parallel lanes when a runtime exists; otherwise explain unsupported state.",
       "notes": "Thin command surface only; full Copilot-native team runtime is Phase 2.",
       "defaultCommand": "team",
       "phase1": true,
       "sourceSkill": "team",
-      "providers": { "copilot": "fallback", "codex": "supported", "claude": "fallback" },
-      "support": { "copilot": "thin-handoff", "codex": "native", "claude": "thin-handoff" },
+      "providers": {
+        "copilot": "fallback"
+      },
+      "support": {
+        "copilot": "thin-handoff"
+      },
       "providerSupport": {
-        "copilot": { "state": "handoff", "notes": "Thin command surface only; full Copilot-native team runtime is Phase 2." },
-        "codex": { "state": "native", "notes": "Use OMX $team when running under the OMX runtime." },
-        "claude": { "state": "handoff", "notes": "Hand off to any configured Claude/agent team runner; do not emulate a runtime." }
+        "copilot": {
+          "state": "handoff",
+          "notes": "Thin command surface only; full Copilot-native team runtime is Phase 2."
+        }
       }
     },
     {
@@ -62,17 +86,22 @@
       "name": "ralph",
       "title": "Single-owner completion loop handoff",
       "category": "execution",
-      "summary": "Project a thin handoff for persistent single-owner execution with verification gates.",
+      "summary": "Provide a thin handoff for persistent single-owner execution with verification gates.",
       "notes": "Thin command surface only; full Copilot-native Ralph runtime is Phase 2.",
       "defaultCommand": "ralph",
       "phase1": true,
       "sourceSkill": "ralph",
-      "providers": { "copilot": "fallback", "codex": "supported", "claude": "fallback" },
-      "support": { "copilot": "thin-handoff", "codex": "native", "claude": "thin-handoff" },
+      "providers": {
+        "copilot": "fallback"
+      },
+      "support": {
+        "copilot": "thin-handoff"
+      },
       "providerSupport": {
-        "copilot": { "state": "handoff", "notes": "Thin command surface only; full Copilot-native Ralph runtime is Phase 2." },
-        "codex": { "state": "native", "notes": "Use OMX $ralph when planning artifacts already exist." },
-        "claude": { "state": "handoff", "notes": "Use a wrapper that states requirements and fallback behavior." }
+        "copilot": {
+          "state": "handoff",
+          "notes": "Thin command surface only; full Copilot-native Ralph runtime is Phase 2."
+        }
       }
     },
     {
@@ -85,12 +114,17 @@
       "defaultCommand": "jira-ticket",
       "phase1": true,
       "sourceSkill": "jira-ticket",
-      "providers": { "copilot": "supported", "codex": "supported", "claude": "supported" },
-      "support": { "copilot": "adapter", "codex": "adapter", "claude": "adapter" },
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "adapter"
+      },
       "providerSupport": {
-        "copilot": { "state": "projected", "notes": "Render as /jira-ticket and delegate operations to the Jira adapter." },
-        "codex": { "state": "projected", "notes": "Use the same provider-neutral skill plus local adapter scripts." },
-        "claude": { "state": "projected", "notes": "Render as slash-command wrapper with explicit credential safety rules." }
+        "copilot": {
+          "state": "native",
+          "notes": "Use the /jira-ticket and delegate operations to the Jira adapter."
+        }
       }
     },
     {
@@ -99,16 +133,21 @@
       "title": "Non-author code review gate",
       "category": "verification",
       "summary": "Run a portable review checklist, preferring an opposite or non-author model when available.",
-      "notes": "Tiny provider-neutral contract in Phase 1; deeper integrations later.",
+      "notes": "Tiny Copilot-compatible contract in Phase 1; deeper integrations later.",
       "defaultCommand": "code-review",
       "phase1": true,
       "sourceSkill": "code-review",
-      "providers": { "copilot": "fallback", "codex": "supported", "claude": "fallback" },
-      "support": { "copilot": "stub", "codex": "native", "claude": "stub" },
+      "providers": {
+        "copilot": "fallback"
+      },
+      "support": {
+        "copilot": "stub"
+      },
       "providerSupport": {
-        "copilot": { "state": "stub", "notes": "Tiny provider-neutral contract in Phase 1; deeper integrations later." },
-        "codex": { "state": "native", "notes": "Can map to existing OMX code-review if installed." },
-        "claude": { "state": "stub", "notes": "Portable checklist wrapper only." }
+        "copilot": {
+          "state": "stub",
+          "notes": "Tiny Copilot-compatible contract in Phase 1; deeper integrations later."
+        }
       }
     },
     {
@@ -121,12 +160,17 @@
       "defaultCommand": "qa",
       "phase1": true,
       "sourceSkill": "qa",
-      "providers": { "copilot": "fallback", "codex": "fallback", "claude": "fallback" },
-      "support": { "copilot": "stub", "codex": "projected", "claude": "stub" },
+      "providers": {
+        "copilot": "fallback"
+      },
+      "support": {
+        "copilot": "stub"
+      },
       "providerSupport": {
-        "copilot": { "state": "stub", "notes": "Tiny QA contract in Phase 1; full automation is later." },
-        "codex": { "state": "projected", "notes": "Use provider-neutral checklist unless an existing QA workflow is explicitly available." },
-        "claude": { "state": "stub", "notes": "Portable checklist wrapper only." }
+        "copilot": {
+          "state": "stub",
+          "notes": "Tiny QA contract in Phase 1; full automation is later."
+        }
       }
     },
     {
@@ -139,21 +183,202 @@
       "defaultCommand": "verify",
       "phase1": true,
       "sourceSkill": "verify",
-      "providers": { "copilot": "supported", "codex": "supported", "claude": "supported" },
-      "support": { "copilot": "projected", "codex": "projected", "claude": "projected" },
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
       "providerSupport": {
-        "copilot": { "state": "projected", "notes": "Render as /verify wrapper around evidence collection rules." },
-        "codex": { "state": "projected", "notes": "Use the same provider-neutral skill unless a stronger local verifier is requested." },
-        "claude": { "state": "projected", "notes": "Render as slash-command wrapper around evidence collection rules." }
+        "copilot": {
+          "state": "native",
+          "notes": "Use the /verify project skill for evidence collection rules."
+        }
       }
     },
-    { "id": "research.codebase", "name": "research.codebase", "title": "Codebase research", "category": "clarification", "summary": "Inspect local context before asking.", "notes": "Compatibility capability for tests and older projections.", "defaultCommand": "grill", "phase1": true, "sourceSkill": "grill", "providers": { "copilot": "supported", "codex": "supported", "claude": "supported" }, "support": { "copilot": "projected", "codex": "native", "claude": "projected" }, "providerSupport": { "copilot": { "state": "projected", "notes": "Covered by /grill." }, "codex": { "state": "native", "notes": "Covered by local exploration." }, "claude": { "state": "projected", "notes": "Covered by /grill." } } },
-    { "id": "planning.challenge", "name": "planning.challenge", "title": "Plan challenge", "category": "planning", "summary": "Challenge a plan before consensus.", "notes": "Compatibility capability for grill/ralplan flow.", "defaultCommand": "grill", "phase1": true, "sourceSkill": "grill", "providers": { "copilot": "supported", "codex": "supported", "claude": "supported" }, "support": { "copilot": "projected", "codex": "native", "claude": "projected" }, "providerSupport": { "copilot": { "state": "projected", "notes": "Covered by /grill." }, "codex": { "state": "native", "notes": "Covered by local skill." }, "claude": { "state": "projected", "notes": "Covered by /grill." } } },
-    { "id": "planning.consensus", "name": "planning.consensus", "title": "Consensus plan", "category": "planning", "summary": "Consensus plan capability.", "notes": "Compatibility capability for /ralplan.", "defaultCommand": "ralplan", "phase1": true, "sourceSkill": "ralplan", "providers": { "copilot": "fallback", "codex": "supported", "claude": "fallback" }, "support": { "copilot": "handoff", "codex": "native", "claude": "handoff" }, "providerSupport": { "copilot": { "state": "handoff", "notes": "Covered by /ralplan." }, "codex": { "state": "native", "notes": "Covered by $ralplan." }, "claude": { "state": "handoff", "notes": "Covered by /ralplan." } } },
-    { "id": "tracker.ticket", "name": "tracker.ticket", "title": "Tracker ticket", "category": "tracking", "summary": "Jira ticket capability.", "notes": "Compatibility capability for /jira-ticket.", "defaultCommand": "jira-ticket", "phase1": true, "sourceSkill": "jira-ticket", "providers": { "copilot": "supported", "codex": "supported", "claude": "supported" }, "support": { "copilot": "adapter", "codex": "adapter", "claude": "adapter" }, "providerSupport": { "copilot": { "state": "projected", "notes": "Covered by /jira-ticket." }, "codex": { "state": "projected", "notes": "Covered by local adapter." }, "claude": { "state": "projected", "notes": "Covered by /jira-ticket." } } },
-    { "id": "execution.single-owner", "name": "execution.single-owner", "title": "Single-owner execution", "category": "execution", "summary": "Ralph handoff capability.", "notes": "Compatibility capability for /ralph.", "defaultCommand": "ralph", "phase1": true, "sourceSkill": "ralph", "providers": { "copilot": "fallback", "codex": "supported", "claude": "fallback" }, "support": { "copilot": "thin-handoff", "codex": "native", "claude": "thin-handoff" }, "providerSupport": { "copilot": { "state": "handoff", "notes": "Covered by /ralph." }, "codex": { "state": "native", "notes": "Covered by $ralph." }, "claude": { "state": "handoff", "notes": "Covered by /ralph." } } },
-    { "id": "execution.parallel", "name": "execution.parallel", "title": "Parallel execution", "category": "execution", "summary": "Team handoff capability.", "notes": "Compatibility capability for /team.", "defaultCommand": "team", "phase1": true, "sourceSkill": "team", "providers": { "copilot": "fallback", "codex": "supported", "claude": "fallback" }, "support": { "copilot": "thin-handoff", "codex": "native", "claude": "thin-handoff" }, "providerSupport": { "copilot": { "state": "handoff", "notes": "Covered by /team." }, "codex": { "state": "native", "notes": "Covered by $team." }, "claude": { "state": "handoff", "notes": "Covered by /team." } } },
-    { "id": "review.independent", "name": "review.independent", "title": "Independent review", "category": "verification", "summary": "Non-author review capability.", "notes": "Compatibility capability for /code-review.", "defaultCommand": "code-review", "phase1": true, "sourceSkill": "code-review", "providers": { "copilot": "fallback", "codex": "supported", "claude": "fallback" }, "support": { "copilot": "stub", "codex": "native", "claude": "stub" }, "providerSupport": { "copilot": { "state": "stub", "notes": "Covered by /code-review." }, "codex": { "state": "native", "notes": "Covered by code-review skill." }, "claude": { "state": "stub", "notes": "Covered by /code-review." } } },
-    { "id": "qa.behavioral", "name": "qa.behavioral", "title": "Behavioral QA", "category": "verification", "summary": "QA capability.", "notes": "Compatibility capability for /qa.", "defaultCommand": "qa", "phase1": true, "sourceSkill": "qa", "providers": { "copilot": "fallback", "codex": "fallback", "claude": "fallback" }, "support": { "copilot": "stub", "codex": "projected", "claude": "stub" }, "providerSupport": { "copilot": { "state": "stub", "notes": "Covered by /qa." }, "codex": { "state": "projected", "notes": "Covered by QA skill." }, "claude": { "state": "stub", "notes": "Covered by /qa." } } }
+    {
+      "id": "research.codebase",
+      "name": "research.codebase",
+      "title": "Codebase research",
+      "category": "clarification",
+      "summary": "Inspect local context before asking.",
+      "notes": "Compatibility capability for tests and older skills.",
+      "defaultCommand": "grill",
+      "phase1": true,
+      "sourceSkill": "grill",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Covered by /grill."
+        }
+      }
+    },
+    {
+      "id": "planning.challenge",
+      "name": "planning.challenge",
+      "title": "Plan challenge",
+      "category": "planning",
+      "summary": "Challenge a plan before consensus.",
+      "notes": "Compatibility capability for grill/ralplan flow.",
+      "defaultCommand": "grill",
+      "phase1": true,
+      "sourceSkill": "grill",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Covered by /grill."
+        }
+      }
+    },
+    {
+      "id": "planning.consensus",
+      "name": "planning.consensus",
+      "title": "Consensus plan",
+      "category": "planning",
+      "summary": "Consensus plan capability.",
+      "notes": "Compatibility capability for /ralplan.",
+      "defaultCommand": "ralplan",
+      "phase1": true,
+      "sourceSkill": "ralplan",
+      "providers": {
+        "copilot": "fallback"
+      },
+      "support": {
+        "copilot": "handoff"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "handoff",
+          "notes": "Covered by /ralplan."
+        }
+      }
+    },
+    {
+      "id": "tracker.ticket",
+      "name": "tracker.ticket",
+      "title": "Tracker ticket",
+      "category": "tracking",
+      "summary": "Jira ticket capability.",
+      "notes": "Compatibility capability for /jira-ticket.",
+      "defaultCommand": "jira-ticket",
+      "phase1": true,
+      "sourceSkill": "jira-ticket",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "adapter"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Covered by /jira-ticket."
+        }
+      }
+    },
+    {
+      "id": "execution.single-owner",
+      "name": "execution.single-owner",
+      "title": "Single-owner execution",
+      "category": "execution",
+      "summary": "Ralph handoff capability.",
+      "notes": "Compatibility capability for /ralph.",
+      "defaultCommand": "ralph",
+      "phase1": true,
+      "sourceSkill": "ralph",
+      "providers": {
+        "copilot": "fallback"
+      },
+      "support": {
+        "copilot": "thin-handoff"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "handoff",
+          "notes": "Covered by /ralph."
+        }
+      }
+    },
+    {
+      "id": "execution.parallel",
+      "name": "execution.parallel",
+      "title": "Parallel execution",
+      "category": "execution",
+      "summary": "Team handoff capability.",
+      "notes": "Compatibility capability for /team.",
+      "defaultCommand": "team",
+      "phase1": true,
+      "sourceSkill": "team",
+      "providers": {
+        "copilot": "fallback"
+      },
+      "support": {
+        "copilot": "thin-handoff"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "handoff",
+          "notes": "Covered by /team."
+        }
+      }
+    },
+    {
+      "id": "review.independent",
+      "name": "review.independent",
+      "title": "Independent review",
+      "category": "verification",
+      "summary": "Non-author review capability.",
+      "notes": "Compatibility capability for /code-review.",
+      "defaultCommand": "code-review",
+      "phase1": true,
+      "sourceSkill": "code-review",
+      "providers": {
+        "copilot": "fallback"
+      },
+      "support": {
+        "copilot": "stub"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "stub",
+          "notes": "Covered by /code-review."
+        }
+      }
+    },
+    {
+      "id": "qa.behavioral",
+      "name": "qa.behavioral",
+      "title": "Behavioral QA",
+      "category": "verification",
+      "summary": "QA capability.",
+      "notes": "Compatibility capability for /qa.",
+      "defaultCommand": "qa",
+      "phase1": true,
+      "sourceSkill": "qa",
+      "providers": {
+        "copilot": "fallback"
+      },
+      "support": {
+        "copilot": "stub"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "stub",
+          "notes": "Covered by /qa."
+        }
+      }
+    }
   ]
 }

@@ -46,7 +46,7 @@ export function lintSkills(rootOrOptions: string | { cwd?: string; packageRoot?:
   }
 
   const presentSkills = listSkillNames(paths.defaultSkillsRoot);
-  for (const skill of bundle.skills.skills.filter((entry) => entry.sourcePath.startsWith('.agents/skills/'))) {
+  for (const skill of bundle.skills.skills.filter((entry) => entry.sourcePath.startsWith('.github/skills/'))) {
     const file = resolve(paths.packageRoot, skill.sourcePath);
     const skillDir = skill.sourcePath.split('/').at(-2) ?? skill.name;
     if (!presentSkills.has(skillDir) || !existsSync(file)) {
@@ -72,7 +72,7 @@ export function lintSkills(rootOrOptions: string | { cwd?: string; packageRoot?:
     }
   }
 
-  const grillMe = resolve(paths.packageRoot, '.agents/skills/grill-me/SKILL.md');
+  const grillMe = resolve(paths.packageRoot, '.github/skills/grill-me/SKILL.md');
   if (!existsSync(grillMe)) {
     issues.push({ level: 'error', code: 'alias.missing', message: 'missing grill-me alias skill', file: grillMe });
   } else if (!readFileSync(grillMe, 'utf8').includes('canonical `grill`')) {

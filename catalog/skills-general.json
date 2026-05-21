@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "canonicalRoot": ".agents/skills",
+  "canonicalRoot": ".github/skills",
   "commandPrefix": "/",
   "skills": [
     {
@@ -11,12 +11,12 @@
         "research.codebase",
         "planning.challenge"
       ],
-      "source": ".agents/skills/grill/SKILL.md",
-      "sourcePath": ".agents/skills/grill/SKILL.md",
-      "canonicalPath": ".agents/skills/grill/SKILL.md",
+      "source": ".github/skills/grill/SKILL.md",
+      "sourcePath": ".github/skills/grill/SKILL.md",
+      "canonicalPath": ".github/skills/grill/SKILL.md",
       "description": "One-question-at-a-time clarification after repository exploration.",
       "summary": "One-question-at-a-time clarification after repository exploration.",
-      "support": "projected",
+      "support": "project-skill",
       "aliases": [
         "grill-me"
       ],
@@ -28,17 +28,9 @@
         "copilot": {
           "command": "/grill",
           "state": "supported"
-        },
-        "codex": {
-          "command": "$grill",
-          "state": "supported"
-        },
-        "claude": {
-          "command": "/grill",
-          "state": "supported"
         }
       },
-      "projection": "skill-wrapper",
+      "projection": "project-skill",
       "phase1": true
     },
     {
@@ -48,12 +40,12 @@
         "ralplan",
         "planning.consensus"
       ],
-      "source": ".agents/skills/ralplan/SKILL.md",
-      "sourcePath": ".agents/skills/ralplan/SKILL.md",
-      "canonicalPath": ".agents/skills/ralplan/SKILL.md",
+      "source": ".github/skills/ralplan/SKILL.md",
+      "sourcePath": ".github/skills/ralplan/SKILL.md",
+      "canonicalPath": ".github/skills/ralplan/SKILL.md",
       "description": "Consensus planning and test-shape review before implementation.",
       "summary": "Consensus planning and test-shape review before implementation.",
-      "support": "thin-handoff",
+      "support": "handoff",
       "aliases": [],
       "slashCommands": [
         "ralplan"
@@ -62,17 +54,9 @@
         "copilot": {
           "command": "/ralplan",
           "state": "fallback"
-        },
-        "codex": {
-          "command": "$ralplan",
-          "state": "supported"
-        },
-        "claude": {
-          "command": "/ralplan",
-          "state": "fallback"
         }
       },
-      "projection": "capability-handoff",
+      "projection": "project-skill-handoff",
       "phase1": true,
       "handoffOnly": true
     },
@@ -83,12 +67,12 @@
         "team",
         "execution.parallel"
       ],
-      "source": ".agents/skills/team/SKILL.md",
-      "sourcePath": ".agents/skills/team/SKILL.md",
-      "canonicalPath": ".agents/skills/team/SKILL.md",
-      "description": "Thin provider-runtime handoff for parallel execution lanes.",
-      "summary": "Thin provider-runtime handoff for parallel execution lanes.",
-      "support": "thin-handoff",
+      "source": ".github/skills/team/SKILL.md",
+      "sourcePath": ".github/skills/team/SKILL.md",
+      "canonicalPath": ".github/skills/team/SKILL.md",
+      "description": "Thin runtime handoff for parallel execution lanes.",
+      "summary": "Thin runtime handoff for parallel execution lanes.",
+      "support": "handoff",
       "aliases": [],
       "slashCommands": [
         "team"
@@ -97,17 +81,9 @@
         "copilot": {
           "command": "/team",
           "state": "fallback"
-        },
-        "codex": {
-          "command": "$team",
-          "state": "supported"
-        },
-        "claude": {
-          "command": "/team",
-          "state": "fallback"
         }
       },
-      "projection": "capability-handoff",
+      "projection": "project-skill-handoff",
       "phase1": true,
       "handoffOnly": true
     },
@@ -118,12 +94,12 @@
         "ralph",
         "execution.single-owner"
       ],
-      "source": ".agents/skills/ralph/SKILL.md",
-      "sourcePath": ".agents/skills/ralph/SKILL.md",
-      "canonicalPath": ".agents/skills/ralph/SKILL.md",
-      "description": "Thin provider-runtime handoff for single-owner completion loops.",
-      "summary": "Thin provider-runtime handoff for single-owner completion loops.",
-      "support": "thin-handoff",
+      "source": ".github/skills/ralph/SKILL.md",
+      "sourcePath": ".github/skills/ralph/SKILL.md",
+      "canonicalPath": ".github/skills/ralph/SKILL.md",
+      "description": "Thin runtime handoff for single-owner completion loops.",
+      "summary": "Thin runtime handoff for single-owner completion loops.",
+      "support": "handoff",
       "aliases": [],
       "slashCommands": [
         "ralph"
@@ -132,17 +108,9 @@
         "copilot": {
           "command": "/ralph",
           "state": "fallback"
-        },
-        "codex": {
-          "command": "$ralph",
-          "state": "supported"
-        },
-        "claude": {
-          "command": "/ralph",
-          "state": "fallback"
         }
       },
-      "projection": "capability-handoff",
+      "projection": "project-skill-handoff",
       "phase1": true,
       "handoffOnly": true
     },
@@ -153,12 +121,12 @@
         "jira-ticket",
         "tracker.ticket"
       ],
-      "source": ".agents/skills/jira-ticket/SKILL.md",
-      "sourcePath": ".agents/skills/jira-ticket/SKILL.md",
-      "canonicalPath": ".agents/skills/jira-ticket/SKILL.md",
+      "source": ".github/skills/jira-ticket/SKILL.md",
+      "sourcePath": ".github/skills/jira-ticket/SKILL.md",
+      "canonicalPath": ".github/skills/jira-ticket/SKILL.md",
       "description": "Jira create/comment/safe-update workflow with dry-run fallback.",
       "summary": "Jira create/comment/safe-update workflow with dry-run fallback.",
-      "support": "adapter",
+      "support": "project-skill",
       "aliases": [
         "jira"
       ],
@@ -169,17 +137,9 @@
         "copilot": {
           "command": "/jira-ticket",
           "state": "supported"
-        },
-        "codex": {
-          "command": "$jira-ticket",
-          "state": "supported"
-        },
-        "claude": {
-          "command": "/jira-ticket",
-          "state": "supported"
         }
       },
-      "projection": "skill-wrapper",
+      "projection": "project-skill",
       "phase1": true
     },
     {
@@ -189,12 +149,12 @@
         "code-review",
         "review.independent"
       ],
-      "source": ".agents/skills/code-review/SKILL.md",
-      "sourcePath": ".agents/skills/code-review/SKILL.md",
-      "canonicalPath": ".agents/skills/code-review/SKILL.md",
+      "source": ".github/skills/code-review/SKILL.md",
+      "sourcePath": ".github/skills/code-review/SKILL.md",
+      "canonicalPath": ".github/skills/code-review/SKILL.md",
       "description": "Portable non-author review checklist and evidence gate.",
       "summary": "Portable non-author review checklist and evidence gate.",
-      "support": "stub",
+      "support": "project-skill",
       "aliases": [
         "review"
       ],
@@ -205,17 +165,9 @@
         "copilot": {
           "command": "/code-review",
           "state": "fallback"
-        },
-        "codex": {
-          "command": "$code-review",
-          "state": "supported"
-        },
-        "claude": {
-          "command": "/code-review",
-          "state": "fallback"
         }
       },
-      "projection": "skill-wrapper",
+      "projection": "project-skill",
       "phase1": true
     },
     {
@@ -225,12 +177,12 @@
         "qa",
         "qa.behavioral"
       ],
-      "source": ".agents/skills/qa/SKILL.md",
-      "sourcePath": ".agents/skills/qa/SKILL.md",
-      "canonicalPath": ".agents/skills/qa/SKILL.md",
+      "source": ".github/skills/qa/SKILL.md",
+      "sourcePath": ".github/skills/qa/SKILL.md",
+      "canonicalPath": ".github/skills/qa/SKILL.md",
       "description": "Portable QA checklist focused on changed behavior and evidence.",
       "summary": "Portable QA checklist focused on changed behavior and evidence.",
-      "support": "stub",
+      "support": "project-skill",
       "aliases": [],
       "slashCommands": [
         "qa"
@@ -239,17 +191,9 @@
         "copilot": {
           "command": "/qa",
           "state": "fallback"
-        },
-        "codex": {
-          "command": "$qa",
-          "state": "fallback"
-        },
-        "claude": {
-          "command": "/qa",
-          "state": "fallback"
         }
       },
-      "projection": "skill-wrapper",
+      "projection": "project-skill",
       "phase1": true
     },
     {
@@ -259,12 +203,12 @@
         "verify",
         "qa.behavioral"
       ],
-      "source": ".agents/skills/verify/SKILL.md",
-      "sourcePath": ".agents/skills/verify/SKILL.md",
-      "canonicalPath": ".agents/skills/verify/SKILL.md",
+      "source": ".github/skills/verify/SKILL.md",
+      "sourcePath": ".github/skills/verify/SKILL.md",
+      "canonicalPath": ".github/skills/verify/SKILL.md",
       "description": "Structured verification report with command evidence and known gaps.",
       "summary": "Structured verification report with command evidence and known gaps.",
-      "support": "projected",
+      "support": "project-skill",
       "aliases": [],
       "slashCommands": [
         "verify"
@@ -273,17 +217,9 @@
         "copilot": {
           "command": "/verify",
           "state": "supported"
-        },
-        "codex": {
-          "command": "$verify",
-          "state": "supported"
-        },
-        "claude": {
-          "command": "/verify",
-          "state": "supported"
         }
       },
-      "projection": "skill-wrapper",
+      "projection": "project-skill",
       "phase1": true
     }
   ]

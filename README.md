@@ -1,28 +1,24 @@
 # oh-my-copilot
 
-Phase 1 MVP for projecting provider-neutral `.agents/skills` into Copilot-friendly command surfaces.
+Phase 1 MVP for Copilot-compatible project skills and Jira-safe handoff tooling.
 
-`oh-my-copilot` keeps skill behavior in canonical repo-local skills, validates a neutral capability catalog, renders provider-specific wrappers as dry-run output, and prepares Jira payloads without requiring live credentials.
+`oh-my-copilot` keeps skill behavior in GitHub Copilot's project skill location, validates the capability catalog, reports Copilot skill availability, and prepares Jira payloads without requiring live credentials.
 
 ## Phase 1 scope
 
-- Repo-local `.agents/skills` remains the canonical source of skill text.
-- This package owns catalogs, linting, dry-run projection, Jira payload rendering, docs, and tests.
-- `/grill`, `/grill-me`, `/verify`, `/jira-ticket`, `/code-review`, and `/qa` are projected from canonical or tiny provider-neutral skills.
-- `/ralplan`, `/team`, and `/ralph` are capability handoff commands. `/team` and `/ralph` are not full Copilot-native runtimes in Phase 1.
+- `.github/skills/<skill>/SKILL.md` is the canonical skill source.
+- No `.agents` or `.claude` skill roots are required.
+- `/grill`, `/grill-me`, `/verify`, `/jira-ticket`, `/code-review`, `/qa`, `/ralplan`, `/team`, and `/ralph` are Copilot project skills.
+- `/team` and `/ralph` remain thin handoff skills, not full durable runtimes in Phase 1.
 - Jira supports create, comment, and safe-update payloads; transition/link operations require discovery or fall back to exact human-action payloads.
 
 ## Skill layout
 
-This repo is self-contained:
-
 ```text
-.agents/skills/<skill>/SKILL.md     # canonical provider-neutral skills
-.claude/skills -> ../.agents/skills # symlink for Claude, not a copy
-.github/copilot/...                 # generated Copilot wrappers
+.github/skills/<skill>/SKILL.md # GitHub Copilot project skills
 ```
 
-Do not depend on a parent workspace `.agents` or `.claude` directory.
+This follows the Copilot agent-skills docs: project skills can live in `.github/skills`.
 
 ## Quickstart
 
@@ -46,9 +42,5 @@ npx tsx src/cli.ts jira render ../.omx/plans/oh-my-copilot-general-skills-ralpla
 
 ## Documentation
 
-- [General skills](docs/general-skills.md) explains canonical skills, neutral capability IDs, provider projections, and portability rules.
+- [General skills](docs/general-skills.md) explains the Copilot skill layout, capability IDs, and portability rules.
 - [Jira adapter](docs/jira.md) explains configuration discovery, safe operations, dry-runs, and fallback payloads.
-
-## MVP boundary
-
-Adapters may render provider-specific examples such as slash commands, but canonical skill bodies should stay provider-neutral. Generated wrappers should call an existing provider runtime only when one is available; otherwise they must emit a clear unsupported/fallback handoff with enough context for another runtime or human to continue.

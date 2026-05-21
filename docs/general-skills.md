@@ -1,6 +1,6 @@
 # General Skills MVP
 
-The canonical skill source is the repo-local `.agents/skills` directory. `oh-my-copilot` reads catalog metadata and renders provider-specific invocation surfaces without editing canonical skill bodies.
+The canonical skill source is the repo-local `.github/skills` directory. This is the GitHub Copilot project-skill location, so no `.agents` or `.claude` compatibility layer is needed.
 
 ## Canonical skills
 
@@ -16,38 +16,19 @@ The canonical skill source is the repo-local `.agents/skills` directory. `oh-my-
 | `team` | `team`, `execution.parallel` | Thin parallel-execution handoff. |
 | `ralph` | `ralph`, `execution.single-owner` | Thin single-owner execution handoff. |
 
-
 ## Repo-local layout
-
-The repo is self-contained. Do not point canonical skills at a parent workspace directory.
 
 ```text
 oh-my-copilot/
-  .agents/skills/<skill>/SKILL.md   # canonical source of truth
-  .claude/skills -> ../.agents/skills # symlink, no copied Claude fork
-  .github/copilot/...               # generated provider wrappers only
+  .github/skills/<skill>/SKILL.md # Copilot project skill source of truth
 ```
 
 Rules:
 
-- Edit `.agents/skills/*/SKILL.md` first.
-- Keep `.claude/skills` as a symlink to `../.agents/skills`.
-- Do not create workspace-level `.agents` or `.claude` dependencies for this repo.
-- Provider-specific wrappers may reference/embed canonical skill text, but must not become source of truth.
-
-## Provider projections
-
-Provider-specific command syntax belongs in docs and generated wrappers, not in canonical skill text.
-
-| Capability | Codex/OMX example | Copilot/Claude-style example |
-| --- | --- | --- |
-| `planning.challenge` | `$grill` | `/grill` |
-| `planning.consensus` | `$ralplan` | `/ralplan` |
-| `tracker.ticket` | `$jira-ticket` | `/jira-ticket` |
-| `execution.parallel` | `$team` | `/team` fallback handoff when no runtime exists |
-| `execution.single-owner` | `$ralph` | `/ralph` fallback handoff when no runtime exists |
-| `review.independent` | `$code-review` | `/code-review` |
-| `qa.behavioral` | `$qa` | `/qa` |
+- Edit `.github/skills/*/SKILL.md` first.
+- Do not create `.agents` or `.claude` skill roots in this repo.
+- Do not generate `.github/copilot/...` wrappers; Copilot reads project skills directly.
+- Keep each `SKILL.md` small: YAML frontmatter (`name`, `description`) plus focused Markdown instructions.
 
 ## Phase 1 flow
 
@@ -62,13 +43,13 @@ research.codebase
   -> verification evidence
 ```
 
-`team` and `ralph` are projection surfaces only in this MVP. A generated wrapper should either call an existing provider runtime or emit an explicit fallback handoff with context, lanes, risks, and verification checklist.
+`team` and `ralph` are thin handoff skills only in this MVP. They should call an available runtime when one exists; otherwise they produce an unsupported handoff with context, lanes, risks, and verification checklist.
 
 ## Portability rules
 
-Canonical `.agents/skills/*/SKILL.md` bodies should avoid provider/runtime coupling:
+Canonical `.github/skills/*/SKILL.md` bodies should avoid runtime coupling:
 
-- Do not require tmux panes, `.omx` state, Claude teams, Codex goal tools, or GitHub Issues.
+- Do not require tmux panes, `.omx` state, external agent team state, or GitHub Issues.
 - Do not embed secrets or Jira credentials.
 - Do not make provider command syntax the only source of truth.
-- Use neutral capability names in metadata and let adapters render `$...` or `/...` examples.
+- Prefer capability language and plain Markdown instructions over long framework-specific prompt text.

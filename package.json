@@ -1,7 +1,7 @@
 {
   "name": "oh-my-copilot",
   "version": "0.1.0",
-  "description": "Provider-neutral general skills catalog and Copilot projection tools.",
+  "description": "GitHub Copilot project skills catalog and Jira handoff tools.",
   "type": "module",
   "private": true,
   "bin": {
@@ -9,12 +9,10 @@
     "omc": "dist/src/cli.js"
   },
   "files": [
-    ".agents",
-    ".claude",
+    ".github",
     "catalog",
     "dist",
     "docs",
-    "templates",
     "README.md"
   ],
   "scripts": {

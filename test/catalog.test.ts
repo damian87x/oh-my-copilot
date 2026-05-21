@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadCapabilityCatalog, loadSkillCatalog, validateCatalogBundle } from '../src/catalog.js';
 
 describe('general skill catalog', () => {
-  it('contains the approved MVP skill projections', () => {
+  it('contains the approved MVP Copilot project skills', () => {
     const catalog = loadSkillCatalog();
     const validation = validateCatalogBundle();
 
@@ -24,7 +24,7 @@ describe('general skill catalog', () => {
     );
   });
 
-  it('marks every provider state as supported, fallback, or unsupported for neutral capabilities', () => {
+  it('marks every Copilot compatibility state as supported, fallback, or unsupported', () => {
     const capabilities = loadCapabilityCatalog();
     for (const capability of capabilities.capabilities) {
       expect(capability.providers, capability.id).toBeTruthy();

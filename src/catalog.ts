@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { packageRootFromImportMeta } from "./project.js";
 
-export type ProviderId = "copilot" | "codex" | "claude";
-export type ProviderSupportState = "native" | "projected" | "handoff" | "stub" | "unsupported";
+export type ProviderId = "copilot";
+export type ProviderSupportState = "native" | "handoff" | "stub" | "unsupported";
 export type CompatProviderState = "supported" | "fallback" | "unsupported";
 
 export interface ProviderSupport {
@@ -89,8 +89,8 @@ const REQUIRED_PHASE1_CAPABILITIES = [
   "verify",
 ] as const;
 
-const PROVIDERS: ProviderId[] = ["copilot", "codex", "claude"];
-const STATES: ProviderSupportState[] = ["native", "projected", "handoff", "stub", "unsupported"];
+const PROVIDERS: ProviderId[] = ["copilot"];
+const STATES: ProviderSupportState[] = ["native", "handoff", "stub", "unsupported"];
 const COMPAT_STATES: CompatProviderState[] = ["supported", "fallback", "unsupported"];
 
 function readJsonFile<T>(path: string): T {
