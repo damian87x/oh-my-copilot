@@ -1,0 +1,44 @@
+{
+  "name": "oh-my-copilot",
+  "version": "0.1.0",
+  "description": "Provider-neutral general skills catalog and Copilot projection tools.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "oh-my-copilot": "dist/src/cli.js",
+    "omc": "dist/src/cli.js"
+  },
+  "files": [
+    "catalog",
+    "dist",
+    "docs",
+    "templates",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check:catalog": "npm run build && node dist/src/cli.js catalog validate",
+    "catalog:list": "npm run build && node dist/src/cli.js catalog list",
+    "project:inspect": "npm run build && node dist/src/cli.js project inspect",
+    "test": "vitest run",
+    "lint:skills": "npm run build && node dist/src/cli.js lint:skills --root ..",
+    "sync:dry-run": "npm run build && node dist/src/cli.js sync:dry-run --root ..",
+    "jira:dry-run": "npm run build && node dist/src/cli.js jira:dry-run --root .."
+  },
+  "keywords": [
+    "copilot",
+    "skills",
+    "agents",
+    "slash-commands"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.4"
+  }
+}
