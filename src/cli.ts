@@ -30,7 +30,17 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nCommands:\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  lint:skills [--root <workspace>]\n  sync:dry-run [--root <workspace>]\n  jira:dry-run [--root <workspace>]\n`;
+  return `oh-my-copilot\n\nCommands:\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  lint:skills [--root <workspace>]\n  sync:dry-run [--root <workspace>]\n  jira:dry-run [--root <workspace>]\n  jira render <plan-file> [--root <workspace>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+}
+
+async function resolveExistingInputPath(value: string): Promise<string> {
+  const { existsSync } = await import("node:fs");
+  const { isAbsolute, resolve } = await import("node:path");
+  const direct = isAbsolute(value) ? value : resolve(process.cwd(), value);
+  if (existsSync(direct)) return direct;
+  const parentRelative = isAbsolute(value) ? value : resolve(process.cwd(), "..", value);
+  if (existsSync(parentRelative)) return parentRelative;
+  return direct;
 }
 
 export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
@@ -104,6 +114,57 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
       typeof jira.safeUpdatePayload === "function" ? jira.safeUpdatePayload(config, "<ISSUE-KEY>", { labels: ["oh-my-copilot"] }) : undefined,
     ].filter(Boolean);
     return { ok: true, message: `PASS: Jira dry-run fallback payloads\n${JSON.stringify(payloads, null, 2)}` };
+  }
+
+  if (group === "jira") {
+    const jira = await import("./jira.js");
+    const root = flagValue(argv, "--root") ?? process.cwd();
+    const config = jira.discoverJiraConfig({ cwd: root });
+
+    if (command === "render" && value) {
+      const inputPath = await resolveExistingInputPath(value);
+      const ticket = jira.readTicketInput(inputPath);
+      const output = {
+        ok: true,
+        dryRun: true,
+        source: inputPath,
+        jira: jira.configSummary(config),
+        operations: {
+          create: jira.createIssuePayload(config, ticket),
+          comment: jira.commentPayload(config, "<ISSUE-KEY>", `Planning source: ${inputPath}\n\n${ticket.summary}`),
+          update: jira.safeUpdatePayload(config, "<ISSUE-KEY>", ticket),
+          transition: jira.transitionFallbackPayload(config, "<ISSUE-KEY>", "planned"),
+          link: jira.linkFallbackPayload(config, "<ISSUE-KEY>", "<RELATED-ISSUE-KEY>"),
+        },
+      };
+      return json ? { ok: true, output } : { ok: true, message: JSON.stringify(output, null, 2) };
+    }
+
+    if (command === "apply" && value) {
+      const operation = hasFlag(argv, "--comment")
+        ? "comment"
+        : hasFlag(argv, "--update")
+          ? "update"
+          : hasFlag(argv, "--transition")
+            ? "transition"
+            : hasFlag(argv, "--link")
+              ? "link"
+              : "create";
+      const isFileInput = /\.[a-z0-9]+$/i.test(value);
+      const inputPath = isFileInput ? await resolveExistingInputPath(value) : undefined;
+      const ticket = inputPath ? jira.readTicketInput(inputPath) : undefined;
+      const result = await jira.applyJiraOperation({
+        operation,
+        target: inputPath ? undefined : value,
+        ticket,
+        comment: ticket ? ticket.summary : "Verification evidence goes here.",
+        update: ticket,
+        transitionState: flagValue(argv, "--state") ?? "done",
+        linkTarget: flagValue(argv, "--link-target"),
+        dryRun: hasFlag(argv, "--dry-run") || config.mode !== "live",
+      }, config);
+      return json ? { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result } : { ok: result.ok, exitCode: result.ok ? 0 : 1, message: JSON.stringify(result, null, 2) };
+    }
   }
 
   return { ok: false, exitCode: 1, message: `Unknown command.\n\n${help()}` };
