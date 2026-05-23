@@ -1,5 +1,23 @@
 # Copilot skill distribution
 
+## Bundle install (Copilot CLI plugin)
+
+The fastest path to get all 16 OMC skills in one shot:
+
+```bash
+copilot plugin install damian87x/oh-my-copilot
+```
+
+Backed by root `plugin.json` with `"skills": ".github/skills/"` — no skills moved, no duplication. Requires Copilot CLI v1.0.48+.
+
+> The `owner/repo` install form currently shows a deprecation notice from Copilot CLI. A marketplace-based path (`copilot plugin install oh-my-copilot@<marketplace>`) is on the v1.1 roadmap. The plugin still installs and works.
+
+The per-skill flows below remain valid for cases where you only want one skill or are on an older Copilot CLI.
+
+---
+
+## Per-skill install
+
 Use the agent-skill package shape as the default install surface:
 
 ```text

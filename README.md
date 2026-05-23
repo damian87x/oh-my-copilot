@@ -4,6 +4,25 @@ Phase 1 MVP for Copilot-compatible project skills and Jira-safe handoff tooling.
 
 `oh-my-copilot` keeps skill behavior in GitHub Copilot's project skill location, validates the capability catalog, reports slash-skill availability, and prepares Jira payloads without requiring live credentials.
 
+## Install (Copilot CLI plugin)
+
+One command installs all 16 OMC skills as a Copilot CLI plugin:
+
+```bash
+copilot plugin install damian87x/oh-my-copilot
+```
+
+Requires Copilot CLI v1.0.48+. After install, `/autopilot`, `/ralplan`, `/code-review`, `/create-skill`, etc. are available as slash commands in any Copilot CLI session.
+
+> The `owner/repo` install form currently shows a deprecation notice; a marketplace-based path is on the v1.1 roadmap. The plugin install still works.
+
+Per-skill install (existing flow, unchanged):
+
+```bash
+gh skill install damian87x/oh-my-copilot <skill-name>    # GitHub CLI path
+npx tsx src/cli.ts skill install .github/skills/<name>   # repo-native installer
+```
+
 ## Phase 1 scope
 
 - `.github/skills/<skill>/SKILL.md` is the canonical skill source.
