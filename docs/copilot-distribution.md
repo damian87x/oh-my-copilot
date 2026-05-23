@@ -2,15 +2,20 @@
 
 ## Bundle install (Copilot CLI plugin)
 
-The fastest path to get all 16 OMC skills in one shot:
+The future-proof path: register the marketplace once, then install the bundled 17-skill plugin.
 
 ```bash
-copilot plugin install damian87x/oh-my-copilot
+copilot plugin marketplace add damian87x/oh-my-copilot
+copilot plugin install oh-my-copilot@oh-my-copilot
 ```
 
-Backed by root `plugin.json` with `"skills": ".github/skills/"` — no skills moved, no duplication. Requires Copilot CLI v1.0.48+.
+Backed by root `plugin.json` with `"skills": ".github/skills/"` — no skills moved, no duplication. Backed by `.github/plugin/marketplace.json` listing the single self-hosted plugin. Requires Copilot CLI v1.0.48+.
 
-> The `owner/repo` install form currently shows a deprecation notice from Copilot CLI. A marketplace-based path (`copilot plugin install oh-my-copilot@<marketplace>`) is on the v1.1 roadmap. The plugin still installs and works.
+The shorter `owner/repo` form also works today but Copilot CLI prints a deprecation notice and will remove it in a future release:
+
+```bash
+copilot plugin install damian87x/oh-my-copilot   # works today, deprecated
+```
 
 The per-skill flows below remain valid for cases where you only want one skill or are on an older Copilot CLI.
 
@@ -43,12 +48,12 @@ The catalog is optional metadata for this repository's built-in general skill li
 
 ## Native oh-my-copilot installer
 
-Use `omc skill install` when you want the same simple OMC-style copy flow, or as a fallback on machines without a new enough GitHub CLI:
+Use `omcc skill install` when you want the same simple OMC-style copy flow, or as a fallback on machines without a new enough GitHub CLI. The bin is `omcc` (not `omc`) to avoid colliding with the `oh-my-claudecode` global command:
 
 ```bash
-omc skill install ./skills/my-skill --dry-run
-omc skill install ./skills/my-skill --root /path/to/repo
-omc skill install ./skills/my-skill --scope user
+omcc skill install ./skills/my-skill --dry-run
+omcc skill install ./skills/my-skill --root /path/to/repo
+omcc skill install ./skills/my-skill --scope user
 ```
 
 The installer validates `SKILL.md` frontmatter, previews copied files with `--dry-run`, preserves optional resource folders, and writes to `.github/skills/<name>` by default.
@@ -66,7 +71,7 @@ gh skill install OWNER/REPOSITORY SKILL --scope user
 gh skill publish --dry-run
 ```
 
-Local note: this machine has `gh 2.92.0`, so `gh skill` is available. Do not make `gh skill` the only install path; keep `omc skill install` as the fallback and repo-native dry-run surface.
+Local note: this machine has `gh 2.92.0`, so `gh skill` is available. Do not make `gh skill` the only install path; keep `omcc skill install` as the fallback and repo-native dry-run surface.
 
 ## OMC-like installer shape
 

@@ -6,15 +6,22 @@ Phase 1 MVP for Copilot-compatible project skills and Jira-safe handoff tooling.
 
 ## Install (Copilot CLI plugin)
 
-One command installs all 16 OMC skills as a Copilot CLI plugin:
+Two commands install all 17 OMC skills as a Copilot CLI plugin:
+
+```bash
+copilot plugin marketplace add damian87x/oh-my-copilot
+copilot plugin install oh-my-copilot@oh-my-copilot
+```
+
+Requires Copilot CLI v1.0.48+. After install, `/omp-autopilot`, `/ralplan`, `/code-review`, `/create-skill`, `/self-evolve`, etc. are available as slash commands in any Copilot CLI session. (The autopilot skill is exposed as `/omp-autopilot` to avoid a name collision with Copilot CLI's built-in `/autopilot` mode toggle.)
+
+Alternative one-command form (will be deprecated by Copilot CLI in a future release):
 
 ```bash
 copilot plugin install damian87x/oh-my-copilot
 ```
 
-Requires Copilot CLI v1.0.48+. After install, `/omp-autopilot`, `/ralplan`, `/code-review`, `/create-skill`, etc. are available as slash commands in any Copilot CLI session. (The autopilot skill is exposed as `/omp-autopilot` to avoid a name collision with Copilot CLI's built-in `/autopilot` mode toggle.)
-
-> The `owner/repo` install form currently shows a deprecation notice; a marketplace-based path is on the v1.1 roadmap. The plugin install still works.
+> The `owner/repo` install form currently shows a deprecation notice; the marketplace path above is preferred. The plugin install still works.
 
 Per-skill install (existing flow, unchanged):
 

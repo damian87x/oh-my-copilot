@@ -396,6 +396,32 @@
       },
       "projection": "project-skill",
       "phase1": true
+    },
+    {
+      "name": "self-evolve",
+      "capabilityId": "self-evolve",
+      "capabilityIds": [
+        "self-evolve",
+        "meta.self-improvement"
+      ],
+      "source": ".github/skills/self-evolve/SKILL.md",
+      "sourcePath": ".github/skills/self-evolve/SKILL.md",
+      "canonicalPath": ".github/skills/self-evolve/SKILL.md",
+      "description": "Capture user-correction patterns and draft a new project skill on the third repeat.",
+      "summary": "Capture user-correction patterns and draft a new project skill on the third repeat.",
+      "support": "project-skill",
+      "aliases": [],
+      "slashCommands": [
+        "self-evolve"
+      ],
+      "projections": {
+        "copilot": {
+          "command": "/self-evolve",
+          "state": "supported"
+        }
+      },
+      "projection": "project-skill",
+      "phase1": true
     }
   ]
 }

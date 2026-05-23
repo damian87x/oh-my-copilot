@@ -1,0 +1,30 @@
+{
+  "name": "oh-my-copilot",
+  "metadata": {
+    "description": "Lite slash-skill workflows for GitHub Copilot — planning, execution, review, and verification primitives.",
+    "version": "0.1.0"
+  },
+  "owner": {
+    "name": "Damian Borek",
+    "url": "https://github.com/damian87x"
+  },
+  "plugins": [
+    {
+      "name": "oh-my-copilot",
+      "description": "Lite slash-skill workflows for GitHub Copilot.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Damian Borek",
+        "url": "https://github.com/damian87x"
+      },
+      "repository": "https://github.com/damian87x/oh-my-copilot",
+      "license": "MIT",
+      "keywords": ["copilot", "skills", "agents", "slash-commands"],
+      "source": {
+        "source": "github",
+        "repo": "damian87x/oh-my-copilot",
+        "path": "."
+      }
+    }
+  ]
+}
