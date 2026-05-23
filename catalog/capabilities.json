@@ -312,15 +312,15 @@
       }
     },
     {
-      "id": "omc-autopilot",
-      "name": "omc-autopilot",
+      "id": "omp-autopilot",
+      "name": "omp-autopilot",
       "title": "Autopilot",
       "category": "execution",
       "summary": "Run the lightweight end-to-end skill flow.",
       "notes": "Lite slash project skill; instructional only, with no bundled scripts, durable orchestration, or external runtime requirement. Renamed from `autopilot` to avoid Copilot CLI built-in collision.",
-      "defaultCommand": "omc-autopilot",
+      "defaultCommand": "omp-autopilot",
       "phase1": true,
-      "sourceSkill": "omc-autopilot",
+      "sourceSkill": "omp-autopilot",
       "providers": {
         "copilot": "supported"
       },
@@ -330,7 +330,7 @@
       "providerSupport": {
         "copilot": {
           "state": "native",
-          "notes": "Use /omc-autopilot from .github/skills/omc-autopilot/SKILL.md (renamed from /autopilot to avoid Copilot CLI built-in collision). Project skill only; not a durable runtime."
+          "notes": "Use /omp-autopilot from .github/skills/omp-autopilot/SKILL.md (renamed from /autopilot to avoid Copilot CLI built-in collision). Project skill only; not a durable runtime."
         }
       }
     },
@@ -341,9 +341,9 @@
       "category": "execution",
       "summary": "Run the lightweight end-to-end skill flow.",
       "notes": "Lite slash project skill; instructional only, with no bundled scripts, durable orchestration, or external runtime requirement.",
-      "defaultCommand": "omc-autopilot",
+      "defaultCommand": "omp-autopilot",
       "phase1": true,
-      "sourceSkill": "omc-autopilot",
+      "sourceSkill": "omp-autopilot",
       "providers": {
         "copilot": "supported"
       },
@@ -353,7 +353,7 @@
       "providerSupport": {
         "copilot": {
           "state": "native",
-          "notes": "Use /omc-autopilot from .github/skills/omc-autopilot/SKILL.md (renamed from /autopilot to avoid Copilot CLI built-in collision). Project skill only; not a durable runtime."
+          "notes": "Use /omp-autopilot from .github/skills/omp-autopilot/SKILL.md (renamed from /autopilot to avoid Copilot CLI built-in collision). Project skill only; not a durable runtime."
         }
       }
     },

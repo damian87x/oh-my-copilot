@@ -354,7 +354,7 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
 
   // tolerate trailing extras (e.g., '--json')
   void extra;
-  return { ok: false, exitCode: 1, message: `Unknown team command. Try: omc team <N:role> "<task>" | status <name> | shutdown <name> | api <sub>` };
+  return { ok: false, exitCode: 1, message: `Unknown team command. Try: omp team <N:role> "<task>" | status <name> | shutdown <name> | api <sub>` };
 }
 
 type LoopMode = "ralph" | "ultrawork" | "ultraqa";

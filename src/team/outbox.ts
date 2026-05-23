@@ -84,7 +84,7 @@ export function readNewOutbox(outboxPath: string, offsetPath: string): OutboxMes
 
 /**
  * Read new outbox messages WITHOUT advancing the cursor. Use this for
- * read-only operations like `omc team status` — calling this never
+ * read-only operations like `omp team status` — calling this never
  * affects what a concurrent monitor will read next.
  */
 export function peekNewOutbox(outboxPath: string, offsetPath: string): OutboxMessage[] {

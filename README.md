@@ -12,7 +12,7 @@ One command installs all 16 OMC skills as a Copilot CLI plugin:
 copilot plugin install damian87x/oh-my-copilot
 ```
 
-Requires Copilot CLI v1.0.48+. After install, `/omc-autopilot`, `/ralplan`, `/code-review`, `/create-skill`, etc. are available as slash commands in any Copilot CLI session. (The autopilot skill is exposed as `/omc-autopilot` to avoid a name collision with Copilot CLI's built-in `/autopilot` mode toggle.)
+Requires Copilot CLI v1.0.48+. After install, `/omp-autopilot`, `/ralplan`, `/code-review`, `/create-skill`, etc. are available as slash commands in any Copilot CLI session. (The autopilot skill is exposed as `/omp-autopilot` to avoid a name collision with Copilot CLI's built-in `/autopilot` mode toggle.)
 
 > The `owner/repo` install form currently shows a deprecation notice; a marketplace-based path is on the v1.1 roadmap. The plugin install still works.
 
@@ -30,7 +30,7 @@ npx tsx src/cli.ts skill install .github/skills/<name>   # repo-native installer
 - Skills are lite slash workflows: short Markdown instructions, no bundled scripts, no external runtime assumptions.
 - Fetched skills can be moved directly to `.github/skills/<skill>/`; no catalog entry is required for Copilot to read them.
 - Core flow: `/codebase-research` -> `/grill-me` if unclear -> `/ralplan` -> `/team`, `/ralph`, or `/ultrawork` -> `/code-review` -> `/verify` or `/ultraqa`.
-- Extra lite skills: `/omc-autopilot`, `/jira-ticket`, `/prototype`, `/caveman`, `/debug`, and `/tdd`.
+- Extra lite skills: `/omp-autopilot`, `/jira-ticket`, `/prototype`, `/caveman`, `/debug`, and `/tdd`.
 - Catalog `native` support means a Copilot project skill exists; Phase 1 execution skills are instructions, not durable runtimes.
 - Migration: use `/grill-me` instead of `/grill`, and `/ultraqa` instead of `/qa`.
 - Jira supports create, comment, and safe-update payloads; transition/link operations require discovery or fall back to exact human-action payloads.

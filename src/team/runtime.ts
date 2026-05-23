@@ -68,9 +68,9 @@ export async function startTeam(opts: StartTeamOptions): Promise<StartTeamResult
     tasks.push(task);
   }
 
-  const sessionName = `omc-team-${opts.name}`;
+  const sessionName = `omp-team-${opts.name}`;
   if (tmux.sessionExists(sessionName)) {
-    throw new Error(`tmux session ${sessionName} already exists; run \`omc team shutdown ${opts.name}\` first`);
+    throw new Error(`tmux session ${sessionName} already exists; run \`omp team shutdown ${opts.name}\` first`);
   }
   const newSess = tmux.newSession(sessionName, cwd);
   if (newSess.status !== 0) {

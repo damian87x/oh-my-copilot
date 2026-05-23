@@ -1,11 +1,11 @@
 ---
-name: omc-autopilot
-description: Full lightweight flow from research to plan, execution, review, and verification. Use with /omc-autopilot only for clear autonomous work. (Renamed from /autopilot to avoid collision with the Copilot CLI built-in.)
+name: omp-autopilot
+description: Full lightweight flow from research to plan, execution, review, and verification. Use with /omp-autopilot only for clear autonomous work. (Renamed from /autopilot to avoid collision with the Copilot CLI built-in.)
 ---
 
 # OMC Autopilot
 
-Use `/omc-autopilot` only for clear autonomous work.
+Use `/omp-autopilot` only for clear autonomous work.
 
 Flow:
 1. `/codebase-research`

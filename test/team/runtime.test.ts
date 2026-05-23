@@ -90,7 +90,7 @@ describe("startTeam", () => {
     });
     expect(result.ok).toBe(true);
     expect(result.config.workers).toHaveLength(2);
-    expect(result.config.tmuxSession).toBe("omc-team-demo");
+    expect(result.config.tmuxSession).toBe("omp-team-demo");
 
     const paths = resolveTeamPaths(cwd, "demo");
     expect(existsSync(paths.configFile)).toBe(true);
