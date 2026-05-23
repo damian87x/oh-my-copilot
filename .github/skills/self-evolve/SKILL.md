@@ -77,11 +77,26 @@ Before drafting, list:
 - `.oh-my-copilot/self-evolve/drafts/*/SKILL.md` (in-flight drafts not yet promoted)
 - `~/.copilot/skills/*/SKILL.md` (user skills, if present)
 
-If any existing skill or in-flight draft's frontmatter `description` or body already addresses this topic, **do not draft.** Append one note to the ledger and stop:
+**Match bar (high, not vague).** A skill counts as covering this topic only if:
+
+- its frontmatter `description` explicitly names the exact behavior the user kept correcting, **OR**
+- it contains a `Do` or `Don't` bullet that, applied literally, would have prevented every correction in the cluster.
+
+Generic adjacency does **not** count. A "code quality" skill does not cover "respect Python quote style"; a "respect-quotes" skill does. When in doubt, treat as not covered.
+
+**If clearly covered**, do not draft. Append one note to the ledger and stop:
 
 ```
 # covered-by: <existing-skill-name> | <topic>
 ```
+
+**If covered ambiguously** (some bullets are adjacent but none are a direct match), still draft — but add a line to the new draft's `Source` section noting the overlap, so a human reviewer can decide on merge or supersede:
+
+```
+possible-duplicate-of: <existing-skill-name>
+```
+
+Bias: when unsure, draft. Drafts live in `.oh-my-copilot/self-evolve/drafts/` and are inert until a human promotes them, so a stray draft costs nothing while a missed pattern wastes signal.
 
 ### 5. Draft the new skill
 
