@@ -31,7 +31,7 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nCommands:\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+  return `oh-my-copilot\n\nCommands:\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -106,6 +106,10 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
           exitCode: result.exitCode,
           message: `launch ${result.bin} exit=${result.exitCode}`,
         };
+  }
+
+  if (group === "team") {
+    return await handleTeamCommand(argv, json);
   }
 
   if (group === "catalog") {
@@ -248,6 +252,90 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   }
 
   return { ok: false, exitCode: 1, message: `Unknown command.\n\n${help()}` };
+}
+
+const TEAM_SPEC_RE = /^(\d+):([\w-]+)$/;
+
+async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResult> {
+  const [, command, value, extra] = argv;
+  const cwd = flagValue(argv, "--root") ?? process.cwd();
+
+  if (command && TEAM_SPEC_RE.test(command)) {
+    const match = command.match(TEAM_SPEC_RE)!;
+    const workerCount = Number(match[1]);
+    const role = match[2]!;
+    if (!value) {
+      return { ok: false, exitCode: 1, message: "team <N:role> requires a task description" };
+    }
+    const name = flagValue(argv, "--name") ?? `${role}-${Date.now().toString(36)}`;
+    const { startTeam } = await import("./team/runtime.js");
+    try {
+      const result = await startTeam({ cwd, name, role, workerCount, task: value });
+      return json
+        ? { ok: true, output: result }
+        : {
+            ok: true,
+            message: `started team ${name} session=${result.tmuxSession} workers=${result.config.workers
+              .map((w) => `${w.name}(${w.paneId ?? "?"})`)
+              .join(",")}`,
+          };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, exitCode: 1, output: json ? { ok: false, error: message } : undefined, message };
+    }
+  }
+
+  if (command === "status" && value) {
+    const { statusTeam, formatStatus } = await import("./team/runtime.js");
+    const report = statusTeam({ cwd, name: value });
+    return json
+      ? { ok: report.ok, output: report }
+      : { ok: report.ok, message: formatStatus(report) };
+  }
+
+  if (command === "shutdown" && value) {
+    const { shutdownTeam } = await import("./team/runtime.js");
+    const result = await shutdownTeam({ cwd, name: value });
+    return json
+      ? { ok: result.ok, output: result }
+      : {
+          ok: result.ok,
+          message: `shutdown team ${value} killedPanes=${result.killedPanes} killedSession=${result.killedSession}`,
+        };
+  }
+
+  if (command === "api") {
+    const sub = value;
+    const inputRaw = flagValue(argv, "--input");
+    if (!sub || !inputRaw) {
+      return { ok: false, exitCode: 1, message: "team api <sub> --input '<json>' required" };
+    }
+    let input: Record<string, unknown>;
+    try {
+      input = JSON.parse(inputRaw) as Record<string, unknown>;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, exitCode: 1, message: `invalid --input JSON: ${message}` };
+    }
+    const api = await import("./team/api.js");
+    if (sub === "claim-task") {
+      const result = api.apiClaimTask(input as never);
+      return json
+        ? { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result }
+        : { ok: result.ok, exitCode: result.ok ? 0 : 1, message: JSON.stringify(result) };
+    }
+    if (sub === "transition-task-status") {
+      const result = api.apiTransitionTaskStatus(input as never);
+      return json
+        ? { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result }
+        : { ok: result.ok, exitCode: result.ok ? 0 : 1, message: JSON.stringify(result) };
+    }
+    return { ok: false, exitCode: 1, message: `Unknown team api command: ${sub}` };
+  }
+
+  // tolerate trailing extras (e.g., '--json')
+  void extra;
+  return { ok: false, exitCode: 1, message: `Unknown team command. Try: omc team <N:role> "<task>" | status <name> | shutdown <name> | api <sub>` };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
