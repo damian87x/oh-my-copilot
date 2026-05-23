@@ -31,7 +31,7 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nCommands:\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+  return `oh-my-copilot\n\nCommands:\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  mcp                                           (run MCP server over stdio)\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -110,6 +110,25 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
 
   if (group === "team") {
     return await handleTeamCommand(argv, json);
+  }
+
+  if (group === "mcp") {
+    const { runMcpServer } = await import("./mcp/server.js");
+    const { allTools } = await import("./mcp/tools/index.js");
+    const { filterToolsByEnv } = await import("./mcp/server.js");
+    const tools = filterToolsByEnv(allTools);
+    await runMcpServer({ name: "oh-my-copilot", version: "0.1.0", tools });
+    return { ok: true, message: "mcp server exited" };
+  }
+
+  if (group === "ralph") {
+    return await handleModeCommand("ralph", argv, json);
+  }
+  if (group === "ultrawork") {
+    return await handleModeCommand("ultrawork", argv, json);
+  }
+  if (group === "ultraqa") {
+    return await handleModeCommand("ultraqa", argv, json);
   }
 
   if (group === "catalog") {
@@ -336,6 +355,129 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
   // tolerate trailing extras (e.g., '--json')
   void extra;
   return { ok: false, exitCode: 1, message: `Unknown team command. Try: omc team <N:role> "<task>" | status <name> | shutdown <name> | api <sub>` };
+}
+
+type LoopMode = "ralph" | "ultrawork" | "ultraqa";
+
+async function handleModeCommand(mode: LoopMode, argv: string[], json: boolean): Promise<CliResult> {
+  const [, command, value] = argv;
+  const cwd = flagValue(argv, "--root") ?? process.cwd();
+  const sessionId = flagValue(argv, "--session-id");
+
+  if (mode === "ralph") {
+    const mod = await import("./mode-state/ralph.js");
+    if (command === "start" && value) {
+      const max = flagValue(argv, "--max-iterations");
+      const state = mod.startRalph({
+        cwd,
+        prompt: value,
+        sessionId,
+        maxIterations: max ? Number(max) : undefined,
+      });
+      return json ? { ok: true, output: state } : { ok: true, message: `ralph started iter=0/${state.maxIterations}` };
+    }
+    if (command === "status") {
+      const state = mod.readRalph(cwd);
+      return json
+        ? { ok: !!state, output: state ?? { active: false } }
+        : {
+            ok: !!state,
+            message: state
+              ? `ralph active iter=${state.iteration}/${state.maxIterations} prompt=${state.prompt}`
+              : "ralph inactive",
+          };
+    }
+    if (command === "cancel") {
+      mod.cancelRalph(cwd);
+      return json ? { ok: true, output: { cancelled: true } } : { ok: true, message: "ralph cancelled" };
+    }
+    if (command === "tick") {
+      const result = mod.tickRalph(cwd);
+      return json
+        ? { ok: result.ok, output: result }
+        : {
+            ok: result.ok,
+            message: result.ok
+              ? `ralph tick → iter=${result.state?.iteration}/${result.state?.maxIterations}`
+              : `ralph tick failed: ${result.reason}`,
+          };
+    }
+  }
+
+  if (mode === "ultrawork") {
+    const mod = await import("./mode-state/ultrawork.js");
+    if (command === "start" && value) {
+      const taskCount = flagValue(argv, "--task-count");
+      const summary = flagValue(argv, "--summary");
+      const state = mod.startUltrawork({
+        cwd,
+        objective: value,
+        taskCount: taskCount ? Number(taskCount) : undefined,
+        taskSummary: summary,
+        sessionId,
+      });
+      return json ? { ok: true, output: state } : { ok: true, message: `ultrawork started: ${state.objective}` };
+    }
+    if (command === "status") {
+      const state = mod.readUltrawork(cwd);
+      return json
+        ? { ok: !!state, output: state ?? { active: false } }
+        : { ok: !!state, message: state ? `ultrawork active: ${state.objective}` : "ultrawork inactive" };
+    }
+    if (command === "cancel") {
+      mod.cancelUltrawork(cwd);
+      return json ? { ok: true, output: { cancelled: true } } : { ok: true, message: "ultrawork cancelled" };
+    }
+  }
+
+  if (mode === "ultraqa") {
+    const mod = await import("./mode-state/ultraqa.js");
+    if (command === "start" && value) {
+      const max = flagValue(argv, "--max-cycles");
+      const state = mod.startUltraqa({
+        cwd,
+        goal: value,
+        maxCycles: max ? Number(max) : undefined,
+        sessionId,
+      });
+      return json ? { ok: true, output: state } : { ok: true, message: `ultraqa started cycle=0/${state.maxCycles}` };
+    }
+    if (command === "status") {
+      const state = mod.readUltraqa(cwd);
+      return json
+        ? { ok: !!state, output: state ?? { active: false } }
+        : {
+            ok: !!state,
+            message: state
+              ? `ultraqa active cycle=${state.cycleCount}/${state.maxCycles} verdict=${state.lastVerdict ?? "pending"}`
+              : "ultraqa inactive",
+          };
+    }
+    if (command === "cancel") {
+      mod.cancelUltraqa(cwd);
+      return json ? { ok: true, output: { cancelled: true } } : { ok: true, message: "ultraqa cancelled" };
+    }
+    if (command === "cycle" && value) {
+      if (value !== "pass" && value !== "fail" && value !== "pending") {
+        return { ok: false, exitCode: 1, message: `ultraqa cycle expects pass|fail|pending, got ${value}` };
+      }
+      const result = mod.recordUltraqaCycle(cwd, value);
+      return json
+        ? { ok: result.ok, output: result }
+        : {
+            ok: result.ok,
+            message: result.ok
+              ? `ultraqa cycle → ${result.state?.cycleCount}/${result.state?.maxCycles} verdict=${result.state?.lastVerdict}`
+              : `ultraqa cycle: ${result.reason}`,
+          };
+    }
+  }
+
+  return {
+    ok: false,
+    exitCode: 1,
+    message: `Unknown ${mode} subcommand. Try: ${mode} start "<task>" | status | cancel${mode === "ralph" ? " | tick" : ""}${mode === "ultraqa" ? " | cycle pass|fail|pending" : ""}`,
+  };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
