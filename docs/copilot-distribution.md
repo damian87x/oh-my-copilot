@@ -2,7 +2,7 @@
 
 ## Bundle install (Copilot CLI plugin)
 
-The fastest path to get all 16 OMC skills in one shot:
+The fastest path to get all 17 OMC skills in one shot:
 
 ```bash
 copilot plugin install damian87x/oh-my-copilot

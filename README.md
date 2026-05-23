@@ -6,7 +6,7 @@ Phase 1 MVP for Copilot-compatible project skills and Jira-safe handoff tooling.
 
 ## Install (Copilot CLI plugin)
 
-One command installs all 16 OMC skills as a Copilot CLI plugin:
+One command installs all 17 OMC skills as a Copilot CLI plugin:
 
 ```bash
 copilot plugin install damian87x/oh-my-copilot

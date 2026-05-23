@@ -11,4 +11,6 @@ Trigger when any of these apply:
 
 Skip when the session was fewer than 3 turns or contained no user corrections.
 
+Invoke `/self-evolve` **at most once per session.** After it reports back, do not invoke it again — even if the user replies "thanks" or "done" to the report itself. Just acknowledge and end the session.
+
 The skill lives at `.github/skills/self-evolve/SKILL.md`. It is self-contained: it tells you which signals count as corrections, where to log them, and when a recurring pattern should become a draft skill.
