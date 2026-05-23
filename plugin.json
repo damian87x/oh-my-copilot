@@ -1,0 +1,10 @@
+{
+  "name": "oh-my-copilot",
+  "description": "Lite slash-skill workflows for GitHub Copilot.",
+  "version": "0.1.0",
+  "author": { "name": "Damian Borek", "email": "borekdamian@yahoo.pl" },
+  "license": "MIT",
+  "repository": "https://github.com/damian87x/oh-my-copilot",
+  "keywords": ["copilot", "skills", "agents", "slash-commands"],
+  "skills": ".github/skills/"
+}

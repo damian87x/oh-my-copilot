@@ -10,10 +10,12 @@
   },
   "files": [
     ".github",
+    "LICENSE",
+    "README.md",
     "catalog",
     "dist",
     "docs",
-    "README.md"
+    "plugin.json"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
