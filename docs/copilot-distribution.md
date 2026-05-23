@@ -2,15 +2,20 @@
 
 ## Bundle install (Copilot CLI plugin)
 
-The fastest path to get all 17 OMC skills in one shot:
+The future-proof path: register the marketplace once, then install the bundled 17-skill plugin.
 
 ```bash
-copilot plugin install damian87x/oh-my-copilot
+copilot plugin marketplace add damian87x/oh-my-copilot
+copilot plugin install oh-my-copilot@oh-my-copilot
 ```
 
-Backed by root `plugin.json` with `"skills": ".github/skills/"` — no skills moved, no duplication. Requires Copilot CLI v1.0.48+.
+Backed by root `plugin.json` with `"skills": ".github/skills/"` — no skills moved, no duplication. Backed by `.github/plugin/marketplace.json` listing the single self-hosted plugin. Requires Copilot CLI v1.0.48+.
 
-> The `owner/repo` install form currently shows a deprecation notice from Copilot CLI. A marketplace-based path (`copilot plugin install oh-my-copilot@<marketplace>`) is on the v1.1 roadmap. The plugin still installs and works.
+The shorter `owner/repo` form also works today but Copilot CLI prints a deprecation notice and will remove it in a future release:
+
+```bash
+copilot plugin install damian87x/oh-my-copilot   # works today, deprecated
+```
 
 The per-skill flows below remain valid for cases where you only want one skill or are on an older Copilot CLI.
 
