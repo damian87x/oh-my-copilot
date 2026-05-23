@@ -13,6 +13,7 @@ import { buildInboxMarkdown } from "./worker-bootstrap.js";
 import { readNewOutbox } from "./outbox.js";
 import { isHeartbeatStale, readHeartbeat } from "./heartbeat.js";
 import { makeTmux, type TmuxApi } from "./tmux.js";
+import { NudgeTracker, type NudgeAttempt, type NudgeConfig, type NudgeSummaryEntry } from "./idle-nudge.js";
 import type { Task, TeamConfig, Worker, WorkerRole } from "./types.js";
 
 const ROLE_BIN: Record<string, string> = {
@@ -120,6 +121,7 @@ export interface MonitorOptions {
   timeoutMs?: number;
   onTick?: (snapshot: MonitorSnapshot) => void;
   maxTicks?: number;
+  nudge?: Partial<NudgeConfig> & { enabled?: boolean };
 }
 
 export interface WorkerSnapshot {
@@ -141,6 +143,8 @@ export interface MonitorResult {
   finalSnapshot: MonitorSnapshot;
   reason: "all-done" | "timeout" | "shutdown";
   ticks: number;
+  nudges: NudgeSummaryEntry[];
+  nudgeAttempts: NudgeAttempt[];
 }
 
 export function loadTeamConfig(paths: TeamStatePaths): TeamConfig | undefined {
@@ -182,6 +186,9 @@ export async function monitorTeam(opts: MonitorOptions): Promise<MonitorResult> 
   const pollInterval = opts.pollIntervalMs ?? 1000;
   const timeoutMs = opts.timeoutMs ?? 600_000;
   const deadline = Date.now() + timeoutMs;
+  const nudgeEnabled = opts.nudge?.enabled !== false; // default on; opt-out via { enabled: false }
+  const nudgeTracker = nudgeEnabled ? new NudgeTracker(opts.nudge) : undefined;
+  const nudgeAttempts: NudgeAttempt[] = [];
   let snapshot: MonitorSnapshot = pollSnapshot(paths, config, tmux);
   let ticks = 0;
 
@@ -189,15 +196,43 @@ export async function monitorTeam(opts: MonitorOptions): Promise<MonitorResult> 
     snapshot = pollSnapshot(paths, config, tmux);
     ticks++;
     opts.onTick?.(snapshot);
+
+    if (nudgeTracker) {
+      const panes = config.workers.map((w) => w.paneId).filter((id): id is string => Boolean(id));
+      const attempts = await nudgeTracker.checkAndNudge(tmux, config.tmuxSession, panes);
+      nudgeAttempts.push(...attempts);
+    }
+
     if (existsSync(paths.shutdownFile)) {
-      return { ok: snapshot.allDone, finalSnapshot: snapshot, reason: "shutdown", ticks };
+      return {
+        ok: snapshot.allDone,
+        finalSnapshot: snapshot,
+        reason: "shutdown",
+        ticks,
+        nudges: nudgeTracker?.getSummary() ?? [],
+        nudgeAttempts,
+      };
     }
     if (snapshot.allDone) {
-      return { ok: true, finalSnapshot: snapshot, reason: "all-done", ticks };
+      return {
+        ok: true,
+        finalSnapshot: snapshot,
+        reason: "all-done",
+        ticks,
+        nudges: nudgeTracker?.getSummary() ?? [],
+        nudgeAttempts,
+      };
     }
     await sleep(pollInterval);
   }
-  return { ok: false, finalSnapshot: snapshot, reason: "timeout", ticks };
+  return {
+    ok: false,
+    finalSnapshot: snapshot,
+    reason: "timeout",
+    ticks,
+    nudges: nudgeTracker?.getSummary() ?? [],
+    nudgeAttempts,
+  };
 }
 
 export interface ShutdownOptions {

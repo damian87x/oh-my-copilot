@@ -5,6 +5,7 @@ export * from "./inbox.js";
 export * from "./outbox.js";
 export * from "./task-store.js";
 export * from "./tmux.js";
+export * from "./idle-nudge.js";
 export * from "./worker-bootstrap.js";
 export * from "./api.js";
 export * from "./runtime.js";
