@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  clearAllLocks,
   listTasks,
   readTask,
   taskFilePath,
@@ -11,6 +12,7 @@ import {
   tryClaimTask,
   writeTask,
 } from "../../src/team/task-store.js";
+import { writeFileSync } from "node:fs";
 import type { Task } from "../../src/team/types.js";
 
 function tempTasksDir() {
@@ -94,5 +96,34 @@ describe("task-store", () => {
     writeTask(taskFilePath(dir, "1"), { ...makeTask("1"), status: "completed" });
     const result = tryClaimTask({ tasksDir: dir, taskId: "1", worker: "worker-1" });
     expect(result.ok).toBe(false);
+  });
+
+  it("force-claims when an orphan lock exists but the task is still pending", () => {
+    const dir = tempTasksDir();
+    writeTask(taskFilePath(dir, "1"), makeTask("1"));
+    // Simulate a worker that crashed after taking the lock but before writing the task.
+    writeFileSync(taskLockPath(dir, "1"), JSON.stringify({ owner: "ghost-worker", pid: 99999 }));
+    const result = tryClaimTask({ tasksDir: dir, taskId: "1", worker: "rescuer" });
+    expect(result.ok).toBe(true);
+    expect(result.task?.owner).toBe("rescuer");
+    expect(existsSync(taskLockPath(dir, "1"))).toBe(true);
+  });
+
+  it("does NOT force-claim when the task already moved to in_progress", () => {
+    const dir = tempTasksDir();
+    writeTask(taskFilePath(dir, "1"), { ...makeTask("1"), status: "in_progress", owner: "worker-1" });
+    writeFileSync(taskLockPath(dir, "1"), JSON.stringify({ owner: "worker-1" }));
+    const result = tryClaimTask({ tasksDir: dir, taskId: "1", worker: "thief" });
+    expect(result.ok).toBe(false);
+  });
+
+  it("clearAllLocks removes all .lock files", () => {
+    const dir = tempTasksDir();
+    writeTask(taskFilePath(dir, "1"), makeTask("1"));
+    writeFileSync(taskLockPath(dir, "1"), "{}");
+    writeFileSync(taskLockPath(dir, "2"), "{}");
+    expect(clearAllLocks(dir)).toBe(2);
+    expect(existsSync(taskLockPath(dir, "1"))).toBe(false);
+    expect(existsSync(taskLockPath(dir, "2"))).toBe(false);
   });
 });

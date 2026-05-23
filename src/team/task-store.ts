@@ -60,6 +60,23 @@ export interface ClaimResult {
   reason?: string;
 }
 
+function openLockExclusive(lockPath: string, worker: string): number | undefined {
+  try {
+    const fd = openSync(lockPath, "wx");
+    try {
+      writeFileSync(
+        lockPath,
+        JSON.stringify({ owner: worker, pid: process.pid, claimedAt: new Date().toISOString() }),
+      );
+    } finally {
+      closeSync(fd);
+    }
+    return fd;
+  } catch {
+    return undefined;
+  }
+}
+
 export function tryClaimTask(opts: ClaimOptions): ClaimResult {
   const path = taskFilePath(opts.tasksDir, opts.taskId);
   const task = readTask(path);
@@ -69,16 +86,22 @@ export function tryClaimTask(opts: ClaimOptions): ClaimResult {
   }
 
   const lockPath = taskLockPath(opts.tasksDir, opts.taskId);
-  let fd: number;
-  try {
-    fd = openSync(lockPath, "wx");
-  } catch {
-    return { ok: false, reason: "task already locked by another worker" };
-  }
-  try {
-    writeFileSync(lockPath, JSON.stringify({ owner: opts.worker, claimedAt: new Date().toISOString() }));
-  } finally {
-    closeSync(fd);
+  let fd = openLockExclusive(lockPath, opts.worker);
+
+  if (fd === undefined) {
+    // Lock exists. Re-read task status: if still pending, the lock is orphan
+    // (previous worker crashed between lock-acquire and task-write). Force-claim.
+    const recheck = readTask(path);
+    if (recheck?.status !== "pending") {
+      return { ok: false, reason: `task ${opts.taskId} status=${recheck?.status ?? "missing"}` };
+    }
+    try {
+      unlinkSync(lockPath);
+    } catch {
+      // ignore: race with another claimer; the second openSync will arbitrate
+    }
+    fd = openLockExclusive(lockPath, opts.worker);
+    if (fd === undefined) return { ok: false, reason: "concurrent claim race" };
   }
 
   const claimToken = `${opts.worker}-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
@@ -91,6 +114,22 @@ export function tryClaimTask(opts: ClaimOptions): ClaimResult {
   };
   writeTask(path, updated);
   return { ok: true, task: updated, claimToken };
+}
+
+export function clearAllLocks(tasksDir: string): number {
+  if (!existsSync(tasksDir)) return 0;
+  let removed = 0;
+  for (const entry of readdirSync(tasksDir)) {
+    if (entry.endsWith(".lock")) {
+      try {
+        unlinkSync(`${tasksDir}/${entry}`);
+        removed++;
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return removed;
 }
 
 export interface TransitionOptions {

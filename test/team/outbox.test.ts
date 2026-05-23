@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { appendOutbox, readNewOutbox, resetOutboxCursor } from "../../src/team/outbox.js";
+import { appendOutbox, peekNewOutbox, readNewOutbox, resetOutboxCursor } from "../../src/team/outbox.js";
 import type { OutboxMessage } from "../../src/team/types.js";
 
 function tempFiles() {
@@ -61,5 +61,16 @@ describe("outbox", () => {
     resetOutboxCursor(cursor);
     const again = readNewOutbox(outbox, cursor);
     expect(again).toHaveLength(1);
+  });
+
+  it("peekNewOutbox returns new messages WITHOUT advancing the cursor", () => {
+    const { outbox, cursor } = tempFiles();
+    appendOutbox(outbox, msg({ taskId: "a" }));
+    appendOutbox(outbox, msg({ taskId: "b" }));
+    expect(peekNewOutbox(outbox, cursor).map((m) => m.taskId)).toEqual(["a", "b"]);
+    // Calling peek again should return the same messages — cursor unchanged.
+    expect(peekNewOutbox(outbox, cursor).map((m) => m.taskId)).toEqual(["a", "b"]);
+    // A subsequent consuming read still returns both messages.
+    expect(readNewOutbox(outbox, cursor).map((m) => m.taskId)).toEqual(["a", "b"]);
   });
 });

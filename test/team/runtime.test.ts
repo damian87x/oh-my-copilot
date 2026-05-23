@@ -177,6 +177,7 @@ describe("statusTeam + shutdownTeam", () => {
     expect(shutdown.ok).toBe(true);
     expect(shutdown.killedPanes).toBe(1);
     expect(shutdown.killedSession).toBe(true);
+    expect(typeof shutdown.clearedLocks).toBe("number");
 
     const paths = resolveTeamPaths(cwd, "demo");
     expect(existsSync(paths.shutdownFile)).toBe(true);
@@ -186,6 +187,44 @@ describe("statusTeam + shutdownTeam", () => {
     const cwd = tempCwd();
     const paths = resolveTeamPaths(cwd, "nope");
     expect(loadTeamConfig(paths)).toBeUndefined();
+  });
+});
+
+describe("statusTeam is non-destructive", () => {
+  it("does not consume outbox messages a concurrent monitor would read", async () => {
+    const cwd = tempCwd();
+    const { api } = mockTmux();
+    await startTeam({ cwd, name: "demo", role: "claude", workerCount: 1, task: "x", tmux: api });
+
+    // Worker emits an outbox message via the api
+    const claim = apiClaimTask({ team_name: "demo", task_id: "1", worker: "worker-1", cwd });
+    apiTransitionTaskStatus({
+      team_name: "demo",
+      task_id: "1",
+      worker: "worker-1",
+      from: "in_progress",
+      to: "completed",
+      claim_token: claim.claimToken!,
+      cwd,
+    });
+
+    // Status (peek) — should see 1 new outbox message.
+    const status1 = statusTeam({ cwd, name: "demo", tmux: api });
+    expect(status1.snapshot?.workers[0]?.outboxNewCount).toBe(1);
+    // Calling status again should still see the same 1 message — cursor untouched.
+    const status2 = statusTeam({ cwd, name: "demo", tmux: api });
+    expect(status2.snapshot?.workers[0]?.outboxNewCount).toBe(1);
+
+    // monitorTeam (consuming) sees the message once, then it's drained.
+    const monitor = await monitorTeam({
+      cwd,
+      name: "demo",
+      tmux: api,
+      pollIntervalMs: 5,
+      timeoutMs: 200,
+      maxTicks: 2,
+    });
+    expect(monitor.reason).toBe("all-done");
   });
 });
 

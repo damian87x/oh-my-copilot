@@ -7,10 +7,10 @@ import {
   resolveWorkerPaths,
   type TeamStatePaths,
 } from "./state-paths.js";
-import { listTasks, readTask, taskFilePath, writeTask } from "./task-store.js";
+import { clearAllLocks, listTasks, readTask, taskFilePath, writeTask } from "./task-store.js";
 import { writeInbox } from "./inbox.js";
 import { buildInboxMarkdown } from "./worker-bootstrap.js";
-import { readNewOutbox } from "./outbox.js";
+import { peekNewOutbox, readNewOutbox } from "./outbox.js";
 import { isHeartbeatStale, readHeartbeat } from "./heartbeat.js";
 import { makeTmux, type TmuxApi } from "./tmux.js";
 import { NudgeTracker, type NudgeAttempt, type NudgeConfig, type NudgeSummaryEntry } from "./idle-nudge.js";
@@ -156,13 +156,23 @@ export function loadTeamConfig(paths: TeamStatePaths): TeamConfig | undefined {
   }
 }
 
-export function pollSnapshot(paths: TeamStatePaths, config: TeamConfig, tmux: TmuxApi): MonitorSnapshot {
+export interface PollSnapshotOptions {
+  consumeOutbox?: boolean;
+}
+
+export function pollSnapshot(
+  paths: TeamStatePaths,
+  config: TeamConfig,
+  tmux: TmuxApi,
+  options: PollSnapshotOptions = {},
+): MonitorSnapshot {
+  const reader = options.consumeOutbox === true ? readNewOutbox : peekNewOutbox;
   const tasks = listTasks(paths.tasksDir);
   const workers: WorkerSnapshot[] = config.workers.map((w) => {
     const wp = resolveWorkerPaths(paths, w.name);
     const paneDead = w.paneId ? tmux.paneDead(w.paneId) : false;
     const heartbeatStale = isHeartbeatStale(readHeartbeat(wp.heartbeatFile));
-    const newMessages = readNewOutbox(wp.outboxFile, wp.outboxOffsetFile);
+    const newMessages = reader(wp.outboxFile, wp.outboxOffsetFile);
     return {
       name: w.name,
       paneId: w.paneId,
@@ -189,11 +199,11 @@ export async function monitorTeam(opts: MonitorOptions): Promise<MonitorResult> 
   const nudgeEnabled = opts.nudge?.enabled !== false; // default on; opt-out via { enabled: false }
   const nudgeTracker = nudgeEnabled ? new NudgeTracker(opts.nudge) : undefined;
   const nudgeAttempts: NudgeAttempt[] = [];
-  let snapshot: MonitorSnapshot = pollSnapshot(paths, config, tmux);
+  let snapshot: MonitorSnapshot = pollSnapshot(paths, config, tmux, { consumeOutbox: true });
   let ticks = 0;
 
   while (Date.now() < deadline && (opts.maxTicks == null || ticks < opts.maxTicks)) {
-    snapshot = pollSnapshot(paths, config, tmux);
+    snapshot = pollSnapshot(paths, config, tmux, { consumeOutbox: true });
     ticks++;
     opts.onTick?.(snapshot);
 
@@ -245,6 +255,7 @@ export interface ShutdownResult {
   ok: boolean;
   killedPanes: number;
   killedSession: boolean;
+  clearedLocks: number;
 }
 
 export async function shutdownTeam(opts: ShutdownOptions): Promise<ShutdownResult> {
@@ -252,7 +263,7 @@ export async function shutdownTeam(opts: ShutdownOptions): Promise<ShutdownResul
   const tmux = opts.tmux ?? makeTmux();
   const paths = resolveTeamPaths(cwd, opts.name);
   const config = loadTeamConfig(paths);
-  if (!config) return { ok: false, killedPanes: 0, killedSession: false };
+  if (!config) return { ok: false, killedPanes: 0, killedSession: false, clearedLocks: 0 };
 
   let killedPanes = 0;
   for (const w of config.workers) {
@@ -262,8 +273,9 @@ export async function shutdownTeam(opts: ShutdownOptions): Promise<ShutdownResul
     }
   }
   const session = tmux.killSession(config.tmuxSession);
+  const clearedLocks = clearAllLocks(paths.tasksDir);
   writeFileSync(paths.shutdownFile, `${JSON.stringify({ shutdownAt: new Date().toISOString() })}\n`, "utf8");
-  return { ok: true, killedPanes, killedSession: session.status === 0 };
+  return { ok: true, killedPanes, killedSession: session.status === 0, clearedLocks };
 }
 
 export interface StatusOptions {
