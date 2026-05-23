@@ -14,7 +14,7 @@ Default behaviours installed with this repo. Override per project as needed.
 - If unsure about scope, ask.
 
 ## Skills
-Slash commands under `.github/skills/<name>/SKILL.md` are auto-discovered by Copilot. See `omc list` for the catalog active in this project.
+Slash commands under `.github/skills/<name>/SKILL.md` are auto-discovered by Copilot. See `omp list` for the catalog active in this project.
 
 ## Hooks
-Lifecycle hooks declared in `hooks/hooks.json` invoke scripts in `scripts/`. Run `omc doctor` to verify discovery.
+Lifecycle hooks declared in `hooks/hooks.json` invoke scripts in `scripts/`. Run `omp doctor` to verify discovery.

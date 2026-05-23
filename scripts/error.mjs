@@ -13,7 +13,7 @@ const HOOK_NAME = "Error";
     const directory = data.directory ?? process.cwd();
     const toolName = data.toolName ?? data.tool_name ?? "unknown";
     const errorMessage = data.error?.message ?? data.message ?? "unknown";
-    const logFile = join(directory, ".omc", "state", "hooks.log");
+    const logFile = join(directory, ".omp", "state", "hooks.log");
     try {
       mkdirSync(dirname(logFile), { recursive: true });
       appendFileSync(

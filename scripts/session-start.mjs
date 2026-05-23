@@ -11,7 +11,7 @@ const HOOK_NAME = "SessionStart";
     const data = raw ? JSON.parse(raw) : {};
     const sessionId = data.sessionId ?? data.session_id ?? "unknown";
     const directory = data.directory ?? process.cwd();
-    const logFile = join(directory, ".omc", "state", "hooks.log");
+    const logFile = join(directory, ".omp", "state", "hooks.log");
     mkdirSync(dirname(logFile), { recursive: true });
     const line = JSON.stringify({
       ts: new Date().toISOString(),

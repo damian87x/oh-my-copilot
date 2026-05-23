@@ -25,7 +25,7 @@ export interface SetupResult {
 
 const COPILOT_INSTRUCTIONS_TEMPLATE = `# oh-my-copilot
 
-Default behaviours installed by \`omc setup\`. Override per project as needed.
+Default behaviours installed by \`omp setup\`. Override per project as needed.
 
 ## Approach
 - Surface assumptions before coding.
@@ -109,7 +109,7 @@ export function runSetup(options: SetupOptions = {}): SetupResult {
 
 export function formatSetup(result: SetupResult): string {
   const prefix = result.dryRun ? "DRY-RUN" : "PASS";
-  const lines = [`${prefix}: omc setup (scope=${result.scope})`];
+  const lines = [`${prefix}: omp setup (scope=${result.scope})`];
   for (const action of result.actions) {
     lines.push(`  [${action.kind}] ${action.target}`);
   }

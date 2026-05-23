@@ -10,7 +10,7 @@ const SECTION_HEADERS: Record<Section, string> = {
 };
 
 function notepadPath(cwd: string): string {
-  return join(resolve(cwd), ".omc", "notepad.md");
+  return join(resolve(cwd), ".omp", "notepad.md");
 }
 
 function readNotepad(cwd: string): string {
@@ -59,7 +59,7 @@ export const notepadTools: ToolDefinition[] = [
   {
     name: "notepad_read",
     category: "notepad",
-    description: "Read all or one section of .omc/notepad.md.",
+    description: "Read all or one section of .omp/notepad.md.",
     inputSchema: {
       type: "object",
       properties: {

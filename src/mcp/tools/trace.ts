@@ -10,7 +10,7 @@ interface TraceEntry {
 }
 
 function traceDir(cwd: string): string {
-  return join(resolve(cwd), ".omc", "state", "trace");
+  return join(resolve(cwd), ".omp", "state", "trace");
 }
 
 function tracePath(cwd: string, sessionId: string): string {

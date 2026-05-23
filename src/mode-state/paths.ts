@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 export type LoopMode = "ralph" | "ultrawork" | "ultraqa";
 
 export function modeStatePath(cwd: string, mode: LoopMode): string {
-  return join(resolve(cwd), ".omc", "state", `${mode}.json`);
+  return join(resolve(cwd), ".omp", "state", `${mode}.json`);
 }
 
 export function readModeStateJson<T>(cwd: string, mode: LoopMode): T | undefined {

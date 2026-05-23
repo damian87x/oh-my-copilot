@@ -15,7 +15,7 @@ describe("resolveCopilotPaths", () => {
     const root = tempProject();
     const paths = resolveCopilotPaths({ cwd: root });
     expect(paths.projectRoot).toBe(root);
-    expect(paths.stateDir).toBe(path.join(root, ".omc", "state"));
+    expect(paths.stateDir).toBe(path.join(root, ".omp", "state"));
     expect(paths.projectScopeSkills).toBe(path.join(root, ".github", "skills"));
     expect(paths.copilotInstructions).toBe(path.join(root, ".github", "copilot-instructions.md"));
   });

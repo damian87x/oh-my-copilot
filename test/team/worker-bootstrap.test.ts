@@ -14,8 +14,8 @@ describe("buildInboxMarkdown", () => {
         createdAt: "2026-05-23T12:00:00Z",
       },
     });
-    expect(md).toContain("omc team api claim-task");
-    expect(md).toContain("omc team api transition-task-status");
+    expect(md).toContain("omp team api claim-task");
+    expect(md).toContain("omp team api transition-task-status");
     expect(md).toContain("\"team_name\":\"auth-review\"");
     expect(md).toContain("\"task_id\":\"3\"");
     expect(md).toContain("\"worker\":\"worker-2\"");

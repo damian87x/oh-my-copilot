@@ -9,7 +9,7 @@ interface ProjectMemory {
 }
 
 function memPath(cwd: string): string {
-  return join(resolve(cwd), ".omc", "project-memory.json");
+  return join(resolve(cwd), ".omp", "project-memory.json");
 }
 
 function readMemory(cwd: string): ProjectMemory {
@@ -34,14 +34,14 @@ export const projectMemoryTools: ToolDefinition[] = [
   {
     name: "project_memory_read",
     category: "project_memory",
-    description: "Read .omc/project-memory.json (notes + directives).",
+    description: "Read .omp/project-memory.json (notes + directives).",
     inputSchema: { type: "object", properties: { cwd: { type: "string" } } },
     handler: (args) => jsonResult(readMemory((args.cwd as string) ?? process.cwd())),
   },
   {
     name: "project_memory_write",
     category: "project_memory",
-    description: "Replace .omc/project-memory.json with the given notes + directives.",
+    description: "Replace .omp/project-memory.json with the given notes + directives.",
     inputSchema: {
       type: "object",
       properties: {

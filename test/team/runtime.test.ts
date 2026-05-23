@@ -99,7 +99,7 @@ describe("startTeam", () => {
 
     const worker1 = resolveWorkerPaths(paths, "worker-1");
     expect(existsSync(worker1.inboxFile)).toBe(true);
-    expect(readFileSync(worker1.inboxFile, "utf8")).toContain("omc team api claim-task");
+    expect(readFileSync(worker1.inboxFile, "utf8")).toContain("omp team api claim-task");
 
     // tmux call sequence: new-session, then per worker: split + send-text + send-keys
     expect(calls[0]?.[0]).toBe("new-session");

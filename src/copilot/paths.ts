@@ -30,12 +30,13 @@ export function resolveCopilotPaths(options: ResolveCopilotPathsOptions = {}): C
   const packageRoot = options.importMetaUrl
     ? packageRootFromImportMeta(options.importMetaUrl)
     : projectRoot;
+  const envPluginRoot = process.env.OMP_PLUGIN_ROOT ?? process.env.OMC_PLUGIN_ROOT;
   const pluginRoot = options.pluginRoot
     ? resolve(options.pluginRoot)
-    : process.env.OMC_PLUGIN_ROOT
-    ? resolve(process.env.OMC_PLUGIN_ROOT)
+    : envPluginRoot
+    ? resolve(envPluginRoot)
     : packageRoot;
-  const stateDir = join(projectRoot, ".omc", "state");
+  const stateDir = join(projectRoot, ".omp", "state");
   return {
     packageRoot,
     projectRoot,

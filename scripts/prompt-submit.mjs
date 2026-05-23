@@ -6,7 +6,7 @@ import { readStdin } from "./lib/stdin.mjs";
 const HOOK_NAME = "UserPromptSubmit";
 
 function readModeState(directory, mode) {
-  const p = join(directory, ".omc", "state", `${mode}.json`);
+  const p = join(directory, ".omp", "state", `${mode}.json`);
   if (!existsSync(p)) return undefined;
   try {
     return JSON.parse(readFileSync(p, "utf8"));
@@ -34,7 +34,7 @@ function buildContinuationContext(directory) {
 }
 
 function appendLog(directory, payload) {
-  const logFile = join(directory, ".omc", "state", "hooks.log");
+  const logFile = join(directory, ".omp", "state", "hooks.log");
   try {
     mkdirSync(dirname(logFile), { recursive: true });
     appendFileSync(

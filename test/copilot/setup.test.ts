@@ -41,7 +41,7 @@ describe("runSetup", () => {
     expect(targets).toContain(path.join(project, ".github", "skills", "hello", "SKILL.md"));
     expect(targets).toContain(path.join(project, ".github", "agents", "planner.md"));
     expect(targets).toContain(path.join(project, ".github", "copilot-instructions.md"));
-    expect(targets).toContain(path.join(project, ".omc", "state"));
+    expect(targets).toContain(path.join(project, ".omp", "state"));
   });
 
   it("copies bundled skills + agents and creates instructions template", () => {
@@ -53,7 +53,7 @@ describe("runSetup", () => {
     expect(existsSync(path.join(project, ".github", "agents", "planner.md"))).toBe(true);
     const instructions = readFileSync(path.join(project, ".github", "copilot-instructions.md"), "utf8");
     expect(instructions).toContain("oh-my-copilot");
-    expect(existsSync(path.join(project, ".omc", "state"))).toBe(true);
+    expect(existsSync(path.join(project, ".omp", "state"))).toBe(true);
   });
 
   it("preserves existing copilot-instructions.md", () => {

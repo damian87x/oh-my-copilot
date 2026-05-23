@@ -45,7 +45,7 @@ function checkInstructions(paths: CopilotPaths): DoctorCheck {
   return {
     name: "copilot-instructions",
     status: "warn",
-    detail: `missing (run \`omc setup\`): ${paths.copilotInstructions}`,
+    detail: `missing (run \`omp setup\`): ${paths.copilotInstructions}`,
   };
 }
 
@@ -101,7 +101,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorReport {
 }
 
 export function formatDoctor(report: DoctorReport): string {
-  const lines = [`omc doctor ${report.ok ? "OK" : "FAIL"}`];
+  const lines = [`omp doctor ${report.ok ? "OK" : "FAIL"}`];
   for (const check of report.checks) {
     const icon = check.status === "pass" ? "✓" : check.status === "warn" ? "!" : "✗";
     lines.push(`  ${icon} ${check.name}: ${check.detail}`);

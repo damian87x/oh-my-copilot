@@ -12,7 +12,7 @@ const HOOK_NAME = "PreToolUse";
     const sessionId = data.sessionId ?? data.session_id ?? "unknown";
     const directory = data.directory ?? process.cwd();
     const toolName = data.toolName ?? data.tool_name ?? "unknown";
-    const logFile = join(directory, ".omc", "state", "hooks.log");
+    const logFile = join(directory, ".omp", "state", "hooks.log");
     try {
       mkdirSync(dirname(logFile), { recursive: true });
       appendFileSync(

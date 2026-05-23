@@ -6,7 +6,7 @@
   "private": true,
   "bin": {
     "oh-my-copilot": "dist/src/cli.js",
-    "omc": "dist/src/cli.js"
+    "omp": "dist/src/cli.js"
   },
   "files": [
     ".github",
@@ -28,10 +28,10 @@
     "lint:skills": "npm run build && node dist/src/cli.js lint:skills --root .",
     "sync:dry-run": "npm run build && node dist/src/cli.js sync:dry-run --root .",
     "jira:dry-run": "npm run build && node dist/src/cli.js jira:dry-run --root .",
-    "omc:version": "npm run build && node dist/src/cli.js version",
-    "omc:list": "npm run build && node dist/src/cli.js list",
-    "omc:setup:dry-run": "npm run build && node dist/src/cli.js setup --dry-run",
-    "omc:doctor": "npm run build && node dist/src/cli.js doctor --skip-copilot"
+    "omp:version": "npm run build && node dist/src/cli.js version",
+    "omp:list": "npm run build && node dist/src/cli.js list",
+    "omp:setup:dry-run": "npm run build && node dist/src/cli.js setup --dry-run",
+    "omp:doctor": "npm run build && node dist/src/cli.js doctor --skip-copilot"
   },
   "keywords": [
     "copilot",

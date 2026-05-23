@@ -9,7 +9,7 @@ interface SharedMemoryEntry {
 }
 
 function smDir(cwd: string): string {
-  return join(resolve(cwd), ".omc", "shared-memory");
+  return join(resolve(cwd), ".omp", "shared-memory");
 }
 
 function smPath(cwd: string, key: string): string {

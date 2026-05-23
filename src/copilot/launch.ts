@@ -15,9 +15,8 @@ export interface LaunchResult {
 
 export function resolveCopilotBin(override?: string): string {
   if (override && override.length > 0) return override;
-  if (process.env.OMC_COPILOT_BIN && process.env.OMC_COPILOT_BIN.length > 0) {
-    return process.env.OMC_COPILOT_BIN;
-  }
+  const fromEnv = process.env.OMP_COPILOT_BIN ?? process.env.OMC_COPILOT_BIN;
+  if (fromEnv && fromEnv.length > 0) return fromEnv;
   return "copilot";
 }
 

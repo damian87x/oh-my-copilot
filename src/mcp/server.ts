@@ -13,7 +13,10 @@ export interface ServerOptions {
   tools: ToolDefinition[];
 }
 
-export function filterToolsByEnv(tools: ToolDefinition[], envValue = process.env.OMC_DISABLE_TOOLS): ToolDefinition[] {
+export function filterToolsByEnv(
+  tools: ToolDefinition[],
+  envValue: string | undefined = process.env.OMP_DISABLE_TOOLS ?? process.env.OMC_DISABLE_TOOLS,
+): ToolDefinition[] {
   if (!envValue) return tools;
   const disabled = new Set(envValue.split(",").map((s) => s.trim()).filter(Boolean));
   if (disabled.size === 0) return tools;

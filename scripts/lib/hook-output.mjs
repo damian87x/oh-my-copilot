@@ -17,7 +17,7 @@ export function failOpen() {
 }
 
 export function appendHookLog(directory, hookName, payload) {
-  const logFile = join(directory, ".omc", "state", "hooks.log");
+  const logFile = join(directory, ".omp", "state", "hooks.log");
   try {
     mkdirSync(dirname(logFile), { recursive: true });
     appendFileSync(

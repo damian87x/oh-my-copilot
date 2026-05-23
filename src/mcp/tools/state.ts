@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { jsonResult, textResult, type ToolDefinition } from "../types.js";
 
 function stateDir(cwd: string): string {
-  return join(resolve(cwd), ".omc", "state", "kv");
+  return join(resolve(cwd), ".omp", "state", "kv");
 }
 
 function statePath(cwd: string, key: string): string {
@@ -22,7 +22,7 @@ export const stateTools: ToolDefinition[] = [
   {
     name: "state_read",
     category: "state",
-    description: "Read a key-value entry from .omc/state/kv/<key>.json.",
+    description: "Read a key-value entry from .omp/state/kv/<key>.json.",
     inputSchema: {
       type: "object",
       properties: {
@@ -40,7 +40,7 @@ export const stateTools: ToolDefinition[] = [
   {
     name: "state_write",
     category: "state",
-    description: "Write a key-value entry to .omc/state/kv/<key>.json (atomic).",
+    description: "Write a key-value entry to .omp/state/kv/<key>.json (atomic).",
     inputSchema: {
       type: "object",
       properties: {
@@ -74,7 +74,7 @@ export const stateTools: ToolDefinition[] = [
   {
     name: "state_list_active",
     category: "state",
-    description: "List all active state keys under .omc/state/kv/.",
+    description: "List all active state keys under .omp/state/kv/.",
     inputSchema: { type: "object", properties: { cwd: { type: "string" } } },
     handler: (args) => {
       const dir = stateDir((args.cwd as string) ?? process.cwd());

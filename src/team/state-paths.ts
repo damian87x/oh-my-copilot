@@ -32,7 +32,7 @@ export interface WorkerStatePaths {
 
 export function resolveTeamPaths(cwd: string, teamName: string): TeamStatePaths {
   const root = resolve(cwd);
-  const teamRoot = join(root, ".omc", "state", "team", teamName);
+  const teamRoot = join(root, ".omp", "state", "team", teamName);
   return {
     cwd: root,
     teamName,

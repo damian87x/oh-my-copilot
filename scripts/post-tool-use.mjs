@@ -13,7 +13,7 @@ const HOOK_NAME = "PostToolUse";
     const directory = data.directory ?? process.cwd();
     const toolName = data.toolName ?? data.tool_name ?? "unknown";
     const ok = data.toolOutput != null;
-    const logFile = join(directory, ".omc", "state", "hooks.log");
+    const logFile = join(directory, ".omp", "state", "hooks.log");
     try {
       mkdirSync(dirname(logFile), { recursive: true });
       appendFileSync(

@@ -5,10 +5,10 @@ import path from "node:path";
 import { ensureTeamDirs, ensureWorkerDirs, resolveTeamPaths, resolveWorkerPaths } from "../../src/team/state-paths.js";
 
 describe("resolveTeamPaths", () => {
-  it("places team state under cwd/.omc/state/team/<name>", () => {
+  it("places team state under cwd/.omp/state/team/<name>", () => {
     const cwd = mkdtempSync(path.join(tmpdir(), "omc-team-paths-"));
     const t = resolveTeamPaths(cwd, "demo");
-    expect(t.teamRoot).toBe(path.join(cwd, ".omc", "state", "team", "demo"));
+    expect(t.teamRoot).toBe(path.join(cwd, ".omp", "state", "team", "demo"));
     expect(t.configFile).toBe(path.join(t.teamRoot, "config.json"));
     expect(t.tasksDir).toBe(path.join(t.teamRoot, "tasks"));
     expect(t.workersDir).toBe(path.join(t.teamRoot, "workers"));
