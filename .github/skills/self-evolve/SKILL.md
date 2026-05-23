@@ -29,7 +29,21 @@ Ignore false positives ("no problem", "stop the server", "don't worry") by check
 
 ### 0. Once-per-session guard
 
-If you have already invoked `/self-evolve` in this conversation, stop immediately. Say "self-evolve already ran this session" and do nothing else. This prevents wrap-up recursion when the user replies "thanks" or "done" to the loop's own report-back.
+Two checks. If **either** trips, stop immediately, say "self-evolve already ran this session", and do nothing else.
+
+**Exception (both checks):** if the user explicitly retyped `/self-evolve` to force a re-run, skip both checks.
+
+**Check A — conversation memory.** If you have already invoked `/self-evolve` in this conversation, stop.
+
+**Check B — durable marker.** Read `.oh-my-copilot/self-evolve/.last-run-session` (single-line UUID, may not exist). Determine the current Copilot CLI session UUID via shell:
+
+```
+ls -td ~/.copilot/session-state/*/ 2>/dev/null | head -1 | xargs -n1 basename
+```
+
+If the marker file exists and its contents match the current session UUID, stop. (If `~/.copilot/session-state/` is empty or unreadable, skip Check B and rely on Check A alone.)
+
+Check B survives session resume (`copilot --resume`) and conversation compaction, where Check A could miss the earlier invocation.
 
 ### 1. Inspect this session
 
@@ -113,6 +127,12 @@ State:
 - whether any topic crossed the threshold,
 - the path of any draft skill written,
 - the path of the ledger.
+
+### 7. Persist the session marker
+
+Before exiting, write the current Copilot CLI session UUID to `.oh-my-copilot/self-evolve/.last-run-session` (overwrite, no newline needed). Use the same shell line as Step 0 to determine it. Subsequent invocations within the same session will short-circuit via Check B in Step 0.
+
+If `~/.copilot/session-state/` was empty or unreadable in Step 0, write the literal string `unknown-session` so the marker exists but cannot accidentally match a real UUID later.
 
 ## Output discipline
 
