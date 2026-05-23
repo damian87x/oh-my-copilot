@@ -23,7 +23,8 @@ const HOOK_NAME = "PreToolUse";
       // best effort
     }
     console.log(JSON.stringify({ continue: true }));
-  } catch {
+  } catch (err) {
+    console.error(`[hook ${HOOK_NAME}] failed: ${err?.message ?? err}`);
     console.log(JSON.stringify({ continue: true }));
   }
 })();

@@ -129,20 +129,30 @@ export function tryClaimTask(opts: ClaimOptions): ClaimResult {
   return { ok: true, task: updated, claimToken };
 }
 
+export interface ClearLocksResult {
+  removed: number;
+  failures: Array<{ path: string; error: string }>;
+}
+
 export function clearAllLocks(tasksDir: string): number {
-  if (!existsSync(tasksDir)) return 0;
+  return clearAllLocksDetailed(tasksDir).removed;
+}
+
+export function clearAllLocksDetailed(tasksDir: string): ClearLocksResult {
+  if (!existsSync(tasksDir)) return { removed: 0, failures: [] };
+  const failures: ClearLocksResult["failures"] = [];
   let removed = 0;
   for (const entry of readdirSync(tasksDir)) {
-    if (entry.endsWith(".lock")) {
-      try {
-        unlinkSync(`${tasksDir}/${entry}`);
-        removed++;
-      } catch {
-        // ignore
-      }
+    if (!entry.endsWith(".lock")) continue;
+    const target = join(tasksDir, entry);
+    try {
+      unlinkSync(target);
+      removed++;
+    } catch (err) {
+      failures.push({ path: target, error: err instanceof Error ? err.message : String(err) });
     }
   }
-  return removed;
+  return { removed, failures };
 }
 
 export interface TransitionOptions {

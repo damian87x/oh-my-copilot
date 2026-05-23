@@ -26,7 +26,8 @@ const HOOK_NAME = "SessionStart";
         hookSpecificOutput: { hookEventName: HOOK_NAME, additionalContext: "" },
       }),
     );
-  } catch {
+  } catch (err) {
+    console.error(`[hook ${HOOK_NAME}] failed: ${err?.message ?? err}`);
     console.log(JSON.stringify({ continue: true }));
   }
 })();

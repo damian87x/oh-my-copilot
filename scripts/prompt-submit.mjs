@@ -59,7 +59,8 @@ function appendLog(directory, payload) {
       ? { continue: true, hookSpecificOutput: { hookEventName: HOOK_NAME, additionalContext } }
       : { continue: true };
     console.log(JSON.stringify(output));
-  } catch {
+  } catch (err) {
+    console.error(`[hook ${HOOK_NAME}] failed: ${err?.message ?? err}`);
     console.log(JSON.stringify({ continue: true }));
   }
 })();

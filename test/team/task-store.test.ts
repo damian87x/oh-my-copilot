@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   clearAllLocks,
+  clearAllLocksDetailed,
   listTasks,
   readTask,
   taskFilePath,
@@ -149,6 +150,16 @@ describe("task-store", () => {
     // A new claim now sees status=in_progress and refuses.
     const second = tryClaimTask({ tasksDir: dir, taskId: "1", worker: "second" });
     expect(second.ok).toBe(false);
+  });
+
+  it("clearAllLocksDetailed reports removed count and per-file failures", () => {
+    const dir = tempTasksDir();
+    writeTask(taskFilePath(dir, "1"), makeTask("1"));
+    writeFileSync(taskLockPath(dir, "1"), "{}");
+    writeFileSync(taskLockPath(dir, "2"), "{}");
+    const result = clearAllLocksDetailed(dir);
+    expect(result.removed).toBe(2);
+    expect(result.failures).toEqual([]);
   });
 
   it("clearAllLocks removes all .lock files", () => {

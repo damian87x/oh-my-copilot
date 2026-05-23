@@ -76,41 +76,55 @@ export async function startTeam(opts: StartTeamOptions): Promise<StartTeamResult
   if (newSess.status !== 0) {
     throw new Error(`tmux new-session failed: ${newSess.stderr || newSess.stdout}`);
   }
-  const leaderPaneMatch = newSess.stdout.match(/(%\d+)/);
-  let lastTarget = leaderPaneMatch?.[1] ?? sessionName;
-  const workers: Worker[] = [];
-  const bin = opts.workerBinOverride ?? resolveWorkerBin(opts.role);
 
-  for (let i = 0; i < opts.workerCount; i++) {
-    const workerName = `worker-${i + 1}`;
-    const split = tmux.splitWindow(lastTarget, cwd);
-    if (split.status !== 0) {
-      throw new Error(`tmux split-window failed: ${split.stderr || split.stdout}`);
+  // From this point on, the tmux session exists. Any failure must kill it
+  // before propagating, or the next startTeam will refuse with "session
+  // already exists" and the user can't recover via `omp team shutdown`
+  // (which reads config.json that we haven't written yet).
+  try {
+    const leaderPaneMatch = newSess.stdout.match(/(%\d+)/);
+    let lastTarget = leaderPaneMatch?.[1] ?? sessionName;
+    const workers: Worker[] = [];
+    const bin = opts.workerBinOverride ?? resolveWorkerBin(opts.role);
+
+    for (let i = 0; i < opts.workerCount; i++) {
+      const workerName = `worker-${i + 1}`;
+      const split = tmux.splitWindow(lastTarget, cwd);
+      if (split.status !== 0) {
+        throw new Error(`tmux split-window failed: ${split.stderr || split.stdout}`);
+      }
+      const paneId = split.stdout.trim();
+      lastTarget = paneId;
+      const task = tasks[i]!;
+      workers.push({ name: workerName, role: opts.role, paneId, taskId: task.id });
+
+      const wp = resolveWorkerPaths(paths, workerName);
+      ensureWorkerDirs(wp);
+      writeInbox(wp.inboxFile, buildInboxMarkdown({ teamName: opts.name, workerName, task, cwd }));
+      tmux.sendText(paneId, bin);
+      tmux.sendKeys(paneId, "C-m");
     }
-    const paneId = split.stdout.trim();
-    lastTarget = paneId;
-    const task = tasks[i]!;
-    workers.push({ name: workerName, role: opts.role, paneId, taskId: task.id });
 
-    const wp = resolveWorkerPaths(paths, workerName);
-    ensureWorkerDirs(wp);
-    writeInbox(wp.inboxFile, buildInboxMarkdown({ teamName: opts.name, workerName, task, cwd }));
-    tmux.sendText(paneId, bin);
-    tmux.sendKeys(paneId, "C-m");
+    const config: TeamConfig = {
+      name: opts.name,
+      task: opts.task,
+      role: opts.role,
+      workerCount: opts.workerCount,
+      tmuxSession: sessionName,
+      workers,
+      cwd,
+      createdAt: new Date().toISOString(),
+    };
+    writeFileSync(paths.configFile, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+    return { ok: true, config, tmuxSession: sessionName, paths };
+  } catch (err) {
+    try {
+      tmux.killSession(sessionName);
+    } catch {
+      // best effort — surface the original error to the caller
+    }
+    throw err;
   }
-
-  const config: TeamConfig = {
-    name: opts.name,
-    task: opts.task,
-    role: opts.role,
-    workerCount: opts.workerCount,
-    tmuxSession: sessionName,
-    workers,
-    cwd,
-    createdAt: new Date().toISOString(),
-  };
-  writeFileSync(paths.configFile, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  return { ok: true, config, tmuxSession: sessionName, paths };
 }
 
 export interface MonitorOptions {
@@ -263,7 +277,23 @@ export async function shutdownTeam(opts: ShutdownOptions): Promise<ShutdownResul
   const tmux = opts.tmux ?? makeTmux();
   const paths = resolveTeamPaths(cwd, opts.name);
   const config = loadTeamConfig(paths);
-  if (!config) return { ok: false, killedPanes: 0, killedSession: false, clearedLocks: 0 };
+
+  // Fallback: even if config.json is missing or corrupt, still try to kill
+  // the conventionally-named session — recovers from a startTeam that
+  // crashed before writing config (pre-cleanup behaviour from the
+  // try/catch above).
+  if (!config) {
+    const conventional = `omp-team-${opts.name}`;
+    const exists = tmux.sessionExists(conventional);
+    const session = exists ? tmux.killSession(conventional) : { status: 1, stdout: "", stderr: "" };
+    const clearedLocks = clearAllLocks(paths.tasksDir);
+    return {
+      ok: exists || clearedLocks > 0,
+      killedPanes: 0,
+      killedSession: exists && session.status === 0,
+      clearedLocks,
+    };
+  }
 
   let killedPanes = 0;
   for (const w of config.workers) {

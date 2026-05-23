@@ -115,6 +115,25 @@ describe("startTeam", () => {
       startTeam({ cwd, name: "demo", role: "claude", workerCount: 1, task: "x", tmux: api }),
     ).rejects.toThrow(/already exists/);
   });
+
+  it("kills the tmux session if a mid-spawn splitWindow fails (no leak)", async () => {
+    const cwd = tempCwd();
+    const { api, calls } = mockTmux();
+    let splitCount = 0;
+    (api.splitWindow as unknown) = () => {
+      splitCount++;
+      // First split succeeds, second fails — simulates partial spawn.
+      return splitCount === 1
+        ? { stdout: `%${100 + splitCount}\n`, stderr: "", status: 0 }
+        : { stdout: "", stderr: "tmux: out of panes", status: 1 };
+    };
+    await expect(
+      startTeam({ cwd, name: "demo", role: "claude", workerCount: 2, task: "fix", tmux: api }),
+    ).rejects.toThrow(/split-window failed/);
+    // Cleanup must have killed the session — assert kill-session was called.
+    const killed = calls.find((c) => c[0] === "kill-session");
+    expect(killed).toBeTruthy();
+  });
 });
 
 describe("monitorTeam", () => {
@@ -187,6 +206,17 @@ describe("statusTeam + shutdownTeam", () => {
     const cwd = tempCwd();
     const paths = resolveTeamPaths(cwd, "nope");
     expect(loadTeamConfig(paths)).toBeUndefined();
+  });
+
+  it("shutdownTeam falls back to killing the conventional session when config is missing", async () => {
+    const cwd = tempCwd();
+    const { api, calls } = mockTmux();
+    // Pretend the conventional session exists, no config on disk.
+    (api.sessionExists as unknown) = (name: string) => name === "omp-team-orphan";
+    const result = await shutdownTeam({ cwd, name: "orphan", tmux: api });
+    const killed = calls.find((c) => c[0] === "kill-session");
+    expect(killed?.[1]).toBe("omp-team-orphan");
+    expect(result.killedSession).toBe(true);
   });
 });
 
