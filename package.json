@@ -6,7 +6,8 @@
   "private": true,
   "bin": {
     "oh-my-copilot": "dist/src/cli.js",
-    "omcc": "dist/src/cli.js"
+    "omcc": "dist/src/cli.js",
+    "omc": "dist/src/cli.js"
   },
   "files": [
     ".github",

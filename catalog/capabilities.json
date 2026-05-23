@@ -678,6 +678,52 @@
           "notes": "Use /tdd from .github/skills/tdd/SKILL.md."
         }
       }
+    },
+    {
+      "id": "self-evolve",
+      "name": "self-evolve",
+      "title": "Self-evolve",
+      "category": "meta",
+      "summary": "Capture user-correction patterns and draft a new project skill on the third repeat.",
+      "notes": "Lite slash project skill; session-lifecycle, no bundled scripts or external runtime requirement.",
+      "defaultCommand": "self-evolve",
+      "phase1": true,
+      "sourceSkill": "self-evolve",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /self-evolve from .github/skills/self-evolve/SKILL.md."
+        }
+      }
+    },
+    {
+      "id": "meta.self-improvement",
+      "name": "meta.self-improvement",
+      "title": "Self-evolve",
+      "category": "meta",
+      "summary": "Capture user-correction patterns and draft a new project skill on the third repeat.",
+      "notes": "Lite slash project skill; session-lifecycle, no bundled scripts or external runtime requirement.",
+      "defaultCommand": "self-evolve",
+      "phase1": true,
+      "sourceSkill": "self-evolve",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /self-evolve from .github/skills/self-evolve/SKILL.md."
+        }
+      }
     }
   ]
 }
