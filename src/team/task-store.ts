@@ -113,6 +113,19 @@ export function tryClaimTask(opts: ClaimOptions): ClaimResult {
     claimToken,
   };
   writeTask(path, updated);
+
+  // Optimistic CAS verification: re-read the task and confirm OUR claimToken
+  // landed. If a concurrent orphan-stealer raced us, their writeTask may have
+  // overwritten ours (writeTask is rename-atomic, so the last writer wins).
+  // Both workers' lock-acquire could succeed if B unlinks A's freshly-created
+  // lock between A's openSync and A's writeTask. The verify is the
+  // ground-truth tiebreaker — only the worker whose claimToken is currently
+  // persisted owns the task.
+  const verified = readTask(path);
+  if (verified?.claimToken !== claimToken) {
+    return { ok: false, reason: "concurrent claim overwrote ours; retry" };
+  }
+
   return { ok: true, task: updated, claimToken };
 }
 
