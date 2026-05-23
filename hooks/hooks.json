@@ -1,0 +1,14 @@
+{
+  "SessionStart": [
+    {
+      "matcher": "*",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"$OMC_PLUGIN_ROOT\"/scripts/session-start.mjs",
+          "timeout": 5
+        }
+      ]
+    }
+  ]
+}

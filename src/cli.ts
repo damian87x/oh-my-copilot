@@ -31,7 +31,7 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nCommands:\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+  return `oh-my-copilot\n\nCommands:\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -50,6 +50,62 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
 
   if (!group || group === "help" || group === "--help" || group === "-h") {
     return { ok: true, message: help() };
+  }
+
+  if (group === "version" || group === "--version" || group === "-v") {
+    const { getVersionInfo, formatVersionInfo } = await import("./copilot/version.js");
+    const info = getVersionInfo({ importMetaUrl: import.meta.url });
+    return json ? { ok: true, output: info } : { ok: true, message: formatVersionInfo(info) };
+  }
+
+  if (group === "list") {
+    const { listAll, formatList } = await import("./copilot/list.js");
+    const list = await listAll({ cwd: flagValue(argv, "--root") ?? process.cwd() });
+    return json ? { ok: true, output: list } : { ok: true, message: formatList(list) };
+  }
+
+  if (group === "setup") {
+    const { runSetup, formatSetup } = await import("./copilot/setup.js");
+    const result = runSetup({
+      cwd: flagValue(argv, "--root") ?? process.cwd(),
+      pluginRoot: flagValue(argv, "--plugin-root"),
+      importMetaUrl: import.meta.url,
+      dryRun: hasFlag(argv, "--dry-run"),
+      scope: flagValue(argv, "--scope") === "user" ? "user" : "project",
+    });
+    return json ? { ok: result.ok, output: result } : { ok: result.ok, message: formatSetup(result) };
+  }
+
+  if (group === "doctor") {
+    const { runDoctor, formatDoctor } = await import("./copilot/doctor.js");
+    const report = runDoctor({
+      cwd: flagValue(argv, "--root") ?? process.cwd(),
+      pluginRoot: flagValue(argv, "--plugin-root"),
+      importMetaUrl: import.meta.url,
+      copilotBin: flagValue(argv, "--copilot-bin"),
+      skipCopilot: hasFlag(argv, "--skip-copilot"),
+    });
+    return json
+      ? { ok: report.ok, exitCode: report.ok ? 0 : 1, output: report }
+      : { ok: report.ok, exitCode: report.ok ? 0 : 1, message: formatDoctor(report) };
+  }
+
+  if (group === "launch") {
+    const dashIndex = argv.indexOf("--");
+    const passthrough = dashIndex >= 0 ? argv.slice(dashIndex + 1) : argv.slice(1);
+    const { launchCopilot } = await import("./copilot/launch.js");
+    const result = await launchCopilot({
+      args: passthrough,
+      bin: flagValue(argv, "--bin"),
+      cwd: flagValue(argv, "--root") ?? process.cwd(),
+    });
+    return json
+      ? { ok: result.ok, exitCode: result.exitCode, output: result }
+      : {
+          ok: result.ok,
+          exitCode: result.exitCode,
+          message: `launch ${result.bin} exit=${result.exitCode}`,
+        };
   }
 
   if (group === "catalog") {

@@ -6,5 +6,9 @@
   "license": "MIT",
   "repository": "https://github.com/damian87x/oh-my-copilot",
   "keywords": ["copilot", "skills", "agents", "slash-commands"],
-  "skills": ".github/skills/"
+  "skills": ".github/skills/",
+  "agents": ".github/agents/",
+  "instructions": ".github/copilot-instructions.md",
+  "hooks": "hooks/hooks.json",
+  "scriptsDir": "scripts/"
 }

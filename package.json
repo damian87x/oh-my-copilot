@@ -15,7 +15,9 @@
     "catalog",
     "dist",
     "docs",
-    "plugin.json"
+    "hooks",
+    "plugin.json",
+    "scripts"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -25,7 +27,11 @@
     "test": "vitest run",
     "lint:skills": "npm run build && node dist/src/cli.js lint:skills --root .",
     "sync:dry-run": "npm run build && node dist/src/cli.js sync:dry-run --root .",
-    "jira:dry-run": "npm run build && node dist/src/cli.js jira:dry-run --root ."
+    "jira:dry-run": "npm run build && node dist/src/cli.js jira:dry-run --root .",
+    "omc:version": "npm run build && node dist/src/cli.js version",
+    "omc:list": "npm run build && node dist/src/cli.js list",
+    "omc:setup:dry-run": "npm run build && node dist/src/cli.js setup --dry-run",
+    "omc:doctor": "npm run build && node dist/src/cli.js doctor --skip-copilot"
   },
   "keywords": [
     "copilot",
