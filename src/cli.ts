@@ -31,7 +31,7 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nCommands:\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  mcp                                           (run MCP server over stdio)\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+  return `oh-my-copilot\n\nCommands:\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  mcp                                           (run MCP server over stdio)\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -43,6 +43,14 @@ async function resolveExistingInputPath(value: string): Promise<string> {
   if (existsSync(parentRelative)) return parentRelative;
   return direct;
 }
+
+const META_FLAGS = new Set([
+  "--help",
+  "-h",
+  "--version",
+  "-v",
+  "--json",
+]);
 
 export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   const [group, command, value] = argv;
@@ -56,6 +64,22 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     const { getVersionInfo, formatVersionInfo } = await import("./copilot/version.js");
     const info = getVersionInfo({ importMetaUrl: import.meta.url });
     return json ? { ok: true, output: info } : { ok: true, message: formatVersionInfo(info) };
+  }
+
+  if (group.startsWith("--") && !META_FLAGS.has(group)) {
+    const { launchCopilot } = await import("./copilot/launch.js");
+    const result = await launchCopilot({
+      args: argv,
+      bin: flagValue(argv, "--bin"),
+      cwd: flagValue(argv, "--root") ?? process.cwd(),
+    });
+    return json
+      ? { ok: result.ok, exitCode: result.exitCode, output: result }
+      : {
+          ok: result.ok,
+          exitCode: result.exitCode,
+          message: `launch ${result.bin} exit=${result.exitCode}`,
+        };
   }
 
   if (group === "list") {

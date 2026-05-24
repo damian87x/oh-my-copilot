@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { launchCopilot, resolveCopilotBin } from "../../src/copilot/launch.js";
+import {
+  launchCopilot,
+  normalizeCopilotLaunchArgs,
+  resolveCopilotBin,
+} from "../../src/copilot/launch.js";
 
 describe("resolveCopilotBin", () => {
   it("uses explicit override when provided", () => {
@@ -25,6 +29,40 @@ describe("resolveCopilotBin", () => {
     } finally {
       if (original !== undefined) process.env.OMC_COPILOT_BIN = original;
     }
+  });
+});
+
+describe("normalizeCopilotLaunchArgs", () => {
+  it("passes args through unchanged when no bypass alias is present", () => {
+    expect(normalizeCopilotLaunchArgs(["-p", "hello", "--agent", "planner"])).toEqual([
+      "-p",
+      "hello",
+      "--agent",
+      "planner",
+    ]);
+  });
+
+  it("maps --madmax to --yolo and drops the original token", () => {
+    expect(normalizeCopilotLaunchArgs(["--madmax", "-p", "hi"])).toEqual(["-p", "hi", "--yolo"]);
+  });
+
+  it("treats --yolo as an alias and strips duplicates", () => {
+    expect(normalizeCopilotLaunchArgs(["--yolo", "--madmax"])).toEqual(["--yolo"]);
+  });
+
+  it("preserves an explicit --yolo and does not duplicate it when --madmax is also given", () => {
+    expect(normalizeCopilotLaunchArgs(["--yolo", "-p", "go", "--madmax"])).toEqual([
+      "--yolo",
+      "-p",
+      "go",
+    ]);
+  });
+
+  it("leaves --allow-all alone (different copilot flag) but still maps --madmax", () => {
+    expect(normalizeCopilotLaunchArgs(["--allow-all", "--madmax"])).toEqual([
+      "--allow-all",
+      "--yolo",
+    ]);
   });
 });
 
