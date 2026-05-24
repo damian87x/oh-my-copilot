@@ -1,5 +1,39 @@
 import { spawn } from "node:child_process";
 
+const MADMAX_FLAG = "--madmax";
+const COPILOT_BYPASS_FLAG = "--yolo";
+
+export function normalizeCopilotLaunchArgs(args: string[]): string[] {
+  const sentinelIdx = args.indexOf("--");
+  const pre = sentinelIdx === -1 ? args : args.slice(0, sentinelIdx);
+  const tail = sentinelIdx === -1 ? [] : args.slice(sentinelIdx);
+
+  const out: string[] = [];
+  let bypassRequested = false;
+  let bypassEmitted = false;
+
+  for (const arg of pre) {
+    if (arg === MADMAX_FLAG) {
+      bypassRequested = true;
+      continue;
+    }
+    if (arg === COPILOT_BYPASS_FLAG) {
+      bypassRequested = true;
+      if (bypassEmitted) continue;
+      out.push(arg);
+      bypassEmitted = true;
+      continue;
+    }
+    out.push(arg);
+  }
+
+  if (bypassRequested && !bypassEmitted) {
+    out.push(COPILOT_BYPASS_FLAG);
+  }
+
+  return [...out, ...tail];
+}
+
 export interface LaunchOptions {
   args: string[];
   bin?: string;
@@ -22,9 +56,10 @@ export function resolveCopilotBin(override?: string): string {
 
 export async function launchCopilot(options: LaunchOptions): Promise<LaunchResult> {
   const bin = resolveCopilotBin(options.bin);
+  const args = normalizeCopilotLaunchArgs(options.args);
   return new Promise<LaunchResult>((resolveFn) => {
     let settled = false;
-    const child = spawn(bin, options.args, {
+    const child = spawn(bin, args, {
       stdio: "inherit",
       cwd: options.cwd ?? process.cwd(),
       env: options.env ?? process.env,
