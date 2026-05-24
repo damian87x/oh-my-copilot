@@ -44,13 +44,7 @@ async function resolveExistingInputPath(value: string): Promise<string> {
   return direct;
 }
 
-const META_FLAGS = new Set([
-  "--help",
-  "-h",
-  "--version",
-  "-v",
-  "--json",
-]);
+const BARE_LAUNCH_FLAGS = new Set(["--madmax", "--yolo"]);
 
 export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   const [group, command, value] = argv;
@@ -66,7 +60,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     return json ? { ok: true, output: info } : { ok: true, message: formatVersionInfo(info) };
   }
 
-  if (group.startsWith("--") && !META_FLAGS.has(group)) {
+  if (BARE_LAUNCH_FLAGS.has(group)) {
     const { launchCopilot } = await import("./copilot/launch.js");
     const result = await launchCopilot({
       args: argv,

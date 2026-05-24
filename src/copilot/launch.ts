@@ -4,11 +4,15 @@ const MADMAX_FLAG = "--madmax";
 const COPILOT_BYPASS_FLAG = "--yolo";
 
 export function normalizeCopilotLaunchArgs(args: string[]): string[] {
+  const sentinelIdx = args.indexOf("--");
+  const pre = sentinelIdx === -1 ? args : args.slice(0, sentinelIdx);
+  const tail = sentinelIdx === -1 ? [] : args.slice(sentinelIdx);
+
   const out: string[] = [];
   let bypassRequested = false;
   let bypassEmitted = false;
 
-  for (const arg of args) {
+  for (const arg of pre) {
     if (arg === MADMAX_FLAG) {
       bypassRequested = true;
       continue;
@@ -27,7 +31,7 @@ export function normalizeCopilotLaunchArgs(args: string[]): string[] {
     out.push(COPILOT_BYPASS_FLAG);
   }
 
-  return out;
+  return [...out, ...tail];
 }
 
 export interface LaunchOptions {

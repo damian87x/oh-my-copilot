@@ -64,6 +64,40 @@ describe("normalizeCopilotLaunchArgs", () => {
       "--yolo",
     ]);
   });
+
+  it("does not treat --madmax=foo as the bypass flag (exact-token only)", () => {
+    expect(normalizeCopilotLaunchArgs(["--madmax=foo", "-p", "hi"])).toEqual([
+      "--madmax=foo",
+      "-p",
+      "hi",
+    ]);
+  });
+
+  it("inserts --yolo before -- sentinel when bypass is requested in the pre-sentinel args", () => {
+    expect(normalizeCopilotLaunchArgs(["--madmax", "--", "-p", "hi"])).toEqual([
+      "--yolo",
+      "--",
+      "-p",
+      "hi",
+    ]);
+  });
+
+  it("passes tokens after -- through unchanged (no stripping, no normalization)", () => {
+    expect(normalizeCopilotLaunchArgs(["--", "--madmax", "--yolo"])).toEqual([
+      "--",
+      "--madmax",
+      "--yolo",
+    ]);
+  });
+
+  it("dedups across --, keeping a single --yolo before the sentinel", () => {
+    expect(normalizeCopilotLaunchArgs(["--yolo", "--madmax", "--", "echo", "ok"])).toEqual([
+      "--yolo",
+      "--",
+      "echo",
+      "ok",
+    ]);
+  });
 });
 
 describe("launchCopilot", () => {
