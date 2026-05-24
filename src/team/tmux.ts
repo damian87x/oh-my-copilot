@@ -1,0 +1,120 @@
+import { spawnSync } from "node:child_process";
+
+export interface TmuxResult {
+  stdout: string;
+  stderr: string;
+  status: number;
+}
+
+export type TmuxRunner = (args: string[]) => TmuxResult;
+
+export function tmuxExec(args: string[]): TmuxResult {
+  const r = spawnSync("tmux", args, { encoding: "utf8" });
+  return {
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? "",
+    status: r.status ?? 1,
+  };
+}
+
+const PROMPT_RE = /(?:^|\s)(?:[│┃║▌▐▏▕╎┆┊]\s*)?[›>❯$#%]\s*$/;
+const ACTIVE_HINTS = [
+  /esc to interrupt/i,
+  /running\s*[…\.]/,
+  /background terminal/i,
+  /tool call in progress/i,
+];
+
+export function paneLooksReady(captured: string): boolean {
+  if (!captured.trim()) return false;
+  const lines = captured.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!;
+    if (line.trim().length === 0) continue;
+    return PROMPT_RE.test(line);
+  }
+  return false;
+}
+
+export function paneHasActiveTask(captured: string): boolean {
+  return ACTIVE_HINTS.some((re) => re.test(captured));
+}
+
+export interface TmuxApi {
+  newSession(session: string, cwd: string): TmuxResult;
+  splitWindow(target: string, cwd: string): TmuxResult;
+  sendKeys(target: string, ...keys: string[]): TmuxResult;
+  sendText(target: string, text: string): TmuxResult;
+  capturePane(target: string, lines?: number): TmuxResult;
+  killPane(target: string): TmuxResult;
+  killSession(session: string): TmuxResult;
+  paneDead(target: string): boolean;
+  sessionExists(session: string): boolean;
+}
+
+export function makeTmux(runner: TmuxRunner = tmuxExec): TmuxApi {
+  return {
+    newSession(session, cwd) {
+      return runner(["new-session", "-d", "-P", "-F", "#S:0 #{pane_id}", "-s", session, "-c", cwd]);
+    },
+    splitWindow(target, cwd) {
+      return runner(["split-window", "-h", "-t", target, "-d", "-P", "-F", "#{pane_id}", "-c", cwd]);
+    },
+    sendKeys(target, ...keys) {
+      return runner(["send-keys", "-t", target, ...keys]);
+    },
+    sendText(target, text) {
+      return runner(["send-keys", "-t", target, "-l", "--", text]);
+    },
+    capturePane(target, lines = 80) {
+      return runner(["capture-pane", "-t", target, "-p", "-S", `-${lines}`]);
+    },
+    killPane(target) {
+      return runner(["kill-pane", "-t", target]);
+    },
+    killSession(session) {
+      return runner(["kill-session", "-t", session]);
+    },
+    paneDead(target) {
+      const r = runner(["display-message", "-t", target, "-p", "#{pane_dead}"]);
+      return r.stdout.trim() === "1";
+    },
+    sessionExists(session) {
+      const r = runner(["has-session", "-t", session]);
+      return r.status === 0;
+    },
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+export interface SendToWorkerOptions {
+  rounds?: number;
+  delayMs?: number;
+}
+
+export async function sendToWorker(
+  api: TmuxApi,
+  target: string,
+  text: string,
+  options: SendToWorkerOptions = {},
+): Promise<boolean> {
+  const rounds = options.rounds ?? 6;
+  const delayMs = options.delayMs ?? 150;
+  const payload = text.length > 200 ? text.slice(0, 200) : text;
+  api.sendText(target, payload);
+  for (let i = 0; i < rounds; i++) {
+    api.sendKeys(target, "C-m");
+    await sleep(delayMs);
+    const captured = api.capturePane(target, 5).stdout;
+    if (!captured.includes(payload)) return true;
+  }
+  // adaptive fallback: kill-line then retry once
+  api.sendKeys(target, "C-u");
+  await sleep(delayMs);
+  api.sendText(target, payload);
+  api.sendKeys(target, "C-m");
+  return true;
+}

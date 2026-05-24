@@ -35,7 +35,7 @@ describe('Copilot skills dry-run', () => {
   it('keeps skill bodies short and slash-oriented in official Copilot skill locations', () => {
     const files = projectCopilotCommands();
     const research = files.find((file) => file.path === '.github/skills/codebase-research/SKILL.md');
-    const autopilot = files.find((file) => file.path === '.github/skills/omc-autopilot/SKILL.md');
+    const autopilot = files.find((file) => file.path === '.github/skills/omp-autopilot/SKILL.md');
     const team = files.find((file) => file.path === '.github/skills/team/SKILL.md');
 
     expect(research?.content).toContain('Evidence');

@@ -6,8 +6,8 @@
   "private": true,
   "bin": {
     "oh-my-copilot": "dist/src/cli.js",
-    "omcc": "dist/src/cli.js",
-    "omc": "dist/src/cli.js"
+    "omp": "dist/src/cli.js",
+    "omcc": "dist/src/cli.js"
   },
   "files": [
     ".github",
@@ -16,7 +16,9 @@
     "catalog",
     "dist",
     "docs",
-    "plugin.json"
+    "hooks",
+    "plugin.json",
+    "scripts"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -26,7 +28,11 @@
     "test": "vitest run",
     "lint:skills": "npm run build && node dist/src/cli.js lint:skills --root .",
     "sync:dry-run": "npm run build && node dist/src/cli.js sync:dry-run --root .",
-    "jira:dry-run": "npm run build && node dist/src/cli.js jira:dry-run --root ."
+    "jira:dry-run": "npm run build && node dist/src/cli.js jira:dry-run --root .",
+    "omp:version": "npm run build && node dist/src/cli.js version",
+    "omp:list": "npm run build && node dist/src/cli.js list",
+    "omp:setup:dry-run": "npm run build && node dist/src/cli.js setup --dry-run",
+    "omp:doctor": "npm run build && node dist/src/cli.js doctor --skip-copilot"
   },
   "keywords": [
     "copilot",
@@ -43,5 +49,8 @@
     "tsx": "^4.19.4",
     "typescript": "^5.8.3",
     "vitest": "^3.1.4"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }

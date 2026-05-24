@@ -38,7 +38,7 @@ describe('general skill catalog', () => {
 
   it('does not present lite execution skills as durable runtimes', () => {
     const capabilities = loadCapabilityCatalog();
-    for (const id of ['team', 'execution.parallel', 'ralph', 'execution.single-owner', 'ultrawork', 'omc-autopilot', 'execution.autonomous']) {
+    for (const id of ['team', 'execution.parallel', 'ralph', 'execution.single-owner', 'ultrawork', 'omp-autopilot', 'execution.autonomous']) {
       const capability = capabilities.capabilities.find((entry) => entry.id === id);
       expect(capability, `${id} capability exists`).toBeTruthy();
       expect(capability?.providerSupport.copilot.state).toBe('native');
