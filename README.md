@@ -1,5 +1,7 @@
 # oh-my-copilot
 
+[![npm version](https://img.shields.io/npm/v/@damian87/omp.svg)](https://www.npmjs.com/package/@damian87/omp)
+[![npm downloads](https://img.shields.io/npm/dm/@damian87/omp.svg)](https://www.npmjs.com/package/@damian87/omp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 **Multi-agent orchestration for GitHub Copilot CLI. Zero learning curve.**
@@ -10,24 +12,26 @@ _Don't relearn Copilot. Just use omp._
 
 ---
 
+> Now on npm as [`@damian87/omp`](https://www.npmjs.com/package/@damian87/omp). One command and you're running.
+
 ## Quick Start
 
 **Step 1: Install**
 
-Two commands install all 17 omp skills as a Copilot CLI plugin:
+The shell CLI (`omp`):
+
+```bash
+npm i -g @damian87/omp
+```
+
+And the in-session skills, as a Copilot CLI plugin:
 
 ```bash
 copilot plugin marketplace add damian87x/oh-my-copilot
 copilot plugin install oh-my-copilot@oh-my-copilot
 ```
 
-Requires Copilot CLI v1.0.48+. After install, `/omp-autopilot`, `/ralplan`, `/code-review`, `/create-skill`, `/self-evolve`, and the rest are available inside any Copilot session.
-
-If you prefer the npm path for the local runtime:
-
-```bash
-npm i -g @damian87/omp
-```
+Requires Copilot CLI v1.0.48+. After install, `omp --madmax` works from any shell, and `/omp-autopilot`, `/ralplan`, `/code-review`, `/create-skill`, `/self-evolve`, and the rest are available inside any Copilot session.
 
 **Step 2: Build something**
 
