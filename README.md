@@ -26,7 +26,7 @@ Requires Copilot CLI v1.0.48+. After install, `/omp-autopilot`, `/ralplan`, `/co
 If you prefer the npm path for the local runtime:
 
 ```bash
-npm i -g @damian87x/omp
+npm i -g @damian87/omp
 ```
 
 **Step 2: Build something**
