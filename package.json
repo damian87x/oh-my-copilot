@@ -1,9 +1,11 @@
 {
-  "name": "oh-my-copilot",
+  "name": "@damian87x/omp",
   "version": "0.1.0",
   "description": "GitHub Copilot project skills catalog and Jira handoff tools.",
   "type": "module",
-  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "oh-my-copilot": "dist/src/cli.js",
     "omp": "dist/src/cli.js",

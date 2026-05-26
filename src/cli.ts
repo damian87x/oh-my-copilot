@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { findCapability, loadCatalogBundle, validateCatalogBundle } from "./catalog.js";
 import { inspectProject } from "./project.js";
@@ -498,7 +499,18 @@ async function handleModeCommand(mode: LoopMode, argv: string[], json: boolean):
   };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+function isEntrypoint(): boolean {
+  const argv1 = process.argv[1];
+  if (!argv1) return false;
+  if (import.meta.url === pathToFileURL(argv1).href) return true;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(argv1)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isEntrypoint()) {
   const result = await runCli();
   printResult(result, process.argv.includes("--json"));
   process.exitCode = result.exitCode ?? (result.ok ? 0 : 1);
