@@ -2,7 +2,7 @@
 
 A two-file mechanism that turns repeated user corrections into draft project skills.
 
-- `AGENTS.md` instructs the agent to invoke `/self-evolve` before ending a session.
+- `.github/copilot-instructions.md` ships with the plugin and instructs the agent to invoke `/self-evolve` before ending a session — so the trigger fires in every project where the plugin is active, not only inside this repo.
 - `.github/skills/self-evolve/SKILL.md` is the loop itself: log corrections to `.oh-my-copilot/self-evolve/log.md`, count repeats per topic, and when a topic recurs three times draft `.oh-my-copilot/self-evolve/drafts/<slug>/SKILL.md` with `status: draft`.
 
 ## Why drafts live outside `.github/skills/`
@@ -19,4 +19,4 @@ Move the draft directory from `.oh-my-copilot/self-evolve/drafts/<slug>/` to `.g
 
 ## Why agent-driven, not a CLI
 
-Copilot CLI exposes no user-installable hook surface. The cheapest reliable trigger is the agent itself: `AGENTS.md` is loaded into every session, and the instruction there ensures `/self-evolve` runs at wrap-up without any binary, dependency, or shell modification.
+Copilot CLI exposes no user-installable hook surface. The cheapest reliable trigger is the agent itself: `.github/copilot-instructions.md` is loaded into every session where the plugin is active, and the instruction there ensures `/self-evolve` runs at wrap-up without any binary, dependency, or shell modification.
