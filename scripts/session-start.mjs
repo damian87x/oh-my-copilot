@@ -2,6 +2,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
+import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
 
 const HOOK_NAME = "SessionStart";
 
@@ -11,7 +12,8 @@ const HOOK_NAME = "SessionStart";
     const data = raw ? JSON.parse(raw) : {};
     const sessionId = data.sessionId ?? data.session_id ?? "unknown";
     const directory = data.directory ?? process.cwd();
-    const logFile = join(directory, ".omp", "state", "hooks.log");
+    const stateDir = join(directory, ".omp", "state");
+    const logFile = join(stateDir, "hooks.log");
     mkdirSync(dirname(logFile), { recursive: true });
     const line = JSON.stringify({
       ts: new Date().toISOString(),
@@ -20,10 +22,14 @@ const HOOK_NAME = "SessionStart";
       directory,
     });
     appendFileSync(logFile, `${line}\n`);
+
+    const update = await checkForUpdate({ stateDir });
+    const additionalContext = update ? formatUpdateNotice(update.current, update.latest) : "";
+
     console.log(
       JSON.stringify({
         continue: true,
-        hookSpecificOutput: { hookEventName: HOOK_NAME, additionalContext: "" },
+        hookSpecificOutput: { hookEventName: HOOK_NAME, additionalContext },
       }),
     );
   } catch (err) {
