@@ -4,25 +4,25 @@
   "commandPrefix": "/",
   "skills": [
     {
-      "name": "codebase-research",
-      "capabilityId": "codebase-research",
+      "name": "research-codebase",
+      "capabilityId": "research-codebase",
       "capabilityIds": [
-        "codebase-research",
+        "research-codebase",
         "research.codebase"
       ],
-      "source": ".github/skills/codebase-research/SKILL.md",
-      "sourcePath": ".github/skills/codebase-research/SKILL.md",
-      "canonicalPath": ".github/skills/codebase-research/SKILL.md",
-      "description": "Read repo evidence before planning or asking.",
-      "summary": "Read repo evidence before planning or asking.",
+      "source": ".github/skills/research-codebase/SKILL.md",
+      "sourcePath": ".github/skills/research-codebase/SKILL.md",
+      "canonicalPath": ".github/skills/research-codebase/SKILL.md",
+      "description": "Comprehensive codebase research with progressive disclosure and tiered effort.",
+      "summary": "Comprehensive codebase research with progressive disclosure and tiered effort.",
       "support": "project-skill",
       "aliases": [],
       "slashCommands": [
-        "codebase-research"
+        "research-codebase"
       ],
       "projections": {
         "copilot": {
-          "command": "/codebase-research",
+          "command": "/research-codebase",
           "state": "supported"
         }
       },
@@ -417,6 +417,58 @@
       "projections": {
         "copilot": {
           "command": "/self-evolve",
+          "state": "supported"
+        }
+      },
+      "projection": "project-skill",
+      "phase1": true
+    },
+    {
+      "name": "pipeline",
+      "capabilityId": "pipeline",
+      "capabilityIds": [
+        "pipeline",
+        "execution.pipeline"
+      ],
+      "source": ".github/skills/pipeline/SKILL.md",
+      "sourcePath": ".github/skills/pipeline/SKILL.md",
+      "canonicalPath": ".github/skills/pipeline/SKILL.md",
+      "description": "State-machine delivery orchestrator chaining research, planning, and execution.",
+      "summary": "State-machine delivery orchestrator chaining research, planning, and execution.",
+      "support": "project-skill",
+      "aliases": [],
+      "slashCommands": [
+        "pipeline"
+      ],
+      "projections": {
+        "copilot": {
+          "command": "/pipeline",
+          "state": "supported"
+        }
+      },
+      "projection": "project-skill",
+      "phase1": true
+    },
+    {
+      "name": "worktree",
+      "capabilityId": "worktree",
+      "capabilityIds": [
+        "worktree",
+        "workflow.worktree"
+      ],
+      "source": ".github/skills/worktree/SKILL.md",
+      "sourcePath": ".github/skills/worktree/SKILL.md",
+      "canonicalPath": ".github/skills/worktree/SKILL.md",
+      "description": "Git worktree-based parallel branch work.",
+      "summary": "Git worktree-based parallel branch work.",
+      "support": "project-skill",
+      "aliases": [],
+      "slashCommands": [
+        "worktree"
+      ],
+      "projections": {
+        "copilot": {
+          "command": "/worktree",
           "state": "supported"
         }
       },

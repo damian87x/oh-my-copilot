@@ -76,8 +76,8 @@ That's it.
 ### Intelligent Orchestration
 
 - **7 specialized agents** — planner, architect, executor, verifier, code-reviewer, designer, researcher (all `--agent <name>` compatible with Copilot CLI)
-- **17 in-session skills** auto-discovered from `.github/skills/`
-- **Smart pipeline routing** — `/codebase-research` → `/ralplan` → `/team` / `/ralph` / `/ultrawork` → `/code-review` → `/ultraqa`
+- **20 in-session skills** auto-discovered from `.github/skills/`
+- **Smart pipeline routing** — `/research-codebase` → `/ralplan` → `/team` / `/ralph` / `/ultrawork` → `/code-review` → `/ultraqa`
 
 ### Developer Experience
 
@@ -99,9 +99,10 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/ultrawork`            | Maximum parallelism                                       | `/ultrawork "fix all type errors"`                   |
 | `/ultraqa`              | QA cycling until goal met                                 | `/ultraqa "build green, tests pass"`                 |
 | `/ralplan`              | Consensus planning                                        | `/ralplan "plan this feature"`                       |
-| `/team`                 | Coordinated multi-agent task list                         | `/team 3:executor "ship the migration"`              |
+| `/team`                 | Parallel tmux agent panes                                 | `/team`                                              |
+| `/pipeline`             | Full delivery orchestrator                                | `/pipeline`                                          |
 | `/code-review`          | Diff-focused reviewer                                     | `/code-review`                                       |
-| `/codebase-research`    | Map an area of the codebase                               | `/codebase-research "auth middleware"`               |
+| `/research-codebase`    | Map an area of the codebase                               | `/research-codebase "auth middleware"`               |
 | `/debug`                | Disciplined diagnose-reproduce-fix loop                   | `/debug "flaky integration test"`                    |
 | `/tdd`                  | Red-green-refactor cycle                                  | `/tdd "add pagination to /users"`                    |
 | `/verify`               | Exercise a change end-to-end                              | `/verify`                                            |
@@ -111,6 +112,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/prototype`            | Throwaway prototype to flesh out a design                 | `/prototype "state shape"`                           |
 | `/grill-me`             | Stress-test a plan with Socratic questions                | `/grill-me`                                          |
 | `/caveman`              | Ultra-compressed communication mode                       | `/caveman`                                           |
+| `/worktree`             | Git worktree-based parallel branch work                   | `/worktree`                                          |
 
 ---
 
@@ -211,8 +213,17 @@ Skills follow the [Copilot agent-skills docs](https://docs.github.com/en/copilot
 ```bash
 npm install
 npm run build
-npm test                                       # 137 tests
+npm link                                       # makes `omp` point to your local checkout
+npm test
 npm run lint:skills
 npm run sync:dry-run
-npx tsx src/cli.ts skill install .github/skills/create-skill --dry-run
+```
+
+After `npm link`, the global `omp` command runs your local build. Any changes you make are reflected after `npm run build`.
+
+To unlink and revert to the published package:
+
+```bash
+npm unlink -g @damian87/omp
+npm i -g @damian87/omp
 ```
