@@ -13,15 +13,15 @@
   ],
   "capabilities": [
     {
-      "id": "codebase-research",
-      "name": "codebase-research",
+      "id": "research-codebase",
+      "name": "research-codebase",
       "title": "Codebase research",
       "category": "research",
-      "summary": "Read repo evidence before planning or asking.",
-      "notes": "Lite slash project skill; no bundled scripts or external runtime requirement.",
-      "defaultCommand": "codebase-research",
+      "summary": "Comprehensive codebase research with progressive disclosure and tiered effort.",
+      "notes": "Progressive disclosure skill with reference/ folder; scales effort to task complexity.",
+      "defaultCommand": "research-codebase",
       "phase1": true,
-      "sourceSkill": "codebase-research",
+      "sourceSkill": "research-codebase",
       "providers": {
         "copilot": "supported"
       },
@@ -31,7 +31,7 @@
       "providerSupport": {
         "copilot": {
           "state": "native",
-          "notes": "Use /codebase-research from .github/skills/codebase-research/SKILL.md."
+          "notes": "Use /research-codebase from .github/skills/research-codebase/SKILL.md."
         }
       }
     },
@@ -40,11 +40,11 @@
       "name": "research.codebase",
       "title": "Codebase research",
       "category": "research",
-      "summary": "Read repo evidence before planning or asking.",
-      "notes": "Lite slash project skill; no bundled scripts or external runtime requirement.",
-      "defaultCommand": "codebase-research",
+      "summary": "Comprehensive codebase research with progressive disclosure and tiered effort.",
+      "notes": "Alias for research-codebase capability.",
+      "defaultCommand": "research-codebase",
       "phase1": true,
-      "sourceSkill": "codebase-research",
+      "sourceSkill": "research-codebase",
       "providers": {
         "copilot": "supported"
       },
@@ -54,7 +54,7 @@
       "providerSupport": {
         "copilot": {
           "state": "native",
-          "notes": "Use /codebase-research from .github/skills/codebase-research/SKILL.md."
+          "notes": "Use /research-codebase from .github/skills/research-codebase/SKILL.md."
         }
       }
     },
@@ -722,6 +722,98 @@
         "copilot": {
           "state": "native",
           "notes": "Use /self-evolve from .github/skills/self-evolve/SKILL.md."
+        }
+      }
+    },
+    {
+      "id": "worktree",
+      "name": "worktree",
+      "title": "Worktree",
+      "category": "workflow",
+      "summary": "Git worktree-based parallel branch work.",
+      "notes": "Guides worktree setup for tickets and PR reviews.",
+      "defaultCommand": "worktree",
+      "phase1": true,
+      "sourceSkill": "worktree",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /worktree from .github/skills/worktree/SKILL.md."
+        }
+      }
+    },
+    {
+      "id": "workflow.worktree",
+      "name": "workflow.worktree",
+      "title": "Worktree workflow",
+      "category": "workflow",
+      "summary": "Git worktree-based parallel branch work.",
+      "notes": "Alias for worktree capability.",
+      "defaultCommand": "worktree",
+      "phase1": true,
+      "sourceSkill": "worktree",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /worktree from .github/skills/worktree/SKILL.md."
+        }
+      }
+    },
+    {
+      "id": "create-skill",
+      "name": "create-skill",
+      "title": "Skill authoring guide",
+      "category": "meta",
+      "summary": "Guide for creating effective skills following best practices.",
+      "notes": "Helps create or update skills that extend agent capabilities.",
+      "defaultCommand": "create-skill",
+      "phase1": true,
+      "sourceSkill": "create-skill",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /create-skill from .github/skills/create-skill/SKILL.md."
+        }
+      }
+    },
+    {
+      "id": "meta.skill-authoring",
+      "name": "meta.skill-authoring",
+      "title": "Skill authoring",
+      "category": "meta",
+      "summary": "Guide for creating effective skills.",
+      "notes": "Alias for create-skill capability.",
+      "defaultCommand": "create-skill",
+      "phase1": true,
+      "sourceSkill": "create-skill",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /create-skill from .github/skills/create-skill/SKILL.md."
         }
       }
     }
