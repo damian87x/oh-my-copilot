@@ -103,36 +103,56 @@ describe("normalizeCopilotLaunchArgs", () => {
   });
 });
 
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+}
+
 describe("launchCopilot tmux wrapping", () => {
   // Black-box test (matching the real-spawn style of the suite below): use a
   // fake `tmux` on PATH that records its invocation, and a fake copilot bin.
   let dir: string;
   let tmuxLog: string;
+  let copilotLog: string;
   let fakeCopilot: string;
   const savedPath = process.env.PATH;
   const savedTmux = process.env.TMUX;
+  const savedTmuxLogEnv = process.env.OMP_TEST_TMUX_LOG;
+  const savedCopilotLogEnv = process.env.OMP_TEST_COPILOT_LOG;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "omp-launch-"));
-    tmuxLog = join(dir, "tmux-calls.txt");
+    tmuxLog = join(dir, "tmux-argv.json");
+    copilotLog = join(dir, "copilot-argv.json");
     fakeCopilot = join(dir, "fake-copilot");
-    // fake tmux: answer `-V` so tmuxAvailable() sees it, log everything else
+    // Node fakes record their argv verbatim as JSON (preserving arg boundaries)
+    // and read the log destination from the environment, so no filesystem path
+    // is embedded in the script body (robust to spaces/metachars in TMPDIR).
     const fakeTmux = join(dir, "tmux");
     writeFileSync(
       fakeTmux,
-      `#!/bin/sh\nif [ "$1" = "-V" ]; then echo "tmux 3.x-fake"; exit 0; fi\nprintf '%s\\n' "$*" >> ${tmuxLog}\nexit 0\n`,
+      '#!/usr/bin/env node\n' +
+        'const a = process.argv.slice(2);\n' +
+        'if (a[0] === "-V") { console.log("tmux 3.x-fake"); process.exit(0); }\n' +
+        'require("node:fs").writeFileSync(process.env.OMP_TEST_TMUX_LOG, JSON.stringify(a));\n',
     );
     chmodSync(fakeTmux, 0o755);
-    writeFileSync(fakeCopilot, `#!/bin/sh\nprintf '%s' "$*" > ${join(dir, "copilot-args.txt")}\nexit 0\n`);
+    writeFileSync(
+      fakeCopilot,
+      '#!/usr/bin/env node\n' +
+        'require("node:fs").writeFileSync(process.env.OMP_TEST_COPILOT_LOG, JSON.stringify(process.argv.slice(2)));\n',
+    );
     chmodSync(fakeCopilot, 0o755);
     process.env.PATH = `${dir}:${savedPath}`;
+    process.env.OMP_TEST_TMUX_LOG = tmuxLog;
+    process.env.OMP_TEST_COPILOT_LOG = copilotLog;
   });
 
   afterEach(() => {
-    if (savedPath === undefined) delete process.env.PATH;
-    else process.env.PATH = savedPath;
-    if (savedTmux === undefined) delete process.env.TMUX;
-    else process.env.TMUX = savedTmux;
+    restoreEnv("PATH", savedPath);
+    restoreEnv("TMUX", savedTmux);
+    restoreEnv("OMP_TEST_TMUX_LOG", savedTmuxLogEnv);
+    restoreEnv("OMP_TEST_COPILOT_LOG", savedCopilotLogEnv);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -140,10 +160,14 @@ describe("launchCopilot tmux wrapping", () => {
     delete process.env.TMUX;
     const result = await launchCopilot({ args: ["--madmax", "probe"], bin: fakeCopilot, cwd: dir });
     expect(result.ok).toBe(true);
-    const call = readFileSync(tmuxLog, "utf8").trim();
-    expect(call).toMatch(/^new-session -s omp-\d+ -c /);
-    expect(call).toContain(dir); // session opened in the requested cwd
-    expect(call).toContain(`${fakeCopilot} probe --yolo`); // bypass mapped, bin invoked
+    const argv = JSON.parse(readFileSync(tmuxLog, "utf8")) as string[];
+    expect(argv).toHaveLength(6);
+    expect(argv[0]).toBe("new-session");
+    expect(argv[1]).toBe("-s");
+    expect(argv[2]).toMatch(/^omp-\d+$/); // generated session name
+    expect(argv[3]).toBe("-c");
+    expect(argv[4]).toBe(dir); // session opened in exactly the requested cwd
+    expect(argv[5]).toBe(`${fakeCopilot} probe --yolo`); // bin + bypass-mapped command
   });
 
   it("launches directly (no tmux wrap) when already inside tmux", async () => {
@@ -151,7 +175,7 @@ describe("launchCopilot tmux wrapping", () => {
     const result = await launchCopilot({ args: ["--madmax", "probe"], bin: fakeCopilot, cwd: dir });
     expect(result.ok).toBe(true);
     expect(() => readFileSync(tmuxLog, "utf8")).toThrow(); // tmux never invoked
-    expect(readFileSync(join(dir, "copilot-args.txt"), "utf8")).toBe("probe --yolo");
+    expect(JSON.parse(readFileSync(copilotLog, "utf8"))).toEqual(["probe", "--yolo"]);
   });
 });
 
