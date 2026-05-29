@@ -198,7 +198,9 @@
       "description": "Run the lightweight end-to-end skill flow.",
       "summary": "Run the lightweight end-to-end skill flow.",
       "support": "project-skill",
-      "aliases": ["autopilot"],
+      "aliases": [
+        "autopilot"
+      ],
       "slashCommands": [
         "omp-autopilot"
       ],
@@ -469,6 +471,32 @@
       "projections": {
         "copilot": {
           "command": "/create-skill",
+          "state": "supported"
+        }
+      },
+      "projection": "project-skill",
+      "phase1": true
+    },
+    {
+      "name": "weighted-consensus",
+      "capabilityId": "weighted-consensus",
+      "capabilityIds": [
+        "weighted-consensus",
+        "consensus.weighted"
+      ],
+      "source": ".github/skills/weighted-consensus/SKILL.md",
+      "sourcePath": ".github/skills/weighted-consensus/SKILL.md",
+      "canonicalPath": ".github/skills/weighted-consensus/SKILL.md",
+      "description": "Multi-model council with weighted synthesis.",
+      "summary": "Multi-model council with weighted synthesis.",
+      "support": "project-skill",
+      "aliases": [],
+      "slashCommands": [
+        "weighted-consensus"
+      ],
+      "projections": {
+        "copilot": {
+          "command": "/weighted-consensus",
           "state": "supported"
         }
       },

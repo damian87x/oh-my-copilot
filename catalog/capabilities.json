@@ -816,6 +816,52 @@
           "notes": "Use /create-skill from .github/skills/create-skill/SKILL.md."
         }
       }
+    },
+    {
+      "id": "weighted-consensus",
+      "name": "weighted-consensus",
+      "title": "Weighted Consensus",
+      "category": "verification",
+      "summary": "Multi-model council with weighted synthesis.",
+      "notes": "Lite slash project skill; no bundled scripts or external runtime requirement.",
+      "defaultCommand": "weighted-consensus",
+      "phase1": true,
+      "sourceSkill": "weighted-consensus",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /weighted-consensus from .github/skills/weighted-consensus/SKILL.md."
+        }
+      }
+    },
+    {
+      "id": "consensus.weighted",
+      "name": "consensus.weighted",
+      "title": "Weighted Consensus",
+      "category": "verification",
+      "summary": "Multi-model council with weighted synthesis.",
+      "notes": "Lite slash project skill; no bundled scripts or external runtime requirement.",
+      "defaultCommand": "weighted-consensus",
+      "phase1": true,
+      "sourceSkill": "weighted-consensus",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /weighted-consensus from .github/skills/weighted-consensus/SKILL.md."
+        }
+      }
     }
   ]
 }
