@@ -29,3 +29,16 @@ export function clearModeState(cwd: string, mode: LoopMode): void {
   const p = modeStatePath(cwd, mode);
   if (existsSync(p)) unlinkSync(p);
 }
+
+/**
+ * True when any loop mode (ralph/ultrawork/ultraqa) is currently active.
+ * Single source of truth for mode-gated behaviour (e.g. team idle-nudge).
+ * Pure, side-effect-free read.
+ */
+export function isLoopModeActive(cwd: string): boolean {
+  const modes: LoopMode[] = ["ralph", "ultrawork", "ultraqa"];
+  return modes.some((mode) => {
+    const state = readModeStateJson<{ active?: boolean }>(cwd, mode);
+    return state?.active === true;
+  });
+}

@@ -33,6 +33,22 @@ export function buildInboxMarkdown(opts: InboxOptions): string {
     to: "failed",
     claim_token: "<claim_token>",
   });
+  const sendToLeaderInput = JSON.stringify({
+    team_name: opts.teamName,
+    from: opts.workerName,
+    to: "leader",
+    body: "<message>",
+  });
+  const sendToPeerInput = JSON.stringify({
+    team_name: opts.teamName,
+    from: opts.workerName,
+    to: "<teammate>",
+    body: "<message>",
+  });
+  const mailboxListInput = JSON.stringify({
+    team_name: opts.teamName,
+    worker: opts.workerName,
+  });
   return [
     "## REQUIRED: Task Lifecycle Commands",
     "You MUST run these commands. Do NOT skip any step.",
@@ -55,6 +71,19 @@ export function buildInboxMarkdown(opts: InboxOptions): string {
     "",
     "## Description",
     opts.task.description,
+    "",
+    "## Messaging",
+    "You can message the leader OR any teammate directly. The recipient is auto-nudged.",
+    "Unknown recipient names are rejected with `unknown_recipient`.",
+    "",
+    "Message the leader:",
+    `   omp team api send-message --input '${sendToLeaderInput}' --json`,
+    "",
+    "Message a teammate (replace <teammate> with their worker name):",
+    `   omp team api send-message --input '${sendToPeerInput}' --json`,
+    "",
+    "Check your mailbox:",
+    `   omp team api mailbox-list --input '${mailboxListInput}' --json`,
     "",
   ].join("\n");
 }

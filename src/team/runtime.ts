@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   ensureTeamDirs,
@@ -14,6 +14,8 @@ import { peekNewOutbox, readNewOutbox } from "./outbox.js";
 import { isHeartbeatStale, readHeartbeat } from "./heartbeat.js";
 import { makeTmux, type TmuxApi } from "./tmux.js";
 import { NudgeTracker, type NudgeAttempt, type NudgeConfig, type NudgeSummaryEntry } from "./idle-nudge.js";
+import { loadTeamConfig } from "./config.js";
+import { isLoopModeActive } from "../mode-state/paths.js";
 import type { Task, TeamConfig, Worker, WorkerRole } from "./types.js";
 
 const ROLE_BIN: Record<string, string> = {
@@ -161,14 +163,9 @@ export interface MonitorResult {
   nudgeAttempts: NudgeAttempt[];
 }
 
-export function loadTeamConfig(paths: TeamStatePaths): TeamConfig | undefined {
-  if (!existsSync(paths.configFile)) return undefined;
-  try {
-    return JSON.parse(readFileSync(paths.configFile, "utf8")) as TeamConfig;
-  } catch {
-    return undefined;
-  }
-}
+// loadTeamConfig now lives in ./config.js (leaf module) so api.ts can import it
+// without depending on this orchestration module. Re-exported for back-compat.
+export { loadTeamConfig };
 
 export interface PollSnapshotOptions {
   consumeOutbox?: boolean;
@@ -200,6 +197,17 @@ export function pollSnapshot(
   return { tasks, workers, allDone };
 }
 
+/**
+ * Resolve whether idle-nudge should run for this monitor session.
+ * OFF by default. ON when explicitly enabled (the `/team` orchestration monitor
+ * passes `nudge: { enabled: true }`) OR when a loop mode (ralph/ultrawork/ultraqa)
+ * is active. Read-only polling (`team status`) passes neither signal → OFF.
+ */
+export function resolveNudgeEnabled(opts: MonitorOptions, cwd: string): boolean {
+  if (opts.nudge?.enabled === true) return true;
+  return isLoopModeActive(cwd);
+}
+
 export async function monitorTeam(opts: MonitorOptions): Promise<MonitorResult> {
   const cwd = resolve(opts.cwd ?? process.cwd());
   const tmux = opts.tmux ?? makeTmux();
@@ -210,7 +218,7 @@ export async function monitorTeam(opts: MonitorOptions): Promise<MonitorResult> 
   const pollInterval = opts.pollIntervalMs ?? 1000;
   const timeoutMs = opts.timeoutMs ?? 600_000;
   const deadline = Date.now() + timeoutMs;
-  const nudgeEnabled = opts.nudge?.enabled !== false; // default on; opt-out via { enabled: false }
+  const nudgeEnabled = resolveNudgeEnabled(opts, cwd);
   const nudgeTracker = nudgeEnabled ? new NudgeTracker(opts.nudge) : undefined;
   const nudgeAttempts: NudgeAttempt[] = [];
   let snapshot: MonitorSnapshot = pollSnapshot(paths, config, tmux, { consumeOutbox: true });

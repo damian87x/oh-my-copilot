@@ -7,11 +7,13 @@ import {
   loadTeamConfig,
   monitorTeam,
   pollSnapshot,
+  resolveNudgeEnabled,
   resolveWorkerBin,
   shutdownTeam,
   startTeam,
   statusTeam,
 } from "../../src/team/runtime.js";
+import { writeModeStateJson } from "../../src/mode-state/paths.js";
 import { resolveTeamPaths, resolveWorkerPaths } from "../../src/team/state-paths.js";
 import { writeTask, taskFilePath } from "../../src/team/task-store.js";
 import { apiClaimTask, apiTransitionTaskStatus } from "../../src/team/api.js";
@@ -177,6 +179,74 @@ describe("monitorTeam", () => {
     });
     expect(result.reason).toBe("timeout");
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("nudge gating", () => {
+  describe("resolveNudgeEnabled (matrix)", () => {
+    it("is OFF by default (no nudge option, no loop mode)", () => {
+      const cwd = tempCwd();
+      expect(resolveNudgeEnabled({ name: "demo" }, cwd)).toBe(false);
+    });
+
+    it("is OFF when nudge:{} (no enabled key) and no loop mode", () => {
+      const cwd = tempCwd();
+      expect(resolveNudgeEnabled({ name: "demo", nudge: {} }, cwd)).toBe(false);
+    });
+
+    it("is ON when nudge.enabled === true (the /team orchestration path)", () => {
+      const cwd = tempCwd();
+      expect(resolveNudgeEnabled({ name: "demo", nudge: { enabled: true } }, cwd)).toBe(true);
+    });
+
+    it("is ON when a ralph loop mode is active", () => {
+      const cwd = tempCwd();
+      writeModeStateJson(cwd, "ralph", { active: true });
+      expect(resolveNudgeEnabled({ name: "demo" }, cwd)).toBe(true);
+    });
+  });
+
+  describe("monitorTeam wiring (capturePane only fires from the nudge tracker)", () => {
+    it("does NOT nudge by default — no capture-pane calls, no nudge attempts", async () => {
+      const cwd = tempCwd();
+      const { api, calls } = mockTmux();
+      await startTeam({ cwd, name: "demo", role: "claude", workerCount: 1, task: "x", tmux: api });
+      const result = await monitorTeam({ cwd, name: "demo", tmux: api, pollIntervalMs: 1, maxTicks: 2 });
+      expect(calls.some((c) => c[0] === "capture-pane")).toBe(false);
+      expect(result.nudgeAttempts).toHaveLength(0);
+    });
+
+    it("nudges when enabled:true with idle panes", async () => {
+      const cwd = tempCwd();
+      const { api, calls } = mockTmux();
+      await startTeam({ cwd, name: "demo", role: "claude", workerCount: 1, task: "x", tmux: api });
+      const result = await monitorTeam({
+        cwd,
+        name: "demo",
+        tmux: api,
+        pollIntervalMs: 1,
+        maxTicks: 2,
+        nudge: { enabled: true, delayMs: 0, scanIntervalMs: 0 },
+      });
+      expect(calls.some((c) => c[0] === "capture-pane")).toBe(true);
+      expect(result.nudgeAttempts.length).toBeGreaterThan(0);
+    });
+
+    it("nudges when a ralph loop mode is active (no explicit enabled)", async () => {
+      const cwd = tempCwd();
+      const { api, calls } = mockTmux();
+      await startTeam({ cwd, name: "demo", role: "claude", workerCount: 1, task: "x", tmux: api });
+      writeModeStateJson(cwd, "ralph", { active: true });
+      await monitorTeam({
+        cwd,
+        name: "demo",
+        tmux: api,
+        pollIntervalMs: 1,
+        maxTicks: 2,
+        nudge: { delayMs: 0, scanIntervalMs: 0 },
+      });
+      expect(calls.some((c) => c[0] === "capture-pane")).toBe(true);
+    });
   });
 });
 
