@@ -32,7 +32,7 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  mcp                                           (run MCP server over stdio)\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  mcp                                           (run MCP server over stdio)\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -132,6 +132,10 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
 
   if (group === "team") {
     return await handleTeamCommand(argv, json);
+  }
+
+  if (group === "council") {
+    return await handleCouncilCommand(argv, json);
   }
 
   if (group === "mcp") {
@@ -293,6 +297,134 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   }
 
   return { ok: false, exitCode: 1, message: `Unknown command.\n\n${help()}` };
+}
+
+const DEFAULT_COUNCIL_ROLES = ["critic", "architect", "pragmatist"];
+
+/** Parse a --models value: comma-separated `model` or `model:role:weight` tokens. */
+export function parseModelsFlag(
+  value: string,
+): { model: string; role: string; weight: number }[] {
+  const tokens = value
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+  if (tokens.length === 0) {
+    throw new Error("--models was empty");
+  }
+  return tokens.map((token, i) => {
+    const parts = token.split(":");
+    const model = parts[0].trim();
+    if (!model) throw new Error(`--models token "${token}" has no model`);
+    const role = parts[1]?.trim() || DEFAULT_COUNCIL_ROLES[i % DEFAULT_COUNCIL_ROLES.length];
+    let weight = 1;
+    if (parts[2] !== undefined) {
+      const w = Number(parts[2]);
+      if (!Number.isFinite(w) || w <= 0) {
+        throw new Error(`--models token "${token}" has invalid weight`);
+      }
+      weight = w;
+    }
+    return { model, role, weight };
+  });
+}
+
+/** Parse a numeric flag as a finite positive integer; throw on malformed input. */
+export function parsePositiveIntFlag(
+  value: string | undefined,
+  flag: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) {
+    throw new Error(`Invalid ${flag}: expected a positive integer, got "${value}"`);
+  }
+  return n;
+}
+
+async function readFlagOrFile(value: string | undefined): Promise<string | undefined> {
+  if (value === undefined) return undefined;
+  if (value.startsWith("@")) {
+    const { readFileSync } = await import("node:fs");
+    const path = await resolveExistingInputPath(value.slice(1));
+    return readFileSync(path, "utf8");
+  }
+  return value;
+}
+
+async function handleCouncilCommand(argv: string[], json: boolean): Promise<CliResult> {
+  const question = argv[1] && !argv[1].startsWith("--") ? argv[1] : undefined;
+  if (!question) {
+    return { ok: false, exitCode: 1, message: 'council requires a question: omp council "<question>" [flags]' };
+  }
+
+  let members;
+  try {
+    const modelsFlag = flagValue(argv, "--models");
+    members = modelsFlag ? parseModelsFlag(modelsFlag) : undefined;
+  } catch (err) {
+    return { ok: false, exitCode: 1, message: `Invalid --models: ${String(err)}` };
+  }
+
+  const context = await readFlagOrFile(flagValue(argv, "--context"));
+  const rubric = await readFlagOrFile(flagValue(argv, "--rubric"));
+
+  let perMemberTimeoutMs: number | undefined;
+  let minSurvivors: number | undefined;
+  let maxConcurrency: number | undefined;
+  try {
+    perMemberTimeoutMs = parsePositiveIntFlag(flagValue(argv, "--timeout"), "--timeout");
+    minSurvivors = parsePositiveIntFlag(flagValue(argv, "--min-survivors"), "--min-survivors");
+    maxConcurrency = parsePositiveIntFlag(flagValue(argv, "--max-concurrency"), "--max-concurrency");
+  } catch (err) {
+    return { ok: false, exitCode: 1, message: String(err instanceof Error ? err.message : err) };
+  }
+
+  // Only set probe when the flag is present, so `council.probe` from config
+  // takes effect (precedence: spec.probe ?? config.probe ?? false).
+  const probe = hasFlag(argv, "--probe") ? true : undefined;
+
+  const { runCouncilWithDefaults } = await import("./council/index.js");
+  const result = await runCouncilWithDefaults(
+    {
+      question,
+      context,
+      rubric,
+      rolePack: flagValue(argv, "--role-pack"),
+      members,
+      synthesizerModel: flagValue(argv, "--synth"),
+      probe,
+      perMemberTimeoutMs,
+      minSurvivors,
+      maxConcurrency,
+      tmpDir: flagValue(argv, "--tmp-dir"),
+    },
+    { cwd: flagValue(argv, "--root") ?? process.cwd(), bin: flagValue(argv, "--bin") },
+  );
+
+  if (json) {
+    return { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result };
+  }
+
+  const lines: string[] = [];
+  if (result.ok && result.synth) {
+    lines.push(`Verdict: ${result.synth.verdict}`);
+    lines.push(`Confidence: ${result.synth.confidence}`);
+    lines.push(`Rationale: ${result.synth.rationale}`);
+    if (result.synth.minority_report) {
+      lines.push(`Minority report: ${result.synth.minority_report}`);
+    }
+    lines.push(`Members: ${result.survivors} survived, ${result.dropped} dropped`);
+  } else {
+    lines.push(`Council failed: ${result.error ?? "unknown error"}`);
+  }
+  for (const m of result.members) {
+    if (m.status !== "ok") {
+      lines.push(`  - dropped ${m.spec.model} (${m.spec.role}): ${m.status} — ${m.dropReason ?? ""}`);
+    }
+  }
+  lines.push(`Artifacts: ${result.tmpDir}`);
+  return { ok: result.ok, exitCode: result.ok ? 0 : 1, message: lines.join("\n") };
 }
 
 const TEAM_SPEC_RE = /^(\d+):([\w-]+)$/;

@@ -76,7 +76,7 @@ That's it.
 ### Intelligent Orchestration
 
 - **7 specialized agents** — planner, architect, executor, verifier, code-reviewer, designer, researcher (all `--agent <name>` compatible with Copilot CLI)
-- **18 in-session skills** auto-discovered from `.github/skills/`
+- **19 in-session skills** auto-discovered from `.github/skills/`
 - **Smart pipeline routing** — `/research-codebase` → `/ralplan` → `/team` / `/ralph` / `/ultrawork` → `/code-review` → `/ultraqa`
 
 ### Developer Experience
@@ -101,6 +101,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/ralplan`              | Consensus planning                                        | `/ralplan "plan this feature"`                       |
 | `/team`                 | Parallel tmux agent panes                                 | `/team`                                              |
 | `/code-review`          | Diff-focused reviewer                                     | `/code-review`                                       |
+| `/weighted-consensus`   | Multi-model council → one weighted verdict + minority report | `/weighted-consensus "JSON or YAML for config?"`  |
 | `/research-codebase`    | Map an area of the codebase                               | `/research-codebase "auth middleware"`               |
 | `/debug`                | Disciplined diagnose-reproduce-fix loop                   | `/debug "flaky integration test"`                    |
 | `/tdd`                  | Red-green-refactor cycle                                  | `/tdd "add pagination to /users"`                    |
@@ -112,6 +113,62 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/grill-me`             | Stress-test a plan with Socratic questions                | `/grill-me`                                          |
 | `/caveman`              | Ultra-compressed communication mode                       | `/caveman`                                           |
 | `/worktree`             | Git worktree-based parallel branch work                   | `/worktree`                                          |
+
+---
+
+## Weighted consensus (model council)
+
+`/weighted-consensus` fans a question out to several models **in parallel**, each
+running independently with its own role, then a separate synthesizer model merges
+their answers into one verdict — treating each member's weight as a **prior**, not
+a vote tally — and surfaces a **minority report** instead of averaging dissent away.
+
+It runs as `omp council` under the hood (engine in `src/council/`), so it works
+both in-session via the skill and from the shell.
+
+```bash
+# Shell — default roster from .omp/config.json (or built-in default)
+omp council "Should we adopt a monorepo? One paragraph."
+
+# Pick the roster inline (model:role:weight, or bare models with default roles)
+omp council "Is this migration safe?" \
+  --models "gpt-5-mini:critic:1.5,gpt-4.1:architect:1" \
+  --synth gpt-4.1 --json
+
+# Feed a diff/file as shared context and an evaluation rubric
+omp council "Review this change for blockers" --context @diff.txt --rubric @rubric.md
+```
+
+In-session, just ask:
+
+```
+/weighted-consensus "Should this service use gRPC or REST?"
+/weighted-consensus "Compare these two caching strategies" --models gpt-5-mini,gpt-4.1
+```
+
+Configure the default roster in `.omp/config.json`:
+
+```json
+{
+  "council": {
+    "synthesizer": "gpt-4.1",
+    "minSurvivors": 2,
+    "maxConcurrency": 4,
+    "members": [
+      { "model": "gpt-5-mini", "role": "critic", "weight": 0.4 },
+      { "model": "gpt-4.1", "role": "architect", "weight": 0.35 },
+      { "model": "gpt-5-mini", "role": "pragmatist", "weight": 0.25 }
+    ]
+  }
+}
+```
+
+Notes:
+- Members run as independent `copilot --model <X>` processes — none sees the others' answers.
+- Unavailable models (not on your Copilot plan) are detected and dropped; the
+  council still synthesizes from survivors and fails only below `minSurvivors`.
+- For real diversity prefer distinct models; on a free GPT-only plan, distinct **roles** still help (add a Claude/other-provider model if your plan includes one).
+- Diversity comes from the model mix + per-role prompts; the Copilot CLI exposes no temperature knob.
 
 ---
 
@@ -131,6 +188,7 @@ omp team shutdown <name>
 omp ralph start "<task>" [--max-iterations N]
 omp ultrawork start "<objective>" [--task-count N]
 omp ultraqa start "<goal>" [--max-cycles N]
+omp council "<question>" [--models a,b,c] [--context @file] [--json]   # multi-model council
 omp mcp                                     # MCP server over stdio
 omp catalog list | validate | capability <id>
 omp jira render <plan-file>
