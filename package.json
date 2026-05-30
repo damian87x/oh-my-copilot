@@ -24,6 +24,8 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "release": "bash tools/release.sh",
+    "release:publish-only": "bash tools/release.sh --publish-only",
     "check:catalog": "npm run build && node dist/src/cli.js catalog validate",
     "catalog:list": "npm run build && node dist/src/cli.js catalog list",
     "project:inspect": "npm run build && node dist/src/cli.js project inspect",

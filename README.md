@@ -284,3 +284,19 @@ To unlink and revert to the published package:
 npm unlink -g @damian87/omp
 npm i -g @damian87/omp
 ```
+
+## Releasing (maintainers)
+
+One command runs the whole flow — quality gates → version bump → tag → push →
+GitHub release → `npm publish`. It's a maintainer script (`tools/release.sh`),
+**not** a published plugin skill, so it never ships in the package or appears in
+the in-session skill catalog. npm 2FA is on, so pass an authenticator code via `--otp`.
+
+```bash
+npm run release -- minor --otp 123456     # bump 0.x.0, tag, push, GH release, publish
+npm run release -- patch --dry-run        # validate everything, change nothing
+npm run release:publish-only -- --otp 123456   # build + publish the CURRENT version (recover a half-done release)
+```
+
+The script refuses to run unless you're on a clean, up-to-date `main` and the
+gates (`test`, `lint:skills`, `check:catalog`, `build`) pass.
