@@ -14,6 +14,8 @@ import type {
   SpawnResponse,
 } from "./types.js";
 
+export type ProgressCallback = (message: string) => void;
+
 /** stderr signature emitted by copilot when a --model slug is not entitled. */
 const UNAVAILABLE_SIGNATURE = /is not available/i;
 
@@ -161,7 +163,9 @@ async function probeRoster(
   return { kept, pruned };
 }
 
-export interface RunCouncilOptions extends LoadCouncilConfigOptions {}
+export interface RunCouncilOptions extends LoadCouncilConfigOptions {
+  onProgress?: ProgressCallback;
+}
 
 /**
  * Fan a question out to the council, parse + classify each member, then
@@ -177,16 +181,19 @@ export async function runCouncil(
   const config = loadCouncilConfig(spec, options);
   const now = deps.now ?? Date.now;
   const tmpDir = spec.tmpDir ?? join(tmpdir(), `council-${now()}`);
+  const progress = options.onProgress;
 
   let roster = config.members;
   const prunedResults: CouncilMemberResult[] = [];
 
   if (config.probe) {
+    progress?.(`Probing ${roster.length} model(s)…`);
     const { kept, pruned } = await probeRoster(roster, config, deps);
     roster = kept;
     for (const p of pruned) {
       const spc = config.members.find((m) => m.model === p.model);
       if (spc) {
+        progress?.(`  ✗ ${spc.model} (${spc.role}): unavailable`);
         prunedResults.push({
           spec: spc,
           status: "unavailable",
@@ -197,9 +204,19 @@ export async function runCouncil(
     }
   }
 
-  const ran = await runWithConcurrency(roster, config.maxConcurrency, (member, i) =>
-    runMember(member, i, spec, config, deps, tmpDir),
-  );
+  progress?.(`Running ${roster.length} member(s)…`);
+  let completed = 0;
+  const ran = await runWithConcurrency(roster, config.maxConcurrency, async (member, i) => {
+    const result = await runMember(member, i, spec, config, deps, tmpDir);
+    completed++;
+    const dur = (result.durationMs / 1000).toFixed(1);
+    if (result.status === "ok") {
+      progress?.(`  ✓ ${completed}/${roster.length} ${member.model} (${member.role}) ${dur}s`);
+    } else {
+      progress?.(`  ✗ ${completed}/${roster.length} ${member.model} (${member.role}) ${result.status} ${dur}s`);
+    }
+    return result;
+  });
 
   const members = [...ran, ...prunedResults];
   const survivors = members.filter((m) => m.status === "ok");
@@ -223,6 +240,7 @@ export async function runCouncil(
     };
   }
 
+  progress?.(`Synthesizing from ${survivors.length} survivor(s)…`);
   const synthResult = await synthesize(config, spec, members, deps);
   if (!synthResult.ok || !synthResult.synth) {
     return {

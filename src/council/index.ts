@@ -32,7 +32,7 @@ export {
   isValidMemberOutput,
   isValidSynthOutput,
 } from "./prompts.js";
-export { runCouncil, runWithConcurrency } from "./engine.js";
+export { runCouncil, runWithConcurrency, type ProgressCallback } from "./engine.js";
 export { synthesize } from "./synth.js";
 
 /**

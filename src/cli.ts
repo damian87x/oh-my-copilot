@@ -402,7 +402,11 @@ async function handleCouncilCommand(argv: string[], json: boolean): Promise<CliR
       maxConcurrency,
       tmpDir: flagValue(argv, "--tmp-dir"),
     },
-    { cwd: flagValue(argv, "--root") ?? process.cwd(), bin: flagValue(argv, "--bin") },
+    {
+      cwd: flagValue(argv, "--root") ?? process.cwd(),
+      bin: flagValue(argv, "--bin"),
+      onProgress: json ? undefined : (msg: string) => process.stderr.write(`${msg}\n`),
+    },
   );
 
   if (json) {
