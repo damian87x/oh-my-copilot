@@ -32,6 +32,8 @@ describe("loadCouncilConfig", () => {
     expect(cfg.minSurvivors).toBe(DEFAULT_MIN_SURVIVORS);
     expect(cfg.maxConcurrency).toBe(DEFAULT_MAX_CONCURRENCY);
     expect(cfg.probe).toBe(false);
+    // synthTimeoutMs defaults to 2× perMemberTimeoutMs
+    expect(cfg.synthTimeoutMs).toBe(cfg.perMemberTimeoutMs * 2);
   });
 
   it("parses a council block from .omp/config.json", () => {
@@ -49,6 +51,8 @@ describe("loadCouncilConfig", () => {
     expect(cfg.perMemberTimeoutMs).toBe(5000);
     expect(cfg.maxConcurrency).toBe(2);
     expect(cfg.probe).toBe(true);
+    // synthTimeoutMs defaults to 2× perMemberTimeoutMs when not in config
+    expect(cfg.synthTimeoutMs).toBe(10000);
     expect(cfg.members).toHaveLength(1);
     expect(cfg.members[0].model).toBe("claude-haiku-4.5");
   });
@@ -87,5 +91,18 @@ describe("loadCouncilConfig", () => {
     writeFileSync(join(dir, ".omp", "config.json"), "{ not json", "utf8");
     const cfg = loadCouncilConfig({ question: "q" }, { cwd: dir });
     expect(cfg.members).toEqual(DEFAULT_MEMBERS);
+  });
+
+  it("reads explicit synthTimeoutMs from config", () => {
+    writeConfig({ synthTimeoutMs: 300000, perMemberTimeoutMs: 60000 });
+    const cfg = loadCouncilConfig({ question: "q" }, { cwd: dir });
+    expect(cfg.synthTimeoutMs).toBe(300000);
+    expect(cfg.perMemberTimeoutMs).toBe(60000);
+  });
+
+  it("spec.synthTimeoutMs overrides config and default", () => {
+    writeConfig({ synthTimeoutMs: 300000 });
+    const cfg = loadCouncilConfig({ question: "q", synthTimeoutMs: 500000 }, { cwd: dir });
+    expect(cfg.synthTimeoutMs).toBe(500000);
   });
 });

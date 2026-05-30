@@ -50,7 +50,7 @@ export async function synthesize(
     res = await deps.spawn({
       model: config.synthesizerModel,
       prompt,
-      timeoutMs: config.perMemberTimeoutMs,
+      timeoutMs: config.synthTimeoutMs,
     });
   } catch (err) {
     return { ok: false, error: `synth spawn failed: ${String(err)}` };

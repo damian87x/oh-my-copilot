@@ -14,6 +14,7 @@ const config: ResolvedCouncilConfig = {
   synthesizerModel: "auto",
   minSurvivors: 2,
   perMemberTimeoutMs: 1000,
+  synthTimeoutMs: 2000,
   maxConcurrency: 4,
   probe: false,
 };
@@ -48,6 +49,24 @@ describe("buildSynthPrompt", () => {
     expect(p).toContain("1.5");
     expect(p.toLowerCase()).toContain("prior");
     expect(p.toLowerCase()).toContain("evidence");
+  });
+
+  it("does not include shared context (members already digested it)", () => {
+    const survivors: CouncilMemberResult[] = [
+      {
+        spec: { model: "m1", role: "critic", weight: 1 },
+        status: "ok",
+        durationMs: 1,
+        output: { verdict: "yes", confidence: 0.8, rationale: "ok" },
+      },
+    ];
+    const p = buildSynthPrompt(
+      config,
+      { question: "Ship it?", context: "THIS IS A HUGE CONTEXT BLOCK" },
+      survivors,
+    );
+    expect(p).not.toContain("THIS IS A HUGE CONTEXT BLOCK");
+    expect(p).toContain("Ship it?");
   });
 });
 

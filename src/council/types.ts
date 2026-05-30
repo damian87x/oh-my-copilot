@@ -17,6 +17,7 @@ export interface CouncilTaskSpec {
   members?: CouncilMemberSpec[]; // explicit roster override (else config -> default)
   minSurvivors?: number; // min parsed members required to synthesize (default 2)
   perMemberTimeoutMs?: number; // default from config (default 120000)
+  synthTimeoutMs?: number; // synth timeout; default 2× perMemberTimeoutMs
   synthesizerModel?: string; // override synth model
   probe?: boolean; // opt-in preflight availability probe; default false. Precedence: spec.probe (CLI --probe) ?? config.probe ?? false
   maxConcurrency?: number; // max parallel member spawns (default 4); hand-rolled limiter
@@ -89,6 +90,7 @@ export interface ResolvedCouncilConfig {
   synthesizerModel: string;
   minSurvivors: number;
   perMemberTimeoutMs: number;
+  synthTimeoutMs: number;
   maxConcurrency: number;
   probe: boolean;
 }

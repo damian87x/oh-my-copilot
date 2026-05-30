@@ -12,6 +12,7 @@ const config: ResolvedCouncilConfig = {
   synthesizerModel: "synth",
   minSurvivors: 2,
   perMemberTimeoutMs: 1000,
+  synthTimeoutMs: 2000,
   maxConcurrency: 4,
   probe: false,
 };
@@ -70,5 +71,19 @@ describe("synthesize", () => {
     const res = await synthesize(config, spec, members, depsReturning("", 124, true));
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/timed out/i);
+  });
+
+  it("passes synthTimeoutMs to the spawn call, not perMemberTimeoutMs", async () => {
+    let capturedTimeout = 0;
+    const deps: CouncilDeps = {
+      spawn: async (req) => {
+        capturedTimeout = req.timeoutMs;
+        return { stdout: '<<<JSON>>>{"verdict":"v","confidence":0.9,"rationale":"r","minority_report":""}<<<END>>>', stderr: "", exitCode: 0, timedOut: false };
+      },
+      now: () => 0,
+    };
+    await synthesize(config, spec, members, deps);
+    expect(capturedTimeout).toBe(config.synthTimeoutMs);
+    expect(capturedTimeout).not.toBe(config.perMemberTimeoutMs);
   });
 });

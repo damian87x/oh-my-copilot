@@ -30,6 +30,7 @@ interface PartialCouncilFileConfig {
   synthesizer?: unknown;
   minSurvivors?: unknown;
   perMemberTimeoutMs?: unknown;
+  synthTimeoutMs?: unknown;
   maxConcurrency?: unknown;
   probe?: unknown;
 }
@@ -106,6 +107,12 @@ export function loadCouncilConfig(
       ? file.perMemberTimeoutMs
       : DEFAULT_PER_MEMBER_TIMEOUT_MS);
 
+  const synthTimeoutMs =
+    spec.synthTimeoutMs ??
+    (typeof file.synthTimeoutMs === "number"
+      ? file.synthTimeoutMs
+      : perMemberTimeoutMs * 2);
+
   const maxConcurrency =
     spec.maxConcurrency ??
     (typeof file.maxConcurrency === "number"
@@ -121,6 +128,7 @@ export function loadCouncilConfig(
     synthesizerModel,
     minSurvivors,
     perMemberTimeoutMs,
+    synthTimeoutMs,
     maxConcurrency: maxConcurrency > 0 ? maxConcurrency : DEFAULT_MAX_CONCURRENCY,
     probe,
   };

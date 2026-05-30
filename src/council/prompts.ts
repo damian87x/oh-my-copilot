@@ -64,7 +64,6 @@ export function buildSynthPrompt(
 
   return [
     `You are the synthesizer for a model council. Original question: ${spec.question}`,
-    spec.context ? `Shared context:\n${spec.context}` : "",
     `Council members (independent, did not see each other):\n\n${memberBlocks}`,
     `Treat each member's weight as a PRIOR/hint (e.g. trust the higher-weight member more), ` +
       `but let EVIDENCE QUALITY override weight — do NOT do a simple majority vote or average. ` +
