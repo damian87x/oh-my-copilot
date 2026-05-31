@@ -38,6 +38,22 @@ export function readTodayGoal(directory) {
   }
 }
 
+/** The repo's durable objective from .omp/goal.md, or null when unset. */
+export function readRepoGoal(directory) {
+  try {
+    const p = join(resolve(directory), ".omp", "goal.md");
+    if (!existsSync(p)) return null;
+    const text = readFileSync(p, "utf8");
+    const lines = (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text).split("\n");
+    // Strip only our own `# Repo Goal` header so a hand-authored goal isn't lost.
+    if (/^#\s+Repo Goal\s*$/i.test(lines[0] ?? "")) lines.shift();
+    const goal = lines.join("\n").trim();
+    return goal || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Count day-files + total log bullets within the last `days` days (inclusive). */
 export function recentEntryStats(directory, days = 7) {
   try {

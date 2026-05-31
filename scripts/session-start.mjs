@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
 import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
-import { readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
+import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
 
 const HOOK_NAME = "SessionStart";
 
@@ -44,6 +44,8 @@ function buildDailyLogBreadcrumb(directory) {
     const parts = [];
     const update = await checkForUpdate({ stateDir });
     if (update) parts.push(formatUpdateNotice(update.current, update.latest));
+    const repoGoal = readRepoGoal(directory);
+    if (repoGoal) parts.push(`[REPO GOAL] ${repoGoal}`);
     const breadcrumb = buildDailyLogBreadcrumb(directory);
     if (breadcrumb) parts.push(breadcrumb);
     // Resets the per-session baseline and flushes a nudge when the prior session
