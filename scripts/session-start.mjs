@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
 import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
 import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
+import { readDirectives } from "./lib/project-memory.mjs";
 
 const HOOK_NAME = "SessionStart";
 
@@ -44,6 +45,12 @@ function buildDailyLogBreadcrumb(directory) {
     const parts = [];
     const update = await checkForUpdate({ stateDir });
     if (update) parts.push(formatUpdateNotice(update.current, update.latest));
+    // Directives are must-follow rules — injected unconditionally (never on-demand)
+    // so the agent can't skip a rule by judging it "unrelated".
+    const directives = readDirectives(directory);
+    if (directives.length > 0) {
+      parts.push(`[DIRECTIVES] Follow these this session:\n${directives.map((d) => `- ${d}`).join("\n")}`);
+    }
     const repoGoal = readRepoGoal(directory);
     if (repoGoal) parts.push(`[REPO GOAL] ${repoGoal}`);
     const breadcrumb = buildDailyLogBreadcrumb(directory);

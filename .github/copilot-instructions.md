@@ -47,5 +47,9 @@ memory aids, not a transcript. Float kills their value.
   - When such a mode finishes, add **one** concise summary entry — `omp daily-log add "<text>"`:
     what changed, key decisions, next step.
   - Otherwise add an entry only at a genuine milestone you judge worth remembering.
+- **Project memory** (`.omp/project-memory.json`): `omp project-memory add-directive "<rule>"`
+  for a must-follow rule — directives are **injected at every session start** (never on-demand),
+  so add only real, lasting rules and keep them few. `omp project-memory add-note "<fact>"` is
+  for durable facts, read on demand.
 - **Caps:** at most a handful of entries per day; record decisions and outcomes, not narration.
   Skip trivial or very short sessions entirely. Do NOT log per skill invocation.
