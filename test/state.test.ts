@@ -2,25 +2,36 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { stateClear, stateList, stateRead, stateStatus, stateWrite } from "../src/state.js";
+import { stateCleanup, stateDelete, stateList, stateRead, stateStatus, stateWrite } from "../src/state.js";
 
 const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-state-"));
 
 describe("state kv (src/state)", () => {
   it("reads null for a missing key", () => {
-    expect(stateRead(cwd(), "nope")).toBeNull();
+    expect(stateRead(cwd(), "nope").value).toBeNull();
   });
 
-  it("writes, reads, lists, and clears", () => {
+  it("writes, reads, lists, and deletes", () => {
     const root = cwd();
     stateWrite(root, "a", { n: 1 });
     stateWrite(root, "b", "hello");
-    expect(stateRead(root, "a")).toEqual({ n: 1 });
-    expect(stateRead(root, "b")).toBe("hello");
+    expect(stateRead(root, "a").value).toEqual({ n: 1 });
+    expect(stateRead(root, "b").value).toBe("hello");
     expect(stateList(root)).toEqual(["a", "b"]);
-    stateClear(root, "a");
-    expect(stateRead(root, "a")).toBeNull();
+    stateDelete(root, "a");
+    expect(stateRead(root, "a").value).toBeNull();
     expect(stateList(root)).toEqual(["b"]);
+  });
+
+  it("expires entries past their TTL and cleans them up", () => {
+    const root = cwd();
+    stateWrite(root, "ephemeral", "x", -1); // already expired
+    const read = stateRead(root, "ephemeral");
+    expect(read.value).toBeNull();
+    expect(read.expired).toBe(true);
+    stateWrite(root, "ephemeral2", "y", -1);
+    expect(stateCleanup(root)).toBe(1);
+    expect(stateList(root)).toEqual([]);
   });
 
   it("reports status with mtime + bytes", () => {

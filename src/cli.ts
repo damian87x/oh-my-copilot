@@ -32,7 +32,7 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  state read|write|clear|status <key> | state list [--json]\n  notepad read [section] | write-priority|write-working|write-manual "<text>" | prune | stats [--json]\n  project-memory read | add-note "<text>" | add-directive "<text>" [--json]\n  shared-memory write <key> <val> [--ttl <s>] | read|delete <key> | list | cleanup [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read | add-note "<text>" | add-directive "<text>" [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -199,57 +199,37 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     const s = await import("./state.js");
     const cwd = flagValue(argv, "--root") ?? process.cwd();
     if (command === "read" && value) {
-      return { ok: true, output: { value: s.stateRead(cwd, value) } };
+      return { ok: true, output: s.stateRead(cwd, value) };
     }
     if (command === "write" && value) {
       const raw = argv[3];
-      if (raw === undefined) return { ok: false, exitCode: 1, message: "usage: omp state write <key> <json-or-string>" };
+      if (raw === undefined) return { ok: false, exitCode: 1, message: "usage: omp state write <key> <json-or-string> [--ttl <sec>]" };
       let parsed: unknown;
       try {
         parsed = JSON.parse(raw);
       } catch {
         parsed = raw;
       }
-      const path = s.stateWrite(cwd, value, parsed);
-      return json ? { ok: true, output: { ok: true, path } } : { ok: true, message: `wrote ${value}` };
+      const ttlRaw = flagValue(argv, "--ttl");
+      const ttl = ttlRaw !== undefined && Number.isFinite(Number(ttlRaw)) ? Number(ttlRaw) : undefined;
+      const expiresAt = s.stateWrite(cwd, value, parsed, ttl);
+      return json ? { ok: true, output: { ok: true, expiresAt } } : { ok: true, message: `wrote ${value}${expiresAt ? ` (expires ${expiresAt})` : ""}` };
     }
-    if (command === "clear" && value) {
-      s.stateClear(cwd, value);
-      return { ok: true, message: `cleared ${value}` };
+    if (command === "delete" && value) {
+      s.stateDelete(cwd, value);
+      return { ok: true, message: `deleted ${value}` };
     }
     if (command === "list") {
       return { ok: true, output: { keys: s.stateList(cwd) } };
     }
+    if (command === "cleanup") {
+      const deleted = s.stateCleanup(cwd);
+      return json ? { ok: true, output: { deleted } } : { ok: true, message: `cleaned ${deleted} expired` };
+    }
     if (command === "status" && value) {
       return { ok: true, output: s.stateStatus(cwd, value) };
     }
-    return { ok: false, exitCode: 1, message: "Unknown state subcommand. Try: state read <key> | write <key> <val> | clear <key> | list | status <key>" };
-  }
-
-  if (group === "notepad") {
-    const n = await import("./notepad.js");
-    const cwd = flagValue(argv, "--root") ?? process.cwd();
-    if (command === "read" || command === undefined) {
-      const section = value && !value.startsWith("-") ? value : "all";
-      return { ok: true, message: n.notepadRead(cwd, section as "all" | "priority" | "working" | "manual") };
-    }
-    if ((command === "write-priority" || command === "write-working" || command === "write-manual") && value !== undefined) {
-      const section = command.replace("write-", "") as "priority" | "working" | "manual";
-      n.notepadWrite(cwd, section, value);
-      return { ok: true, message: `notepad ${section} updated` };
-    }
-    if (command === "prune") {
-      n.notepadPrune(cwd);
-      return { ok: true, message: "notepad cleared" };
-    }
-    if (command === "stats") {
-      return { ok: true, output: n.notepadStats(cwd) };
-    }
-    return {
-      ok: false,
-      exitCode: 1,
-      message: 'Unknown notepad subcommand. Try: notepad read [section] | write-priority "<t>" | write-working "<t>" | write-manual "<t>" | prune | stats',
-    };
+    return { ok: false, exitCode: 1, message: "Unknown state subcommand. Try: state read <key> | write <key> <val> [--ttl s] | delete <key> | list | cleanup | status <key>" };
   }
 
   if (group === "project-memory") {
@@ -267,40 +247,6 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
       return json ? { ok: true, output: { ok: true, count } } : { ok: true, message: `directive added (${count} total)` };
     }
     return { ok: false, exitCode: 1, message: 'Unknown project-memory subcommand. Try: project-memory read | add-note "<t>" | add-directive "<t>"' };
-  }
-
-  if (group === "shared-memory") {
-    const sm = await import("./shared-memory.js");
-    const cwd = flagValue(argv, "--root") ?? process.cwd();
-    if (command === "write" && value) {
-      const raw = argv[3];
-      if (raw === undefined) return { ok: false, exitCode: 1, message: "usage: omp shared-memory write <key> <json-or-string> [--ttl <sec>]" };
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        parsed = raw;
-      }
-      const ttlRaw = flagValue(argv, "--ttl");
-      const ttl = ttlRaw !== undefined && Number.isFinite(Number(ttlRaw)) ? Number(ttlRaw) : undefined;
-      const expiresAt = sm.sharedWrite(cwd, value, parsed, ttl);
-      return json ? { ok: true, output: { ok: true, expiresAt } } : { ok: true, message: `wrote ${value}${expiresAt ? ` (expires ${expiresAt})` : ""}` };
-    }
-    if (command === "read" && value) {
-      return { ok: true, output: sm.sharedRead(cwd, value) };
-    }
-    if (command === "list") {
-      return { ok: true, output: { keys: sm.sharedList(cwd) } };
-    }
-    if (command === "delete" && value) {
-      sm.sharedDelete(cwd, value);
-      return { ok: true, message: `deleted ${value}` };
-    }
-    if (command === "cleanup") {
-      const deleted = sm.sharedCleanup(cwd);
-      return json ? { ok: true, output: { deleted } } : { ok: true, message: `cleaned ${deleted} expired` };
-    }
-    return { ok: false, exitCode: 1, message: "Unknown shared-memory subcommand. Try: shared-memory write <key> <val> [--ttl s] | read <key> | list | delete <key> | cleanup" };
   }
 
   if (group === "trace") {
