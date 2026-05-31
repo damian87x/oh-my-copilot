@@ -32,7 +32,7 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n  mcp                                           (run MCP server over stdio)\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  slack serve                                   (run the Slack→Copilot bridge over Socket Mode)\n  slack doctor [--json]                         (check Slack tokens + resolvable Copilot session)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n  mcp                                           (run MCP server over stdio)\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -140,6 +140,10 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
 
   if (group === "comms") {
     return await handleCommsCommand(argv, json);
+  }
+
+  if (group === "slack") {
+    return await handleSlackCommand(argv, json);
   }
 
   if (group === "mcp") {
@@ -555,6 +559,62 @@ async function handleCommsCommand(argv: string[], json: boolean): Promise<CliRes
     exitCode: 1,
     message:
       'Unknown comms subcommand. Try: comms status | send --text "<prompt>" | recv [--wait] | ask --text "<prompt>"',
+  };
+}
+
+async function handleSlackCommand(argv: string[], json: boolean): Promise<CliResult> {
+  const [, command] = argv;
+
+  if (command === "serve") {
+    const { loadSlackConfig } = await import("./slack/config.js");
+    const { runSlackBot } = await import("./slack/serve.js");
+    let config;
+    try {
+      config = loadSlackConfig();
+    } catch (err) {
+      return { ok: false, exitCode: 1, message: String(err instanceof Error ? err.message : err) };
+    }
+    try {
+      await runSlackBot(config); // blocks until SIGINT/SIGTERM
+    } catch (err) {
+      return {
+        ok: false,
+        exitCode: 1,
+        message: `slack bot failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+    return { ok: true, message: "slack bot stopped" };
+  }
+
+  if (command === "doctor" || command === "status") {
+    const hasBot = !!process.env.SLACK_BOT_TOKEN;
+    const hasApp = !!process.env.SLACK_APP_TOKEN;
+    const { resolveSession } = await import("./comms/resolve-session.js");
+    const resolved = resolveSession({ env: process.env.COPILOT_TMUX_SESSION });
+    const out = {
+      botToken: hasBot,
+      appToken: hasApp,
+      copilotSession: resolved.ok ? resolved.session : null,
+      copilotError: resolved.ok ? undefined : resolved.error,
+    };
+    const startable = hasBot && hasApp;
+    const ready = startable && resolved.ok;
+    const output = { ...out, ready };
+    return json
+      ? { ok: startable, exitCode: startable ? 0 : 1, output }
+      : {
+          ok: startable,
+          exitCode: startable ? 0 : 1,
+          message: `bot_token=${hasBot} app_token=${hasApp} copilot_session=${
+            out.copilotSession ?? `(none: ${out.copilotError ?? "unknown"})`
+          } ready=${ready}`,
+        };
+  }
+
+  return {
+    ok: false,
+    exitCode: 1,
+    message: "Unknown slack subcommand. Try: slack serve | slack doctor",
   };
 }
 

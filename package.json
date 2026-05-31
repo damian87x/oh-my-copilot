@@ -55,6 +55,7 @@
     "vitest": "^3.1.4"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@slack/bolt": "^4.4.0"
   }
 }
