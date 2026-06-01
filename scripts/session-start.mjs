@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
 import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
+import { scanScheduleResults } from "./lib/schedule-results.mjs";
 
 const HOOK_NAME = "SessionStart";
 
@@ -24,7 +25,16 @@ const HOOK_NAME = "SessionStart";
     appendFileSync(logFile, `${line}\n`);
 
     const update = await checkForUpdate({ stateDir });
-    const additionalContext = update ? formatUpdateNotice(update.current, update.latest) : "";
+    const parts = [];
+    if (update) parts.push(formatUpdateNotice(update.current, update.latest));
+    try {
+      const scheduleBanner = scanScheduleResults(directory);
+      if (scheduleBanner) parts.push(scheduleBanner);
+    } catch (e) {
+      // schedule scan is best-effort; never block session start
+      console.error(`[hook ${HOOK_NAME}] schedule scan failed: ${e?.message ?? e}`);
+    }
+    const additionalContext = parts.join("\n\n");
 
     console.log(
       JSON.stringify({

@@ -1,8 +1,15 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCli } from "../src/cli.js";
+
+// Mock the OS installer so `schedule` CLI tests never touch real launchctl/crontab.
+vi.mock("../src/schedule/installer.js", () => ({
+  installJob: vi.fn(() => ({ backend: "crontab", installed: true })),
+  uninstallJob: vi.fn(),
+  getInstalledStatus: vi.fn(() => false),
+}));
 
 describe("runCli: bare `omp` launches copilot (bypass off by default)", () => {
   // Capture the exact argv copilot receives via a stub bin. Force the direct
@@ -108,5 +115,64 @@ describe("runCli: bare-flag launch routing", () => {
     const result = await runCli(["--help"]);
     expect(result.ok).toBe(true);
     expect(result.message ?? "").toMatch(/oh-my-copilot/);
+  });
+});
+
+describe("runCli: schedule subcommands", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "omp-cli-sched-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("help lists the schedule commands", async () => {
+    const result = await runCli(["help"]);
+    expect(result.message ?? "").toMatch(/schedule add/);
+    expect(result.message ?? "").toMatch(/schedule run-now/);
+  });
+
+  it("add requires --id, --cron, --prompt", async () => {
+    const result = await runCli(["schedule", "add", "--root", dir]);
+    expect(result.ok).toBe(false);
+    expect(result.message ?? "").toMatch(/requires --id, --cron, and --prompt/);
+  });
+
+  it("add then list --json round-trips; add prints the safe-default note", async () => {
+    const add = await runCli(["schedule", "add", "--id", "pr", "--cron", "*/15 * * * *", "--prompt", "check PR", "--root", dir]);
+    expect(add.ok).toBe(true);
+    expect(add.message ?? "").toMatch(/without --allow-all-tools/);
+    const list = await runCli(["schedule", "list", "--root", dir, "--json"]);
+    expect(Array.isArray(list.output)).toBe(true);
+    expect((list.output as Array<{ id: string }>)[0].id).toBe("pr");
+  });
+
+  it("add --allow-all-tools prints the WARNING", async () => {
+    const add = await runCli(["schedule", "add", "--id", "danger", "--cron", "0 * * * *", "--prompt", "act", "--allow-all-tools", "--root", dir]);
+    expect(add.message ?? "").toMatch(/WARNING.*full tool access/);
+  });
+
+  it("remove deletes the job", async () => {
+    await runCli(["schedule", "add", "--id", "pr", "--cron", "*/15 * * * *", "--prompt", "x", "--root", dir]);
+    const rm = await runCli(["schedule", "remove", "pr", "--root", dir]);
+    expect(rm.ok).toBe(true);
+    const list = await runCli(["schedule", "list", "--root", dir, "--json"]);
+    expect((list.output as unknown[]).length).toBe(0);
+  });
+
+  it("unknown schedule subcommand errors", async () => {
+    const result = await runCli(["schedule", "frobnicate", "--root", dir]);
+    expect(result.ok).toBe(false);
+    expect(result.message ?? "").toMatch(/Unknown schedule subcommand/);
+  });
+
+  it("run parses the id from the --id flag (the OS-scheduler argv shape)", async () => {
+    // OS entries invoke `omp schedule run --id <id> --root <dir>`. A missing job is
+    // a clean no-op; the message must name the real id ("ghost"), not the literal "--id".
+    const result = await runCli(["schedule", "run", "--id", "ghost", "--root", dir]);
+    expect(result.ok).toBe(true); // missing-job no-op exits 0 (no crash-restart)
+    expect(result.message ?? "").toContain("ghost");
+    expect(result.message ?? "").not.toContain('"--id"');
   });
 });
