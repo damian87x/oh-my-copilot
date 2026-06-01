@@ -32,7 +32,7 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  mcp                                           (run MCP server over stdio)\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--dry-run] [--json]\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  schedule add --id <id> --cron \"<expr>\" --prompt \"<text>\" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--dry-run] [--json]\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (render goal+directives into copilot-instructions.md)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -138,15 +138,6 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     return await handleCouncilCommand(argv, json);
   }
 
-  if (group === "mcp") {
-    const { runMcpServer } = await import("./mcp/server.js");
-    const { allTools } = await import("./mcp/tools/index.js");
-    const { filterToolsByEnv } = await import("./mcp/server.js");
-    const tools = filterToolsByEnv(allTools);
-    await runMcpServer({ name: "oh-my-copilot", version: "0.1.0", tools });
-    return { ok: true, message: "mcp server exited" };
-  }
-
   if (group === "ralph") {
     return await handleModeCommand("ralph", argv, json);
   }
@@ -159,6 +150,198 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
 
   if (group === "schedule") {
     return await handleScheduleCommand(argv, json);
+  }
+
+  if (group === "goal") {
+    const { readRepoGoal, writeRepoGoal } = await import("./goal.js");
+    const { syncInstructionsMemory } = await import("./instructions-memory.js");
+    const cwd = flagValue(argv, "--root") ?? process.cwd();
+    if (command === "set") {
+      if (!value || !value.trim() || value.startsWith("-")) {
+        return { ok: false, exitCode: 1, message: 'usage: omp goal set "<objective>"' };
+      }
+      const goal = writeRepoGoal(cwd, value);
+      syncInstructionsMemory(cwd); // refresh the managed block Copilot reads
+      return json ? { ok: true, output: { ok: true, goal } } : { ok: true, message: `repo goal set: ${goal}` };
+    }
+    if (command === "read" || command === undefined) {
+      const goal = readRepoGoal(cwd);
+      return json ? { ok: true, output: { goal } } : { ok: true, message: goal || "(no repo goal set)" };
+    }
+    return { ok: false, exitCode: 1, message: 'Unknown goal subcommand. Try: goal set "<text>" | goal read' };
+  }
+
+  if (group === "memory") {
+    const { syncInstructionsMemory } = await import("./instructions-memory.js");
+    const cwd = flagValue(argv, "--root") ?? process.cwd();
+    if (command === "sync" || command === undefined) {
+      const r = syncInstructionsMemory(cwd);
+      return json
+        ? { ok: r.wrote, output: r }
+        : { ok: r.wrote, message: r.wrote ? `memory synced to ${r.path}` : `could not write ${r.path}` };
+    }
+    return { ok: false, exitCode: 1, message: "Unknown memory subcommand. Try: memory sync" };
+  }
+
+  if (group === "daily-log") {
+    const { setDailyGoal, addLogEntry, readDailyLog, pruneDailyLog } = await import("./daily-log.js");
+    const cwd = flagValue(argv, "--root") ?? process.cwd();
+    if (command === "set-goal") {
+      if (!value || !value.trim() || value.startsWith("-")) {
+        return { ok: false, exitCode: 1, message: 'usage: omp daily-log set-goal "<text>"' };
+      }
+      const res = setDailyGoal(cwd, value);
+      return json ? { ok: true, output: { ok: true, ...res } } : { ok: true, message: `daily goal set (${res.date}): ${res.goal}` };
+    }
+    if (command === "add") {
+      if (!value || !value.trim() || value.startsWith("-")) {
+        return { ok: false, exitCode: 1, message: 'usage: omp daily-log add "<text>"' };
+      }
+      const res = addLogEntry(cwd, value);
+      return json ? { ok: true, output: { ok: true, ...res } } : { ok: true, message: `logged (${res.date}); ${res.count} entr${res.count === 1 ? "y" : "ies"} today` };
+    }
+    if (command === "read" || command === undefined) {
+      const daysRaw = flagValue(argv, "--days");
+      const days = daysRaw !== undefined && Number.isFinite(Number(daysRaw)) ? Number(daysRaw) : 1;
+      const text = readDailyLog(cwd, days);
+      return json ? { ok: true, output: { log: text } } : { ok: true, message: text || "(no daily log entries)" };
+    }
+    if (command === "prune") {
+      const keepRaw = flagValue(argv, "--keep-days");
+      const keepDays = keepRaw !== undefined && Number.isFinite(Number(keepRaw)) ? Number(keepRaw) : 30;
+      const removed = pruneDailyLog(cwd, keepDays);
+      return json
+        ? { ok: true, output: { removed } }
+        : { ok: true, message: `pruned ${removed.length} day-file(s) older than ${keepDays}d` };
+    }
+    return {
+      ok: false,
+      exitCode: 1,
+      message: 'Unknown daily-log subcommand. Try: daily-log set-goal "<text>" | add "<text>" | read [--days N] | prune [--keep-days N]',
+    };
+  }
+
+  if (group === "state") {
+    const s = await import("./state.js");
+    const cwd = flagValue(argv, "--root") ?? process.cwd();
+    if (command === "read" && value) {
+      return { ok: true, output: s.stateRead(cwd, value) };
+    }
+    if (command === "write" && value) {
+      const raw = argv[3];
+      if (raw === undefined) return { ok: false, exitCode: 1, message: "usage: omp state write <key> <json-or-string> [--ttl <sec>]" };
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = raw;
+      }
+      const ttlRaw = flagValue(argv, "--ttl");
+      const ttl = ttlRaw !== undefined && Number.isFinite(Number(ttlRaw)) ? Number(ttlRaw) : undefined;
+      const expiresAt = s.stateWrite(cwd, value, parsed, ttl);
+      return json ? { ok: true, output: { ok: true, expiresAt } } : { ok: true, message: `wrote ${value}${expiresAt ? ` (expires ${expiresAt})` : ""}` };
+    }
+    if (command === "delete" && value) {
+      s.stateDelete(cwd, value);
+      return { ok: true, message: `deleted ${value}` };
+    }
+    if (command === "list") {
+      return { ok: true, output: { keys: s.stateList(cwd) } };
+    }
+    if (command === "cleanup") {
+      const deleted = s.stateCleanup(cwd);
+      return json ? { ok: true, output: { deleted } } : { ok: true, message: `cleaned ${deleted} expired` };
+    }
+    if (command === "status" && value) {
+      return { ok: true, output: s.stateStatus(cwd, value) };
+    }
+    return { ok: false, exitCode: 1, message: "Unknown state subcommand. Try: state read <key> | write <key> <val> [--ttl s] | delete <key> | list | cleanup | status <key>" };
+  }
+
+  if (group === "project-memory") {
+    const pm = await import("./project-memory.js");
+    const { syncInstructionsMemory } = await import("./instructions-memory.js");
+    const cwd = flagValue(argv, "--root") ?? process.cwd();
+    if (command === "add-note") {
+      // Accept a --title flag or a positional title; reject a flag-like value in
+      // either slot, so `add-note --title --body x` doesn't store "--body".
+      const titleFlag = flagValue(argv, "--title");
+      const title =
+        titleFlag && !titleFlag.startsWith("-")
+          ? titleFlag
+          : value && !value.startsWith("-")
+            ? value
+            : undefined;
+      if (!title || !title.trim()) {
+        return { ok: false, exitCode: 1, message: 'usage: omp project-memory add-note "<title>" [--body "<text>"]' };
+      }
+      const id = pm.addNote(cwd, title, flagValue(argv, "--body"));
+      syncInstructionsMemory(cwd); // refresh the managed block Copilot reads
+      return json ? { ok: true, output: { ok: true, id } } : { ok: true, message: `note added: ${id}` };
+    }
+    if (command === "add-directive") {
+      const directiveFlag = flagValue(argv, "--directive");
+      const directive =
+        directiveFlag && !directiveFlag.startsWith("-")
+          ? directiveFlag
+          : value && !value.startsWith("-")
+            ? value
+            : undefined;
+      if (!directive || !directive.trim()) {
+        return { ok: false, exitCode: 1, message: 'usage: omp project-memory add-directive "<rule>"' };
+      }
+      const count = pm.addDirective(cwd, directive);
+      syncInstructionsMemory(cwd); // refresh the managed block Copilot reads
+      return json ? { ok: true, output: { ok: true, count } } : { ok: true, message: `directive added (${count} total)` };
+    }
+    if (command === "index") {
+      return { ok: true, output: { notes: pm.noteIndex(cwd) } };
+    }
+    if (command === "read" || command === undefined) {
+      // `read <id>` loads one note's body on demand; bare `read` returns the
+      // bounded summary (directives + note index — never note bodies).
+      if (value && !value.startsWith("-")) {
+        const note = pm.readNote(cwd, value);
+        if (note === null) return { ok: false, exitCode: 1, message: `no note with id: ${value}` };
+        return { ok: true, message: note };
+      }
+      return { ok: true, output: { directives: pm.readDirectives(cwd), notes: pm.noteIndex(cwd) } };
+    }
+    return {
+      ok: false,
+      exitCode: 1,
+      message: 'Unknown project-memory subcommand. Try: project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>"',
+    };
+  }
+
+  if (group === "trace") {
+    const tr = await import("./trace.js");
+    const cwd = flagValue(argv, "--root") ?? process.cwd();
+    const sid = value && !value.startsWith("-") ? value : undefined;
+    if (command === "timeline" || command === undefined) {
+      const limitRaw = flagValue(argv, "--limit");
+      const limit = limitRaw !== undefined && Number.isFinite(Number(limitRaw)) ? Number(limitRaw) : 50;
+      return { ok: true, output: tr.traceTimeline(cwd, sid, limit) };
+    }
+    if (command === "summary") {
+      return { ok: true, output: tr.traceSummary(cwd, sid) };
+    }
+    if (command === "add" && sid) {
+      const event = argv[3];
+      if (!event) return { ok: false, exitCode: 1, message: "usage: omp trace add <sessionId> <event> [json-payload]" };
+      const payloadRaw = argv[4];
+      let payload: unknown;
+      if (payloadRaw !== undefined) {
+        try {
+          payload = JSON.parse(payloadRaw);
+        } catch {
+          payload = payloadRaw;
+        }
+      }
+      tr.appendTraceEntry(cwd, sid, { event, payload });
+      return { ok: true, message: `trace appended to ${sid}` };
+    }
+    return { ok: false, exitCode: 1, message: "Unknown trace subcommand. Try: trace timeline [sessionId] [--limit N] | summary [sessionId] | add <sessionId> <event> [json]" };
   }
 
   if (group === "catalog") {
