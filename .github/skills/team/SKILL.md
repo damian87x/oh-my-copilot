@@ -47,25 +47,27 @@ Write a temporary lanes file at `/tmp/team-lanes-<timestamp>.json`:
 
 ### Step 3 — Launch the team
 
-Run the launch script, passing the session name and lanes file path:
+Run the launch script using its **full installed path**:
 
-```
-.github/skills/team/scripts/team-launch.sh --session "team-<name>" --lanes <lanes-file>
+```bash
+bash ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh \
+  --session "team-<name>" --lanes <lanes-file>
 ```
 
-This will:
-- Split the **current tmux window** into panes (leader keeps its pane)
-- Launch `omp --madmax` interactively in each pane, then send the prompt
-- Arrange panes in a tiled grid layout
-- Print pane IDs and navigation commands
+> **Important:** Use the full path above — the script lives in the plugin install directory, not the project repo.
+
+The script handles the full lifecycle automatically:
+1. Splits the **current tmux window** into panes
+2. Launches `omp --madmax` (or `copilot`) in each pane
+3. **Auto-accepts folder trust prompts** if they appear
+4. **Waits for each agent to be ready** (polls for the `/ commands` status bar)
+5. **Sends prompts** via `send-keys -l` (literal) + Enter
+6. **Monitors completion** — detects when each agent returns to idle
+7. **Prints a results summary** with notable output from each pane
 
 ### Step 4 — Report to user
 
-Show the user:
-- Which panes were created and what each is working on
-- Navigation: `Ctrl-b + arrow keys` to move between panes
-- How to check output: `tmux capture-pane -t <pane-id> -p -S -50`
-- How to kill panes when done
+The script prints all results directly. Just relay the output to the user. If any agents timed out or failed, note which ones.
 
 ## Prerequisites
 
@@ -73,6 +75,14 @@ Show the user:
 - `omp` (oh-my-copilot) on PATH — preferred, launches with `omp --madmax`
 - Falls back to `copilot` if `omp` is not available
 - `jq` for JSON parsing
+
+## Environment variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `TEAM_POLL_INTERVAL` | `2` | Seconds between readiness/completion polls |
+| `TEAM_MAX_READY_WAIT` | `60` | Max seconds to wait for agent CLI to start |
+| `TEAM_MAX_COMPLETION_WAIT` | `300` | Max seconds to wait for agents to finish |
 
 ## Prompt guidelines
 
