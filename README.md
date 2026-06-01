@@ -183,6 +183,7 @@ omp list                                    # show discovered skills and agents
 omp setup [--dry-run] [--scope project|user]
 omp launch -- [copilot flags…]              # forward arbitrary args to copilot
 omp --madmax -p "edit src/foo.ts"           # bare-flag, maps to copilot --yolo
+omp suggest "fix flaky tests"               # recommend a slash-skill workflow
 omp team 3:executor "fix all type errors"   # spawn tmux workers
 omp team status <name>
 omp team shutdown <name>
