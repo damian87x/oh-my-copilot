@@ -671,6 +671,46 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
         };
   }
 
+  if (command === "monitor-panes") {
+    const leaderPaneId = flagValue(argv, "--leader-pane");
+    const workerPaneIds = argv
+      .flatMap((arg, index) => (arg === "--worker-pane" ? [argv[index + 1]] : []))
+      .filter((value): value is string => Boolean(value));
+    if (!leaderPaneId || workerPaneIds.length === 0) {
+      return { ok: false, exitCode: 1, message: "team monitor-panes requires --leader-pane and at least one --worker-pane" };
+    }
+    let pollIntervalMs: number | undefined;
+    let readySamples: number | undefined;
+    let minObservationMs: number | undefined;
+    let timeoutMs: number | undefined;
+    let captureLines: number | undefined;
+    try {
+      pollIntervalMs = parsePositiveIntFlag(flagValue(argv, "--poll-interval-ms"), "--poll-interval-ms");
+      readySamples = parsePositiveIntFlag(flagValue(argv, "--ready-samples"), "--ready-samples");
+      minObservationMs = parsePositiveIntFlag(flagValue(argv, "--min-observation-ms"), "--min-observation-ms");
+      timeoutMs = parsePositiveIntFlag(flagValue(argv, "--timeout-ms"), "--timeout-ms");
+      captureLines = parsePositiveIntFlag(flagValue(argv, "--capture-lines"), "--capture-lines");
+    } catch (err) {
+      return { ok: false, exitCode: 1, message: String(err instanceof Error ? err.message : err) };
+    }
+    const { monitorPanes } = await import("./team/pane-monitor.js");
+    const result = await monitorPanes({
+      leaderPaneId,
+      workerPaneIds,
+      sessionLabel: flagValue(argv, "--session-label"),
+      config: {
+        pollIntervalMs,
+        readySamples,
+        minObservationMs,
+        timeoutMs,
+        captureLines,
+      },
+    });
+    return json
+      ? { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result }
+      : { ok: result.ok, exitCode: result.ok ? 0 : 1, message: `team monitor-panes ${result.reason} events=${result.events.length}` };
+  }
+
   if (command === "api") {
     const sub = value;
     const inputRaw = flagValue(argv, "--input");

@@ -59,6 +59,7 @@ fi
 
 CWD=$(pwd)
 WAIT_SECS="${TEAM_AGENT_WAIT:-5}"
+LEADER_PANE=$(tmux display-message -p '#{pane_id}')
 
 echo "🚀 Splitting current window into $LANE_COUNT panes ($SESSION)"
 echo ""
@@ -116,6 +117,18 @@ for i in $(seq 0 $((LANE_COUNT - 1))); do
   echo "  📨 Sent prompt to $PANE_ID ($LANE_NAME)"
 done
 
+MONITOR_PID=""
+MONITOR_LOG="/tmp/team-monitor-${SESSION}.log"
+if command -v omp &>/dev/null; then
+  MONITOR_ARGS=(team monitor-panes --leader-pane "$LEADER_PANE" --session-label "$SESSION")
+  for pane_id in "${PANE_IDS[@]}"; do
+    MONITOR_ARGS+=(--worker-pane "$pane_id")
+  done
+  if omp "${MONITOR_ARGS[@]}" >"$MONITOR_LOG" 2>&1 & then
+    MONITOR_PID=$!
+  fi
+fi
+
 # Switch focus back to the original (leader) pane
 tmux select-pane -t '{left}'
 
@@ -123,6 +136,12 @@ echo ""
 echo "✅ $LANE_COUNT interactive agent sessions running in split panes"
 echo ""
 echo "Pane IDs: ${PANE_IDS[*]}"
+if [[ -n "$MONITOR_PID" ]]; then
+  echo "Monitor PID: $MONITOR_PID"
+  echo "Monitor log: $MONITOR_LOG"
+elif ! command -v omp &>/dev/null; then
+  echo "Auto-notifications unavailable: omp is not installed, so pane completion is not monitored."
+fi
 echo ""
 echo "Commands:"
 echo "  tmux select-layout tiled              # rebalance layout"

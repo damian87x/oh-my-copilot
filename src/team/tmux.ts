@@ -45,6 +45,7 @@ export interface TmuxApi {
   splitWindow(target: string, cwd: string): TmuxResult;
   sendKeys(target: string, ...keys: string[]): TmuxResult;
   sendText(target: string, text: string): TmuxResult;
+  displayMessage(target: string, message: string): TmuxResult;
   capturePane(target: string, lines?: number): TmuxResult;
   killPane(target: string): TmuxResult;
   killSession(session: string): TmuxResult;
@@ -65,6 +66,9 @@ export function makeTmux(runner: TmuxRunner = tmuxExec): TmuxApi {
     },
     sendText(target, text) {
       return runner(["send-keys", "-t", target, "-l", "--", text]);
+    },
+    displayMessage(target, message) {
+      return runner(["display-message", "-t", target, "--", message]);
     },
     capturePane(target, lines = 80) {
       return runner(["capture-pane", "-t", target, "-p", "-S", `-${lines}`]);

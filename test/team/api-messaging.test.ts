@@ -21,6 +21,7 @@ function mockTmux(): TmuxApi & { sendText: ReturnType<typeof vi.fn> } {
     newSession: vi.fn(() => okResult),
     splitWindow: vi.fn(() => okResult),
     sendKeys: vi.fn(() => okResult),
+    displayMessage: vi.fn(() => okResult),
     // capturePane returns "" so sendToWorker sees payload gone => returns true fast
     capturePane: vi.fn(() => okResult),
     killPane: vi.fn(() => okResult),

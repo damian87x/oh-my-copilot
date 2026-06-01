@@ -45,6 +45,10 @@ function mockTmux(): { api: TmuxApi; calls: string[][]; deadPanes: Set<string> }
       calls.push(["send-text", target, text]);
       return { stdout: "", stderr: "", status: 0 } satisfies TmuxResult;
     },
+    displayMessage(target, message) {
+      calls.push(["display-message", target, message]);
+      return { stdout: "", stderr: "", status: 0 } satisfies TmuxResult;
+    },
     capturePane(target) {
       calls.push(["capture-pane", target]);
       return { stdout: "$ ", stderr: "", status: 0 } satisfies TmuxResult;
