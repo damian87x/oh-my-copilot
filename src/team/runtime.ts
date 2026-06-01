@@ -12,7 +12,7 @@ import { writeInbox } from "./inbox.js";
 import { buildInboxMarkdown } from "./worker-bootstrap.js";
 import { peekNewOutbox, readNewOutbox } from "./outbox.js";
 import { isHeartbeatStale, readHeartbeat } from "./heartbeat.js";
-import { makeTmux, type TmuxApi } from "./tmux.js";
+import { makeTmux, sendToWorker, waitForReady, type TmuxApi } from "./tmux.js";
 import { NudgeTracker, type NudgeAttempt, type NudgeConfig, type NudgeSummaryEntry } from "./idle-nudge.js";
 import { loadTeamConfig } from "./config.js";
 import { isLoopModeActive } from "../mode-state/paths.js";
@@ -105,6 +105,16 @@ export async function startTeam(opts: StartTeamOptions): Promise<StartTeamResult
       writeInbox(wp.inboxFile, buildInboxMarkdown({ teamName: opts.name, workerName, task, cwd }));
       tmux.sendText(paneId, bin);
       tmux.sendKeys(paneId, "C-m");
+    }
+
+    // Wait for all workers to be ready (handles trust dialog), then send prompts
+    for (let i = 0; i < opts.workerCount; i++) {
+      const w = workers[i]!;
+      const task = tasks[i]!;
+      if (!w.paneId) continue;
+      await waitForReady(tmux, w.paneId);
+      const prompt = `Read your inbox at ${resolve(paths.workersDir, w.name, "inbox.md")} and follow the instructions exactly. Your task: ${task.description}`;
+      await sendToWorker(tmux, w.paneId, prompt);
     }
 
     const config: TeamConfig = {
