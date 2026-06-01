@@ -152,7 +152,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     const { readRepoGoal, writeRepoGoal } = await import("./goal.js");
     const cwd = flagValue(argv, "--root") ?? process.cwd();
     if (command === "set") {
-      if (!value || !value.trim()) {
+      if (!value || !value.trim() || value.startsWith("-")) {
         return { ok: false, exitCode: 1, message: 'usage: omp goal set "<objective>"' };
       }
       const goal = writeRepoGoal(cwd, value);
@@ -169,14 +169,14 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     const { setDailyGoal, addLogEntry, readDailyLog, pruneDailyLog } = await import("./daily-log.js");
     const cwd = flagValue(argv, "--root") ?? process.cwd();
     if (command === "set-goal") {
-      if (!value || !value.trim()) {
+      if (!value || !value.trim() || value.startsWith("-")) {
         return { ok: false, exitCode: 1, message: 'usage: omp daily-log set-goal "<text>"' };
       }
       const res = setDailyGoal(cwd, value);
       return json ? { ok: true, output: { ok: true, ...res } } : { ok: true, message: `daily goal set (${res.date}): ${res.goal}` };
     }
     if (command === "add") {
-      if (!value || !value.trim()) {
+      if (!value || !value.trim() || value.startsWith("-")) {
         return { ok: false, exitCode: 1, message: 'usage: omp daily-log add "<text>"' };
       }
       const res = addLogEntry(cwd, value);
@@ -243,12 +243,22 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   if (group === "project-memory") {
     const pm = await import("./project-memory.js");
     const cwd = flagValue(argv, "--root") ?? process.cwd();
-    if (command === "add-note" && value) {
-      const id = pm.addNote(cwd, value, flagValue(argv, "--body"));
+    if (command === "add-note") {
+      // Accept either a positional title or a --title flag (the model often
+      // mirrors --body and writes --title); reject a stray flag as the title.
+      const title = flagValue(argv, "--title") ?? (value && !value.startsWith("-") ? value : undefined);
+      if (!title || !title.trim()) {
+        return { ok: false, exitCode: 1, message: 'usage: omp project-memory add-note "<title>" [--body "<text>"]' };
+      }
+      const id = pm.addNote(cwd, title, flagValue(argv, "--body"));
       return json ? { ok: true, output: { ok: true, id } } : { ok: true, message: `note added: ${id}` };
     }
-    if (command === "add-directive" && value) {
-      const count = pm.addDirective(cwd, value);
+    if (command === "add-directive") {
+      const directive = flagValue(argv, "--directive") ?? (value && !value.startsWith("-") ? value : undefined);
+      if (!directive || !directive.trim()) {
+        return { ok: false, exitCode: 1, message: 'usage: omp project-memory add-directive "<rule>"' };
+      }
+      const count = pm.addDirective(cwd, directive);
       return json ? { ok: true, output: { ok: true, count } } : { ok: true, message: `directive added (${count} total)` };
     }
     if (command === "index") {
