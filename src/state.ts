@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
+import { ompRoot } from "./omp-root.js";
 
 // Per-project key-value store with optional TTL at .omp/state/kv/<key>.json.
 // (Merges the former `state` + `shared-memory` — same mechanism; this is the
@@ -12,7 +13,7 @@ interface Entry {
 }
 
 function kvDir(cwd: string): string {
-  return join(resolve(cwd), ".omp", "state", "kv");
+  return join(ompRoot(cwd), ".omp", "state", "kv");
 }
 
 function kvPath(cwd: string, key: string): string {

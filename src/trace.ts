@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
+import { ompRoot } from "./omp-root.js";
 
 // Per-session event traces at .omp/state/trace/<sessionId>.jsonl. Exposed via
 // the `omp trace` CLI subcommands (NOT MCP).
@@ -12,7 +13,7 @@ interface TraceEntry {
 }
 
 function traceDir(cwd: string): string {
-  return join(resolve(cwd), ".omp", "state", "trace");
+  return join(ompRoot(cwd), ".omp", "state", "trace");
 }
 
 function tracePath(cwd: string, sessionId: string): string {

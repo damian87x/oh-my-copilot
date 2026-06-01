@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { ompRoot } from "./omp-root.mjs";
 
 /**
  * Must-follow directives from .omp/project-memory.json. These are injected at
@@ -9,7 +10,7 @@ import { join, resolve } from "node:path";
  */
 export function readDirectives(directory) {
   try {
-    const p = join(resolve(directory), ".omp", "project-memory.json");
+    const p = join(ompRoot(directory), ".omp", "project-memory.json");
     if (!existsSync(p)) return [];
     const data = JSON.parse(readFileSync(p, "utf8"));
     const list = Array.isArray(data?.directives) ? data.directives : [];

@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
 import { endSession } from "./lib/daily-log.mjs";
+import { ompRoot } from "./lib/omp-root.mjs";
 
 const HOOK_NAME = "SessionEnd";
 
@@ -12,7 +13,7 @@ const HOOK_NAME = "SessionEnd";
     const data = raw ? JSON.parse(raw) : {};
     const sessionId = data.sessionId ?? data.session_id ?? "unknown";
     const directory = data.directory ?? process.cwd();
-    const logFile = join(directory, ".omp", "state", "hooks.log");
+    const logFile = join(ompRoot(directory), ".omp", "state", "hooks.log");
     try {
       mkdirSync(dirname(logFile), { recursive: true });
       appendFileSync(

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
+import { ompRoot } from "./omp-root.mjs";
 
 const DAY_FILE_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
 const DEFAULT_NUDGE =
@@ -17,7 +18,7 @@ export function todayStr(d = new Date()) {
 }
 
 function dailyDir(directory) {
-  return join(resolve(directory), ".omp", "memory", "daily");
+  return join(ompRoot(directory), ".omp", "memory", "daily");
 }
 
 function dayFile(directory, date = todayStr()) {
@@ -41,7 +42,7 @@ export function readTodayGoal(directory) {
 /** The repo's durable objective from .omp/goal.md, or null when unset. */
 export function readRepoGoal(directory) {
   try {
-    const p = join(resolve(directory), ".omp", "goal.md");
+    const p = join(ompRoot(directory), ".omp", "goal.md");
     if (!existsSync(p)) return null;
     const text = readFileSync(p, "utf8");
     const lines = (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text).split("\n");
@@ -76,7 +77,7 @@ export function recentEntryStats(directory, days = 7) {
 }
 
 function statePath(directory) {
-  return join(resolve(directory), ".omp", "state", "daily-log.json");
+  return join(ompRoot(directory), ".omp", "state", "daily-log.json");
 }
 
 function readState(directory) {

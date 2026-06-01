@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
+import { ompRoot } from "./omp-root.js";
 
 // The repo's durable objective ("what we want to achieve in this repo"), stored
 // once per project at .omp/goal.md — distinct from a daily log's per-day goal.
 // Exposed through the `omp goal` CLI subcommands (NOT MCP), so the project dir
 // is the CLI's cwd and never ambiguous.
 function goalFile(cwd: string): string {
-  return join(resolve(cwd), ".omp", "goal.md");
+  return join(ompRoot(cwd), ".omp", "goal.md");
 }
 
 // Strip ONLY our own serialized `# Repo Goal` header (not any heading), so a

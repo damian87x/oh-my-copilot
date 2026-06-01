@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
+import { ompRoot } from "./omp-root.js";
 
 // Durable per-project memory (notes + directives) at .omp/project-memory.json.
 // Exposed via the `omp project-memory` CLI subcommands (NOT MCP).
@@ -11,7 +12,7 @@ export interface ProjectMemory {
 }
 
 function memPath(cwd: string): string {
-  return join(resolve(cwd), ".omp", "project-memory.json");
+  return join(ompRoot(cwd), ".omp", "project-memory.json");
 }
 
 export function readProjectMemory(cwd: string): ProjectMemory {

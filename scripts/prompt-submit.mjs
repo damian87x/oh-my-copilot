@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
 import { recordPrompt } from "./lib/daily-log.mjs";
+import { ompRoot } from "./lib/omp-root.mjs";
 
 const HOOK_NAME = "UserPromptSubmit";
 
@@ -35,7 +36,7 @@ function buildContinuationContext(directory) {
 }
 
 function appendLog(directory, payload) {
-  const logFile = join(directory, ".omp", "state", "hooks.log");
+  const logFile = join(ompRoot(directory), ".omp", "state", "hooks.log");
   try {
     mkdirSync(dirname(logFile), { recursive: true });
     appendFileSync(

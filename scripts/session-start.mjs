@@ -5,6 +5,7 @@ import { readStdin } from "./lib/stdin.mjs";
 import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
 import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
 import { readDirectives } from "./lib/project-memory.mjs";
+import { ompRoot } from "./lib/omp-root.mjs";
 
 const HOOK_NAME = "SessionStart";
 
@@ -31,7 +32,7 @@ function buildDailyLogBreadcrumb(directory) {
     const data = raw ? JSON.parse(raw) : {};
     const sessionId = data.sessionId ?? data.session_id ?? "unknown";
     const directory = data.directory ?? process.cwd();
-    const stateDir = join(directory, ".omp", "state");
+    const stateDir = join(ompRoot(directory), ".omp", "state");
     const logFile = join(stateDir, "hooks.log");
     mkdirSync(dirname(logFile), { recursive: true });
     const line = JSON.stringify({

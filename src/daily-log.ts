@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
+import { ompRoot } from "./omp-root.js";
 
 // Core read/write logic for the per-project daily log at
 // .omp/memory/daily/<YYYY-MM-DD>.md (# date / ## Goal / ## Log). Exposed to the
@@ -27,7 +28,7 @@ function timeStr(d = new Date()): string {
 }
 
 function dailyDir(cwd: string): string {
-  return join(resolve(cwd), ".omp", "memory", "daily");
+  return join(ompRoot(cwd), ".omp", "memory", "daily");
 }
 
 function dayFile(cwd: string, date = todayStr()): string {
