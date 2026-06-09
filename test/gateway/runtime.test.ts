@@ -4,6 +4,7 @@ import {
   getGatewayStatus,
   selectConnectors,
   parseOnlyFlag,
+  waitForSignals,
 } from "../../src/gateway/runtime.js";
 import type { Connector, ConnectorStatus } from "../../src/gateway/connector.js";
 
@@ -132,7 +133,7 @@ describe("runGateway", () => {
     expect(bad.stopCalls).toBe(1);
   });
 
-  it("rejects when every connector's start fails", async () => {
+  it("rejects when every connector's start fails AND still calls stop() on every connector first", async () => {
     const bad1 = makeFake("a", { failStart: "x" });
     const bad2 = makeFake("b", { failStart: "y" });
     await expect(
@@ -142,6 +143,44 @@ describe("runGateway", () => {
         log: () => {},
       }),
     ).rejects.toThrow(/all gateway connectors failed/);
+    // Codex finding MAJOR-1: even failed starts may have allocated resources;
+    // the runtime must call stop() on every connector before bailing.
+    expect(bad1.stopCalls).toBe(1);
+    expect(bad2.stopCalls).toBe(1);
+  });
+
+  it("still stops connectors when waitForShutdown REJECTS (try/finally)", async () => {
+    const c = makeFake("c");
+    await expect(
+      runGateway({
+        connectors: [c],
+        waitForShutdown: () => Promise.reject(new Error("wait boom")),
+        log: () => {},
+      }),
+    ).rejects.toThrow(/wait boom/);
+    expect(c.stopCalls).toBe(1);
+  });
+
+  it("waitForSignals attaches both signal listeners, resolves on signal, and detaches them", async () => {
+    type Cb = (sig: NodeJS.Signals) => void;
+    const handlers: Record<string, Cb | undefined> = {};
+    const offCalls: string[] = [];
+    const fakeProc = {
+      once(name: string, cb: Cb) {
+        handlers[name] = cb;
+        return fakeProc as unknown as NodeJS.Process;
+      },
+      off(name: string, _cb: Cb) {
+        offCalls.push(name);
+        return fakeProc as unknown as NodeJS.Process;
+      },
+    };
+    const wait = waitForSignals(fakeProc as unknown as NodeJS.Process, () => {});
+    expect(handlers["SIGINT"]).toBeTypeOf("function");
+    expect(handlers["SIGTERM"]).toBeTypeOf("function");
+    handlers["SIGINT"]!("SIGINT" as NodeJS.Signals);
+    await wait;
+    expect(offCalls.sort()).toEqual(["SIGINT", "SIGTERM"]);
   });
 
   it("survives a connector whose stop() throws", async () => {

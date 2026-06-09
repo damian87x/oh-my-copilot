@@ -567,15 +567,38 @@ async function handleCommsCommand(argv: string[], json: boolean): Promise<CliRes
 }
 
 async function handleSlackCommand(argv: string[], json: boolean): Promise<CliResult> {
-  // Backwards-compatible alias: `omp slack <cmd>` now forwards to the
-  // generalized gateway runtime, scoped to the slack connector only.
+  // Backwards-compatible alias: `omp slack <cmd>` forwards to the generalized
+  // gateway runtime (scoped to slack). `slack doctor --json` keeps its legacy
+  // flat output shape so existing scripts that parsed it don't break — see
+  // `src/cli.ts` pre-refactor at 5c08a88.
   const [, command, ...rest] = argv;
 
   if (command === "serve") {
     return await handleGatewayCommand(["gateway", "serve", "--only", "slack", ...rest], json);
   }
   if (command === "doctor" || command === "status") {
-    return await handleGatewayCommand(["gateway", "status", "--only", "slack", ...rest], json);
+    const hasBot = !!process.env.SLACK_BOT_TOKEN;
+    const hasApp = !!process.env.SLACK_APP_TOKEN;
+    const { resolveSession } = await import("./comms/resolve-session.js");
+    const resolved = resolveSession({ env: process.env.COPILOT_TMUX_SESSION });
+    const startable = hasBot && hasApp;
+    const ready = startable && resolved.ok;
+    const output = {
+      botToken: hasBot,
+      appToken: hasApp,
+      copilotSession: resolved.ok ? resolved.session : null,
+      copilotError: resolved.ok ? undefined : resolved.error,
+      ready,
+    };
+    return json
+      ? { ok: startable, exitCode: startable ? 0 : 1, output }
+      : {
+          ok: startable,
+          exitCode: startable ? 0 : 1,
+          message: `bot_token=${hasBot} app_token=${hasApp} copilot_session=${
+            output.copilotSession ?? `(none: ${output.copilotError ?? "unknown"})`
+          } ready=${ready}`,
+        };
   }
   return {
     ok: false,

@@ -37,18 +37,26 @@ export function getGatewayStatus(connectors: Connector[]): GatewayStatusReport {
   return { ready: rows.length > 0 && rows.every((r) => r.ready), connectors: rows };
 }
 
-function waitForSignals(): Promise<void> {
+/**
+ * Resolve on SIGINT/SIGTERM. Exported so it can be tested without sending
+ * real signals to the test runner: tests inject a fake `proc` with the same
+ * shape as `process` and assert listener attach/detach.
+ */
+export function waitForSignals(
+  proc: Pick<NodeJS.Process, "off" | "once"> = process,
+  log: (msg: string) => void = (m) => console.error(m),
+): Promise<void> {
   return new Promise<void>((resolve) => {
     const onSig = (sig: NodeJS.Signals) => {
       // Detach both listeners so a second signal doesn't double-resolve.
-      process.off("SIGINT", onSig);
-      process.off("SIGTERM", onSig);
+      proc.off("SIGINT", onSig);
+      proc.off("SIGTERM", onSig);
       // Log to stderr so JSON consumers on stdout aren't disturbed.
-      console.error(`omp gateway: received ${sig}, shutting down…`);
+      log(`omp gateway: received ${sig}, shutting down…`);
       resolve();
     };
-    process.once("SIGINT", onSig);
-    process.once("SIGTERM", onSig);
+    proc.once("SIGINT", onSig);
+    proc.once("SIGTERM", onSig);
   });
 }
 
@@ -80,16 +88,23 @@ export async function runGateway(opts: RunGatewayOptions): Promise<void> {
 
   const ready = connectors.filter((_, i) => startResults[i].status === "fulfilled");
   if (ready.length === 0) {
-    // Nothing came up. Don't sit there idle — surface it.
+    // Nothing came up. Even failed start()s may have allocated resources, and
+    // stop() is required to be idempotent — call it on every connector before
+    // surfacing the error, so the runtime upholds its own lifecycle contract.
+    await Promise.allSettled(connectors.map((c) => c.stop()));
     throw new Error("all gateway connectors failed to start");
   }
 
-  const wait = opts.waitForShutdown ?? waitForSignals;
-  await wait();
-
-  // Stop everything — including connectors that never started, since stop()
-  // is required to be idempotent.
-  await Promise.allSettled(connectors.map((c) => c.stop()));
+  const wait = opts.waitForShutdown ?? (() => waitForSignals());
+  // try/finally guarantees stop() runs even if waitForShutdown rejects (e.g.
+  // an injected wait throws, or a signal handler propagates an error).
+  try {
+    await wait();
+  } finally {
+    // Stop everything — including connectors that never started, since stop()
+    // is required to be idempotent.
+    await Promise.allSettled(connectors.map((c) => c.stop()));
+  }
 }
 
 /**
