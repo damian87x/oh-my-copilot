@@ -19,6 +19,10 @@ function makeApi(captureByPane: Record<string, string>): { api: TmuxApi; calls: 
       calls.push(["send-text", target, text]);
       return ok();
     },
+    displayMessage(target, message) {
+      calls.push(["display-message", target, message]);
+      return ok();
+    },
     capturePane(target) {
       calls.push(["capture-pane", target]);
       return ok(captureByPane[target] ?? "");

@@ -7,9 +7,11 @@ set -euo pipefail
 # Usage:
 #   team-launch.sh --session <name> --lanes <lanes.json>
 #
-# Each pane launches an interactive `omp --madmax` (or `copilot`) session,
-# then sends the lane prompt via tmux send-keys so the agent stays alive
-# for follow-up interaction.
+# Flow:
+#   1. Split panes and launch agent CLI in each
+#   2. Wait for each agent to be ready (auto-accept folder trust prompts)
+#   3. Send lane prompts via send-keys
+#   4. Monitor until all agents finish, then print summary
 
 SESSION=""
 LANES_FILE=""
@@ -33,13 +35,11 @@ if [[ ! -f "$LANES_FILE" ]]; then
 fi
 
 if ! command -v tmux &>/dev/null; then
-  echo "tmux not found" >&2
-  exit 1
+  echo "tmux not found" >&2; exit 1
 fi
 
 if [[ -z "${TMUX:-}" ]]; then
-  echo "Not inside a tmux session. Run this from within tmux." >&2
-  exit 1
+  echo "Not inside a tmux session. Run this from within tmux." >&2; exit 1
 fi
 
 if command -v omp &>/dev/null; then
@@ -47,31 +47,60 @@ if command -v omp &>/dev/null; then
 elif command -v copilot &>/dev/null; then
   AGENT_CMD="copilot"
 else
-  echo "Neither omp nor copilot CLI found" >&2
-  exit 1
+  echo "Neither omp nor copilot CLI found" >&2; exit 1
 fi
 
 LANE_COUNT=$(jq length "$LANES_FILE")
 if [[ "$LANE_COUNT" -lt 1 ]]; then
-  echo "No lanes defined in $LANES_FILE" >&2
-  exit 1
+  echo "No lanes defined in $LANES_FILE" >&2; exit 1
 fi
 
 CWD=$(pwd)
-WAIT_SECS="${TEAM_AGENT_WAIT:-5}"
+POLL="${TEAM_POLL_INTERVAL:-2}"
+MAX_READY="${TEAM_MAX_READY_WAIT:-60}"
+MAX_DONE="${TEAM_MAX_COMPLETION_WAIT:-300}"
+
+# ── helpers ──────────────────────────────────────────────────────────
+
+# Capture visible pane content (last N lines)
+pane_text() { tmux capture-pane -t "$1" -p -S "-${2:-20}" 2>/dev/null || true; }
+
+# Wait until the agent CLI is fully ready ('/ commands' status bar visible).
+# Auto-accepts the folder-trust dialog if it appears.
+wait_for_ready() {
+  local pane="$1" elapsed=0 accepted=0
+  while (( elapsed < MAX_READY )); do
+    local txt
+    txt=$(pane_text "$pane" 25)
+
+    # Ready: the '/ commands' status bar means the CLI input prompt is active
+    if echo "$txt" | grep -q '/ commands'; then
+      return 0
+    fi
+
+    # Auto-accept folder trust dialog
+    if (( accepted == 0 )) && echo "$txt" | grep -q 'Do you trust'; then
+      tmux send-keys -t "$pane" C-m
+      accepted=1
+      echo "    ↳ Auto-accepted folder trust for $pane"
+    fi
+
+    sleep "$POLL"
+    elapsed=$((elapsed + POLL))
+  done
+  return 1
+}
+
+# ── step 1: create panes ─────────────────────────────────────────────
 
 echo "🚀 Splitting current window into $LANE_COUNT panes ($SESSION)"
 echo ""
 
-# Collect pane IDs as we create them
 PANE_IDS=()
-
 for i in $(seq 0 $((LANE_COUNT - 1))); do
   LANE_NAME=$(jq -r ".[$i].name" "$LANES_FILE")
-  LANE_PROMPT=$(jq -r ".[$i].prompt" "$LANES_FILE")
   LANE_ID=$(jq -r ".[$i].id" "$LANES_FILE")
 
-  # Split: alternate horizontal/vertical for a grid
   if (( i == 0 )); then
     PANE_ID=$(tmux split-window -h -c "$CWD" -P -F '#{pane_id}')
   elif (( i % 2 == 1 )); then
@@ -79,54 +108,123 @@ for i in $(seq 0 $((LANE_COUNT - 1))); do
   else
     PANE_ID=$(tmux split-window -v -t "${PANE_IDS[$((i-2))]}" -c "$CWD" -P -F '#{pane_id}')
   fi
-
   PANE_IDS+=("$PANE_ID")
 
-  # Set pane title
   tmux select-pane -t "$PANE_ID" -T "$LANE_ID: $LANE_NAME"
+  tmux send-keys -t "$PANE_ID" "$AGENT_CMD" C-m
 
-  # Launch interactive agent session (NOT with -p)
-  tmux send-keys -t "$PANE_ID" "echo '═══ $LANE_NAME ═══' && $AGENT_CMD" C-m
-
-  echo "  ✅ Pane $PANE_ID → $LANE_NAME (launching agent...)"
+  echo "  ✅ Pane $PANE_ID → $LANE_NAME"
 done
 
-# Rebalance layout
 tmux select-layout tiled
 
-# Wait for agents to start up before sending prompts
-echo ""
-echo "⏳ Waiting ${WAIT_SECS}s for agents to initialise..."
-sleep "$WAIT_SECS"
+# ── step 2: wait for readiness ───────────────────────────────────────
 
-# Now send prompts to each interactive session
+echo ""
+echo "⏳ Waiting for agents to initialise (up to ${MAX_READY}s)..."
+
+for i in $(seq 0 $((LANE_COUNT - 1))); do
+  PANE_ID="${PANE_IDS[$i]}"
+  LANE_NAME=$(jq -r ".[$i].name" "$LANES_FILE")
+  if wait_for_ready "$PANE_ID"; then
+    echo "  ✅ $PANE_ID ($LANE_NAME) ready"
+  else
+    echo "  ⚠️  $PANE_ID ($LANE_NAME) not ready after ${MAX_READY}s — sending anyway"
+  fi
+done
+
+# ── step 3: send prompts (literal text + Enter separately) ───────────
+
+echo ""
+echo "📨 Sending prompts..."
 for i in $(seq 0 $((LANE_COUNT - 1))); do
   LANE_PROMPT=$(jq -r ".[$i].prompt" "$LANES_FILE")
   LANE_NAME=$(jq -r ".[$i].name" "$LANES_FILE")
   PANE_ID="${PANE_IDS[$i]}"
 
-  # Write prompt to temp file and use tmux load-buffer + paste for reliable delivery
-  PROMPT_FILE="/tmp/team-prompt-${SESSION}-${i}.txt"
-  printf '%s' "$LANE_PROMPT" > "$PROMPT_FILE"
-
-  # Send via tmux send-keys -l (literal) then Enter
-  tmux send-keys -t "$PANE_ID" -l "$(cat "$PROMPT_FILE")"
+  # -l = literal (no key interpretation), then C-m = Enter as a separate call
+  tmux send-keys -t "$PANE_ID" -l "$LANE_PROMPT"
+  sleep 0.3
   tmux send-keys -t "$PANE_ID" C-m
 
-  echo "  📨 Sent prompt to $PANE_ID ($LANE_NAME)"
+  echo "  📨 Sent to $PANE_ID ($LANE_NAME)"
 done
 
-# Switch focus back to the original (leader) pane
 tmux select-pane -t '{left}'
 
+# ── step 4: monitor completion ───────────────────────────────────────
+
 echo ""
-echo "✅ $LANE_COUNT interactive agent sessions running in split panes"
+echo "⏳ Monitoring agents for completion (up to ${MAX_DONE}s)..."
+
+# Brief pause so agents start processing before we poll
+sleep 5
+
+# State per lane: 0=waiting-for-busy, 1=busy, 2=done
+LANE_STATE=()
+for i in $(seq 0 $((LANE_COUNT - 1))); do LANE_STATE[$i]=0; done
+
+COMPLETED=0
+ELAPSED=0
+while (( COMPLETED < LANE_COUNT && ELAPSED < MAX_DONE )); do
+  sleep "$POLL"
+  ELAPSED=$((ELAPSED + POLL))
+
+  for i in $(seq 0 $((LANE_COUNT - 1))); do
+    [[ "${LANE_STATE[$i]}" == "2" ]] && continue
+
+    PANE_ID="${PANE_IDS[$i]}"
+    LANE_NAME=$(jq -r ".[$i].name" "$LANES_FILE")
+
+    # Pane died?
+    if ! tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -q "^${PANE_ID}$"; then
+      echo "  ❌ $PANE_ID ($LANE_NAME) — pane died"
+      LANE_STATE[$i]=2; COMPLETED=$((COMPLETED + 1)); continue
+    fi
+
+    local_capture=$(pane_text "$PANE_ID" 15)
+
+    # State 0→1: agent started working (response marker ● appears)
+    if [[ "${LANE_STATE[$i]}" == "0" ]]; then
+      if echo "$local_capture" | grep -q '●'; then
+        LANE_STATE[$i]=1
+      fi
+      continue
+    fi
+
+    # State 1→2: agent finished (back to idle — '/ commands' in last 5 lines)
+    if echo "$local_capture" | tail -5 | grep -q '/ commands'; then
+      echo "  ✅ $PANE_ID ($LANE_NAME) — agent finished"
+      LANE_STATE[$i]=2; COMPLETED=$((COMPLETED + 1))
+    fi
+  done
+done
+
+echo ""
+if (( COMPLETED == LANE_COUNT )); then
+  echo "🎉 All $LANE_COUNT agents completed!"
+else
+  echo "⏰ Timeout — $((LANE_COUNT - COMPLETED)) agent(s) still running"
+fi
+
+# ── summary ──────────────────────────────────────────────────────────
+
+echo ""
+echo "═══ Results Summary ═══"
+for i in $(seq 0 $((LANE_COUNT - 1))); do
+  PANE_ID="${PANE_IDS[$i]}"
+  LANE_NAME=$(jq -r ".[$i].name" "$LANES_FILE")
+  LANE_ID=$(jq -r ".[$i].id" "$LANES_FILE")
+  echo ""
+  echo "── $LANE_ID: $LANE_NAME ($PANE_ID) ──"
+  if tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -q "^${PANE_ID}$"; then
+    pane_text "$PANE_ID" 40 | grep -E '●|✅|❌|⚠|error|Error|FAIL|PASS|done|Done' | tail -10 || echo "  (no notable output captured)"
+  else
+    echo "  (pane no longer exists)"
+  fi
+done
+
 echo ""
 echo "Pane IDs: ${PANE_IDS[*]}"
-echo ""
-echo "Commands:"
-echo "  tmux select-layout tiled              # rebalance layout"
-echo "  tmux capture-pane -t <pane-id> -p -S -50  # read pane output"
-echo "  Ctrl-b + arrow keys                   # navigate between panes"
-echo ""
-echo "💡 Agents are interactive — you can send follow-up prompts to any pane"
+echo "Navigate: Ctrl-b + arrow keys"
+echo "💡 Agents are interactive — send follow-up prompts to any pane"

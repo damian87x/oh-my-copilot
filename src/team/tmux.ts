@@ -25,12 +25,17 @@ const ACTIVE_HINTS = [
   /tool call in progress/i,
 ];
 
+// Lines the Copilot CLI renders below the actual prompt — skip these when
+// scanning backwards for the real prompt character.
+const STATUS_BAR_RE = /^\s*[\/ ]?\s*commands\b|^\s*[─━═]{3,}/;
+
 export function paneLooksReady(captured: string): boolean {
   if (!captured.trim()) return false;
   const lines = captured.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!;
     if (line.trim().length === 0) continue;
+    if (STATUS_BAR_RE.test(line)) continue;
     return PROMPT_RE.test(line);
   }
   return false;
@@ -45,6 +50,7 @@ export interface TmuxApi {
   splitWindow(target: string, cwd: string): TmuxResult;
   sendKeys(target: string, ...keys: string[]): TmuxResult;
   sendText(target: string, text: string): TmuxResult;
+  displayMessage(target: string, message: string): TmuxResult;
   capturePane(target: string, lines?: number): TmuxResult;
   killPane(target: string): TmuxResult;
   killSession(session: string): TmuxResult;
@@ -66,6 +72,9 @@ export function makeTmux(runner: TmuxRunner = tmuxExec): TmuxApi {
     },
     sendText(target, text) {
       return runner(["send-keys", "-t", target, "-l", "--", text]);
+    },
+    displayMessage(target, message) {
+      return runner(["display-message", "-t", target, "--", message]);
     },
     capturePane(target, lines = 80) {
       return runner(["capture-pane", "-t", target, "-p", "-S", `-${lines}`]);
@@ -97,6 +106,53 @@ export function makeTmux(runner: TmuxRunner = tmuxExec): TmuxApi {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// ---------------------------------------------------------------------------
+// waitForReady — poll a pane until the Copilot CLI is idle at its input
+// prompt, auto-accepting the folder-trust dialog if it appears.
+// ---------------------------------------------------------------------------
+
+const TRUST_RE = /Do you trust/;
+const CLI_READY_RE = /\/\s*commands/;
+
+export interface WaitForReadyOptions {
+  /** Max time to wait in ms (default 60 000). */
+  timeoutMs?: number;
+  /** Poll interval in ms (default 2 000). */
+  pollMs?: number;
+}
+
+/**
+ * Block until the Copilot CLI in `target` pane is ready for input.
+ * Returns `true` if ready, `false` on timeout.
+ */
+export async function waitForReady(
+  api: TmuxApi,
+  target: string,
+  options: WaitForReadyOptions = {},
+): Promise<boolean> {
+  const timeout = options.timeoutMs ?? 60_000;
+  const poll = options.pollMs ?? 2_000;
+  let elapsed = 0;
+  let acceptedTrust = false;
+
+  while (elapsed < timeout) {
+    const captured = api.capturePane(target, 25).stdout;
+
+    // Ready: the '/ commands' status bar means the CLI input prompt is active
+    if (CLI_READY_RE.test(captured)) return true;
+
+    // Auto-accept the folder trust dialog (send Enter = accept default)
+    if (!acceptedTrust && TRUST_RE.test(captured)) {
+      api.sendKeys(target, "C-m");
+      acceptedTrust = true;
+    }
+
+    await sleep(poll);
+    elapsed += poll;
+  }
+  return false;
 }
 
 export interface SendToWorkerOptions {

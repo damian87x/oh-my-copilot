@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { ompRoot } from "./omp-root.mjs";
 
 export function printContinue(hookEventName, additionalContext = "") {
   const output = additionalContext
@@ -17,7 +18,7 @@ export function failOpen() {
 }
 
 export function appendHookLog(directory, hookName, payload) {
-  const logFile = join(directory, ".omp", "state", "hooks.log");
+  const logFile = join(ompRoot(directory), ".omp", "state", "hooks.log");
   try {
     mkdirSync(dirname(logFile), { recursive: true });
     appendFileSync(

@@ -1,102 +1,127 @@
 ---
 name: team
-description: Split an approved plan into parallel tmux panes, each running an independent Copilot CLI agent. Use when work has independent lanes and you want visual parallel execution in split terminals. Use when user says /team, team, or wants parallel agent execution.
-argument-hint: "<number of lanes or plan reference>"
+description: Split an approved plan into parallel tmux panes in the current window so the user can watch agents work. Prefer this visual flow by default; use `omp team` only when the user explicitly wants background execution or runtime messaging/status APIs.
+argument-hint: "<number of workers> <task description>"
 ---
 
 # Team — tmux-based parallel agent execution
 
-`/team` splits work into parallel tmux panes in the **current window**, each running an independent interactive agent session. You see all agents working side-by-side immediately.
+`/team` launches independent Copilot CLI agents in parallel tmux panes.
+
+**Default behavior:** use the **split-window** flow so the user sees agents working in the current tmux window.
+
+Use **runtime mode** (`omp team`) only when the user explicitly asks for background execution, detached monitoring, or runtime APIs like status, nudging, or worker messaging.
+
+Two modes available:
+
+| Mode | Command | Panes visible in | Best for |
+|------|---------|-------------------|----------|
+| **Split** | `team-launch.sh` | Current window | **Default**. Visual demo, watching agents work |
+| **Runtime** | `omp team N:copilot "task"` | Separate tmux session | Explicit background jobs, task tracking, nudging, messaging |
 
 ## When to use
 
 - Work has **independent lanes** (no shared files, no ordering constraints)
-- You want visual, demo-friendly parallel execution in split terminals
+- You want parallel execution in split terminals
 
-## Agent execution steps (FOLLOW EXACTLY)
+## Default mode — Split window (`team-launch.sh`)
 
-When `/team` is invoked, you MUST execute these steps in order:
+Use this unless the user asks for background execution.
 
-### Step 1 — Identify lanes
+### When to choose it
 
-Collect independent work lanes from the conversation context. Each lane needs:
-- `id`: short kebab-case identifier (e.g. `lane-a`, `fix-auth`)
-- `name`: human-readable name (e.g. `Upgrade dependencies`)
-- `prompt`: complete task prompt — must be self-contained with all context the agent needs (files to change, what to do, commit message)
+- The user wants to **see** the agents working
+- You want panes in the **current tmux window**
+- You are demoing or smoke-testing the skill
 
-If no plan or lanes exist yet, ask the user what work to split.
+### Step 1 — Write lanes JSON
 
-### Step 2 — Write lanes JSON
-
-Write a temporary lanes file at `/tmp/team-lanes-<timestamp>.json`:
+Write a temporary file at `/tmp/team-lanes-<timestamp>.json`:
 
 ```json
 [
-  {
-    "id": "lane-a",
-    "name": "Short descriptive name",
-    "prompt": "Complete self-contained task prompt for the agent..."
-  },
-  {
-    "id": "lane-b",
-    "name": "Another lane name",
-    "prompt": "Another complete task prompt..."
-  }
+  { "id": "lane-a", "name": "Short name", "prompt": "Complete self-contained task prompt..." },
+  { "id": "lane-b", "name": "Another lane", "prompt": "Another task prompt..." }
 ]
 ```
 
-### Step 3 — Launch the team
+### Step 2 — Launch
 
-Run the launch script, passing the session name and lanes file path:
-
+```bash
+bash ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh \
+  --session "team-<name>" --lanes <lanes-file>
 ```
-.github/skills/team/scripts/team-launch.sh --session "team-<name>" --lanes <lanes-file>
+
+The script:
+1. Splits the **current window** into panes
+2. Launches `omp --madmax` in each
+3. Auto-accepts folder trust prompts
+4. Waits for readiness, sends prompts
+5. Monitors completion and prints a results summary
+
+### Step 3 — Report
+
+The script blocks and prints all results. Relay the output to the user.
+
+## Optional mode — Runtime (`omp team`)
+
+Choose this only when the user explicitly wants the team to run in the background or needs runtime features.
+
+### When to choose it
+
+- The user asked for a **background** team
+- You need `omp team status`, shutdown, or runtime task APIs
+- You do **not** need the panes in the current tmux window
+
+### Launch
+
+```bash
+omp team <N>:copilot "<task description>"
 ```
 
-This will:
-- Split the **current tmux window** into panes (leader keeps its pane)
-- Launch `omp --madmax` interactively in each pane, then send the prompt
-- Arrange panes in a tiled grid layout
-- Print pane IDs and navigation commands
+The runtime automatically:
+1. Creates a tmux session with split panes
+2. Launches `copilot --allow-all-tools` in each pane
+3. Auto-accepts folder trust prompts
+4. Waits for readiness, then sends the task prompt
+5. Tracks task state, heartbeats, and supports idle-nudging
 
-### Step 4 — Report to user
+### Monitor and cleanup
 
-Show the user:
-- Which panes were created and what each is working on
-- Navigation: `Ctrl-b + arrow keys` to move between panes
-- How to check output: `tmux capture-pane -t <pane-id> -p -S -50`
-- How to kill panes when done
+```bash
+omp team status <team-name>       # check progress
+tmux attach -t omp-team-<name>    # watch panes live
+omp team shutdown <team-name>     # kill when done
+```
 
 ## Prerequisites
 
-- `tmux` installed and running inside a tmux session
-- `omp` (oh-my-copilot) on PATH — preferred, launches with `omp --madmax`
-- Falls back to `copilot` if `omp` is not available
-- `jq` for JSON parsing
+- `tmux` installed and session running
+- `omp` on PATH
+- `jq` for JSON parsing (split mode only)
 
-## Prompt guidelines
+## Task / prompt guidelines
 
-Each lane prompt must be **self-contained**. The agent in that pane has no context from this session. Include:
+Each task must be **self-contained**. The agent has no context from this session. Include:
 - Exact files or directories to work in
-- What to do (fix, upgrade, accept, etc.)
-- How to verify (run tests, npm audit, etc.)
+- What to do (fix, upgrade, etc.)
+- How to verify (run tests, etc.)
 - Commit message to use
 
-### Good prompt example
+### Good example
 
-> You are working in /Users/me/project. In src/auth/login.ts, replace the bcrypt password check with argon2. Update the import, change the verify call, and run `npm test -- --grep auth` to confirm. Commit with message "refactor: switch password hashing to argon2".
+> In src/auth/login.ts, replace bcrypt with argon2. Update the import, change the verify call, run `npm test -- --grep auth`. Commit: "refactor: switch to argon2".
 
-### Bad prompt example
+### Bad example
 
-> Fix the auth module. (Too vague — which file? What fix? How to verify?)
+> Fix the auth module. (Too vague)
 
 ## Composition
 
-Use `/ralplan` before `/team` to produce the plan that defines lanes. Use `/verify` after all panes complete to confirm combined results don't conflict.
+Use `/ralplan` before `/team` to produce the plan. Use `/verify` after completion.
 
 ## Limitations
 
-- Each pane is an independent agent session — no shared state or messaging
-- Agents cannot communicate with each other — if tasks depend on each other, use `/ralph` instead
-- Leader (you) must manually verify results after all panes complete
-- Best for independent, non-conflicting work streams
+- Each pane is an independent session — no shared state
+- Workers can message each other via `omp team api send-message` (runtime mode only)
+- If tasks depend on each other, use `/ralph` instead

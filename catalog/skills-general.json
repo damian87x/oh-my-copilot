@@ -91,8 +91,8 @@
       "source": ".github/skills/team/SKILL.md",
       "sourcePath": ".github/skills/team/SKILL.md",
       "canonicalPath": ".github/skills/team/SKILL.md",
-      "description": "Split approved plans into parallel lanes.",
-      "summary": "Split approved plans into parallel lanes.",
+      "description": "Split approved plans into visible tmux lanes in the current window by default.",
+      "summary": "Split approved plans into visible tmux lanes by default.",
       "support": "project-skill",
       "aliases": [],
       "slashCommands": [

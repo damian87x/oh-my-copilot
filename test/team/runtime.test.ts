@@ -45,9 +45,13 @@ function mockTmux(): { api: TmuxApi; calls: string[][]; deadPanes: Set<string> }
       calls.push(["send-text", target, text]);
       return { stdout: "", stderr: "", status: 0 } satisfies TmuxResult;
     },
+    displayMessage(target, message) {
+      calls.push(["display-message", target, message]);
+      return { stdout: "", stderr: "", status: 0 } satisfies TmuxResult;
+    },
     capturePane(target) {
       calls.push(["capture-pane", target]);
-      return { stdout: "$ ", stderr: "", status: 0 } satisfies TmuxResult;
+      return { stdout: "❯\n/ commands · ? help", stderr: "", status: 0 } satisfies TmuxResult;
     },
     killPane(target) {
       calls.push(["kill-pane", target]);
@@ -207,10 +211,12 @@ describe("nudge gating", () => {
   });
 
   describe("monitorTeam wiring (capturePane only fires from the nudge tracker)", () => {
-    it("does NOT nudge by default — no capture-pane calls, no nudge attempts", async () => {
+    it("does NOT nudge by default — no capture-pane calls during monitoring, no nudge attempts", async () => {
       const cwd = tempCwd();
       const { api, calls } = mockTmux();
       await startTeam({ cwd, name: "demo", role: "claude", workerCount: 1, task: "x", tmux: api });
+      // Reset calls after startup — waitForReady uses capturePane during init
+      calls.length = 0;
       const result = await monitorTeam({ cwd, name: "demo", tmux: api, pollIntervalMs: 1, maxTicks: 2 });
       expect(calls.some((c) => c[0] === "capture-pane")).toBe(false);
       expect(result.nudgeAttempts).toHaveLength(0);

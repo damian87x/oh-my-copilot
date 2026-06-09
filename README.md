@@ -82,6 +82,7 @@ That's it.
 ### Developer Experience
 
 - **MCP server** ships with `notepad`, `project-memory`, `shared-memory`, `state`, and `trace` tools out of the box
+- **Lightweight Copilot context** — managed instructions keep only the repo goal plus on-demand memory commands; set `OMP_DISABLE_INSTRUCTIONS_MEMORY=1` to skip writing the managed block entirely
 - **File-state coordination** — outbox JSONL + byte cursor, atomic `O_EXCL` task locks, optimistic CAS on claim
 - **Idle nudge** — content-based pane idle detection that pokes stuck workers
 - **Mode-state loops** — single source of truth per loop (Ralph/Ultrawork/UltraQA state files)
@@ -113,6 +114,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/grill-me`             | Stress-test a plan with Socratic questions                | `/grill-me`                                          |
 | `/caveman`              | Ultra-compressed communication mode                       | `/caveman`                                           |
 | `/worktree`             | Git worktree-based parallel branch work                   | `/worktree`                                          |
+| `/schedule`             | Durable local cron job — re-runs a prompt on a schedule, survives reboot | `/schedule "check the PR every 15 min"`   |
 
 ---
 
@@ -182,6 +184,7 @@ omp list                                    # show discovered skills and agents
 omp setup [--dry-run] [--scope project|user]
 omp launch -- [copilot flags…]              # forward arbitrary args to copilot
 omp --madmax -p "edit src/foo.ts"           # bare-flag, maps to copilot --yolo
+omp suggest "fix flaky tests"               # recommend a slash-skill workflow
 omp team 3:executor "fix all type errors"   # spawn tmux workers
 omp team status <name>
 omp team shutdown <name>
@@ -194,6 +197,12 @@ omp gateway serve [--only slack]            # run chat connectors (today: slack)
 omp gateway status [--json]                 # per-connector readiness (no sockets)
 omp slack serve                             # deprecated alias of `gateway serve --only slack`
 omp slack doctor [--json]                   # deprecated alias of `gateway status --only slack`
+omp env init [--force]                      # write ~/.omp/.env (interactive Slack token setup)
+omp schedule add --id <id> --cron "*/15 * * * *" --prompt "<text>" [--allow-all-tools] [--cwd <dir>] [--model <m>] [--timeout <ms>] [--max-runs N] [--ttl-hours H] [--dry-run]
+omp schedule list                           # registered jobs + OS-install status
+omp schedule status <id>                    # last run + result summary
+omp schedule run-now <id>                   # trigger one run immediately
+omp schedule remove <id>                    # uninstall the OS entry + delete the job
 omp mcp                                     # MCP server over stdio
 omp catalog list | validate | capability <id>
 omp jira render <plan-file>
@@ -204,6 +213,17 @@ Environment overrides:
 
 - `OMP_PLUGIN_ROOT` — path to the plugin checkout (with `OMC_PLUGIN_ROOT` accepted for back-compat)
 - `OMP_COPILOT_BIN` — alternate `copilot` binary
+- `OMP_BIN` — absolute path to the `omp` wrapper written into OS-scheduler entries (overrides `which omp`)
+
+**Scheduled jobs** register a durable per-job entry with the OS scheduler (macOS launchd,
+Linux systemd-user timers, or a managed `crontab` block as a cross-platform fallback) that
+invokes `omp schedule run --id <id>` on the cron schedule. Each tick spawns a fresh agent
+session; overlapping runs are locked out and every run is killed at its `--timeout`
+(default 5 min). Jobs default to **read-only** (`--allow-all-tools` is opt-in and prints a
+warning) and auto-expire after 72h unless `--ttl-hours`/`--max-runs` say otherwise. Recent
+run results are surfaced automatically at the start of new Copilot sessions. Always use
+`omp schedule remove`, never delete `.omp/state/schedule/` by hand, so the OS entry is
+uninstalled cleanly.
 
 ### Chat bridge: drive Copilot from Slack
 
@@ -246,9 +266,9 @@ Auto-snapshot the working tree before any tool-driven file edit. `omp rollback [
 
 One command to consult an alternate provider CLI (`claude`, `codex`, `gemini`) and save the response as a markdown artifact under `.omp/artifacts/ask/`. Same surface in-session via `/ask`.
 
-### v0.5 — Scheduled tasks
+### v0.5 — Scheduled tasks ✅ (shipped)
 
-Natural-language cron: `omp schedule "every weekday 9am run /code-review on main"`. Jobs can attach skills, deliver results to a notification gateway, and support pause/resume/edit. Built on the same mode-state primitives Ralph and UltraQA use.
+Durable local cron: `omp schedule add --id pr-watch --cron "*/15 * * * *" --prompt "…"` plus `/schedule` in-session. Each job registers an OS-scheduler entry (launchd / systemd-user / crontab fallback) that fires a fresh agent session, survives reboot, locks out overlap, and surfaces results at the next session start. Follow-ups: natural-language cron parsing, notification-gateway delivery, pause/resume/edit, and an orphan-sweep (`omp schedule gc`).
 
 ### v0.6 — Browser tool (MCP)
 

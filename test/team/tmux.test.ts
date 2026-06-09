@@ -13,6 +13,19 @@ describe("pane content classification", () => {
     expect(paneLooksReady("")).toBe(false);
   });
 
+  it("paneLooksReady skips Copilot CLI status bar below prompt", () => {
+    const copilotOutput = [
+      "● Lane A reporting: all good!",
+      "───────────────────────────────────────",
+      "❯",
+      "───────────────────────────────────────",
+      " / commands · ? help                                 Claude Opus 4.6",
+      "",
+      "",
+    ].join("\n");
+    expect(paneLooksReady(copilotOutput)).toBe(true);
+  });
+
   it("paneHasActiveTask detects active-task markers", () => {
     expect(paneHasActiveTask("Esc to interrupt")).toBe(true);
     expect(paneHasActiveTask("background terminal running")).toBe(true);
@@ -33,6 +46,7 @@ describe("makeTmux", () => {
     api.splitWindow("%4", "/tmp");
     api.sendKeys("%5", "C-m");
     api.sendText("%5", "hello");
+    api.displayMessage("%5", "done");
     api.capturePane("%5", 80);
     expect(api.paneDead("%5")).toBe(false);
     expect(api.sessionExists("s")).toBe(false);
@@ -40,7 +54,8 @@ describe("makeTmux", () => {
     expect(calls[1]).toEqual(["split-window", "-h", "-t", "%4", "-d", "-P", "-F", "#{pane_id}", "-c", "/tmp"]);
     expect(calls[2]).toEqual(["send-keys", "-t", "%5", "C-m"]);
     expect(calls[3]).toEqual(["send-keys", "-t", "%5", "-l", "--", "hello"]);
-    expect(calls[4]).toEqual(["capture-pane", "-t", "%5", "-p", "-S", "-80"]);
+    expect(calls[4]).toEqual(["display-message", "-t", "%5", "--", "done"]);
+    expect(calls[5]).toEqual(["capture-pane", "-t", "%5", "-p", "-S", "-80"]);
   });
 });
 
