@@ -189,6 +189,11 @@ omp ralph start "<task>" [--max-iterations N]
 omp ultrawork start "<objective>" [--task-count N]
 omp ultraqa start "<goal>" [--max-cycles N]
 omp council "<question>" [--models a,b,c] [--context @file] [--json]   # multi-model council
+omp comms status | send | recv | ask        # drive a running copilot tmux session
+omp gateway serve [--only slack]            # run chat connectors (today: slack)
+omp gateway status [--json]                 # per-connector readiness (no sockets)
+omp slack serve                             # deprecated alias of `gateway serve --only slack`
+omp slack doctor [--json]                   # deprecated alias of `gateway status --only slack`
 omp mcp                                     # MCP server over stdio
 omp catalog list | validate | capability <id>
 omp jira render <plan-file>
@@ -199,6 +204,28 @@ Environment overrides:
 
 - `OMP_PLUGIN_ROOT` — path to the plugin checkout (with `OMC_PLUGIN_ROOT` accepted for back-compat)
 - `OMP_COPILOT_BIN` — alternate `copilot` binary
+
+### Chat bridge: drive Copilot from Slack
+
+`omp gateway` runs long-lived chat connectors that forward messages into a running
+Copilot CLI session (via tmux) and post replies back. Today's connector is `slack`
+(WebSocket Socket Mode — no public URL needed); the runtime is generic so future
+connectors (Telegram, Discord, webhooks) drop in as one file each.
+
+```bash
+# 1. a Copilot tmux session is running (any `omp-<digits>` name)
+tmux new-session -d -s omp-9999
+
+# 2. env tokens (never paste secrets in chat or commit `.env`)
+export SLACK_BOT_TOKEN=xoxb-…
+export SLACK_APP_TOKEN=xapp-…   # app-level, scope connections:write
+
+# 3. preflight, then run
+omp gateway status              # ready=true means tokens + session look good
+omp gateway serve               # blocks; ^C stops cleanly
+```
+
+Full Slack-app setup (manifest + scopes) lives in [`docs/slack-setup.md`](docs/slack-setup.md).
 
 ---
 
