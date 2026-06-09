@@ -64,12 +64,33 @@ running first.
 # Terminal A — a running Copilot session (or `omp` to launch one)
 tmux new-session -d -s omp-9999    # any omp-<digits> name; or run: omp
 
-# Terminal B — the gateway (runs all configured connectors; today: slack)
+# Terminal B — write ~/.omp/.env once, then run the gateway.
+#
+# `omp env init` is interactive: it prints the exact Slack-admin pages to
+# pull each token from, prompts you, and writes ~/.omp/.env (chmod 600).
+# `omp` then auto-loads that file on every invocation — no `source` step.
+# Shell exports always win, so a one-off override like
+# `SLACK_BOT_TOKEN=other omp gateway serve` still works.
+omp env init
+
+# Re-running shows masked existing values and asks before overwriting.
+#
+# Scripted form (CI, automation) — PREFER env vars over flags so tokens
+# never land in shell history, `ps`, or CI logs:
+#   OMP_INIT_BOT_TOKEN=xoxb-… OMP_INIT_APP_TOKEN=xapp-… \
+#     OMP_INIT_SESSION=omp-9999 OMP_INIT_USERS=U1,U2 \
+#     omp env init --force
+# (--bot-token / --app-token still work but emit a stderr warning;
+#  silence it with OMP_INIT_NO_WARN=1 only when you know it's safe.)
+
+omp gateway serve                       # auto-loads ~/.omp/.env first
+```
+
+Alternative: shell exports still work for CI or one-off sessions:
+```bash
 export SLACK_BOT_TOKEN=xoxb-...
 export SLACK_APP_TOKEN=xapp-...
-export SLACK_ALLOWED_USERS=U0123456789        # optional; omit/`*` = everyone
-# export COPILOT_TMUX_SESSION=omp-9999        # optional; auto-discovered if one session
-node dist/src/cli.js gateway serve            # (or `omp gateway serve` if linked)
+omp gateway serve
 ```
 
 To restrict the gateway to a subset of connectors (useful when more connectors land):

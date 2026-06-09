@@ -1,0 +1,289 @@
+/**
+ * Interactive setup for `~/.omp/.env`.
+ *
+ * `omp env init` walks the user through getting their Slack tokens, prompts
+ * them, writes the file (chmod 600), and tells them what to run next. Anything
+ * that would prompt the user lives behind injectable I/O so unit tests can
+ * exercise the full happy path and the validation/abort paths without ever
+ * touching a real terminal.
+ */
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { OMP_ENV_DIRNAME, OMP_ENV_FILENAME } from "./dotenv.js";
+
+/** Where to send instructional and prompt text. */
+export interface InitIO {
+  /** Display a line to the user (stdout in interactive use). */
+  print(line: string): void;
+  /** Display a diagnostic warning (stderr — must NEVER pollute stdout when --json is in play). */
+  warn?(line: string): void;
+  /** Read one line of input (or undefined when stream closed/non-interactive). */
+  ask(prompt: string): Promise<string | undefined>;
+}
+
+export interface InitOptions {
+  io: InitIO;
+  /** Override the user's home directory (tests). */
+  homeDir?: string;
+  /** Use these answers verbatim — skips prompts (`--non-interactive` mode). */
+  answers?: Partial<InitAnswers>;
+  /** When true, overwrite an existing ~/.omp/.env without asking. */
+  force?: boolean;
+}
+
+export interface InitAnswers {
+  slackBotToken: string;
+  slackAppToken: string;
+  copilotTmuxSession: string;
+  slackAllowedUsers: string;
+}
+
+export interface InitResult {
+  /** Whether the file was written. False when the user aborted. */
+  ok: boolean;
+  /** Resolved file path. */
+  path: string;
+  /** Reason when ok=false. */
+  reason?: string;
+}
+
+const BOT_TOKEN_PREFIX = "xoxb-";
+const APP_TOKEN_PREFIX = "xapp-";
+
+const SLACK_APP_URL = "https://api.slack.com/apps";
+
+const INTRO_LINES = [
+  "",
+  "omp env init — set up ~/.omp/.env",
+  "",
+  "This writes your Slack tokens (and optional defaults) to ~/.omp/.env so",
+  "`omp gateway serve` works from any shell, without `source .env`.",
+  "Shell exports always win, so a one-off override still works.",
+  "",
+  "Where to get the tokens (≈3 min):",
+  `  1. Open ${SLACK_APP_URL} → "Create New App" → "From an app manifest"`,
+  "     and paste the YAML from docs/slack-setup.md.",
+  `  2. Bot token (xoxb-…): "OAuth & Permissions" → "Bot User OAuth Token"`,
+  "     after installing the app to your workspace.",
+  `  3. App-level token (xapp-…): "Basic Information" → "App-Level Tokens"`,
+  "     → Generate, with scope `connections:write`.",
+  "",
+  "Press ENTER on the optional prompts to skip them.",
+  "",
+];
+
+/**
+ * Run the interactive setup. Idempotent — re-running shows masked existing
+ * values and offers to overwrite (or pass `force: true`).
+ *
+ * Validation:
+ *   - bot token must start with `xoxb-` (we re-prompt up to 2 times)
+ *   - app token must start with `xapp-` (we re-prompt up to 2 times)
+ *   - empty bot/app token in non-interactive mode is an error
+ */
+export async function runEnvInit(opts: InitOptions): Promise<InitResult> {
+  const { io, force, answers } = opts;
+  const home = opts.homeDir ?? homedir();
+  const path = join(home, OMP_ENV_DIRNAME, OMP_ENV_FILENAME);
+
+  // Non-interactive path: take everything from `answers`. Used by the CLI
+  // when the user passes --bot-token / --app-token flags, or by tests.
+  const interactive = !answers;
+  if (interactive) {
+    for (const line of INTRO_LINES) io.print(line);
+  }
+
+  if (existsSync(path) && !force) {
+    if (interactive) {
+      const existing = readExistingMasked(path);
+      io.print(`Existing config at ${path}:`);
+      for (const line of existing) io.print(`  ${line}`);
+      io.print("");
+      const overwrite = await io.ask("Overwrite? [y/N] ");
+      if ((overwrite ?? "").trim().toLowerCase() !== "y") {
+        return { ok: false, path, reason: "aborted by user (no overwrite)" };
+      }
+    } else {
+      return { ok: false, path, reason: `${path} already exists (use --force to overwrite)` };
+    }
+  }
+
+  const collected: InitAnswers = {
+    slackBotToken: "",
+    slackAppToken: "",
+    copilotTmuxSession: "",
+    slackAllowedUsers: "",
+  };
+
+  if (answers) {
+    Object.assign(collected, answers);
+  } else {
+    collected.slackBotToken = await promptForToken(io, "Slack BOT token", BOT_TOKEN_PREFIX);
+    collected.slackAppToken = await promptForToken(io, "Slack APP-LEVEL token", APP_TOKEN_PREFIX);
+    collected.copilotTmuxSession = (await io.ask(
+      "Pin Copilot tmux session (optional, e.g. omp-9999): ",
+    )) ?? "";
+    collected.slackAllowedUsers = (await io.ask(
+      "Slack user ID allowlist (optional, comma-separated, e.g. U0123ABCD): ",
+    )) ?? "";
+  }
+
+  // Final validation — in both interactive and non-interactive modes the
+  // required tokens must be present and prefix-shaped, otherwise refuse to
+  // write a config that wouldn't pass `gateway doctor`.
+  const botToken = collected.slackBotToken.trim();
+  const appToken = collected.slackAppToken.trim();
+  if (!botToken || !botToken.startsWith(BOT_TOKEN_PREFIX)) {
+    return {
+      ok: false,
+      path,
+      reason: `Slack BOT token is required and must start with "${BOT_TOKEN_PREFIX}".`,
+    };
+  }
+  if (!appToken || !appToken.startsWith(APP_TOKEN_PREFIX)) {
+    return {
+      ok: false,
+      path,
+      reason: `Slack APP-LEVEL token is required and must start with "${APP_TOKEN_PREFIX}".`,
+    };
+  }
+
+  const session = collected.copilotTmuxSession.trim();
+  const users = collected.slackAllowedUsers.trim();
+
+  const content = renderEnvFile({
+    botToken,
+    appToken,
+    session: session || undefined,
+    users: users || undefined,
+  });
+
+  mkdirSync(dirname(path), { recursive: true });
+  // Atomic, perm-safe write. mkdtempSync creates a brand-new sibling dir with
+  // a unique suffix (mode 0o700 on POSIX), so the temp file inside is always
+  // freshly created — `{ mode: 0o600 }` is guaranteed to apply, and there's
+  // no chance of stomping a pre-existing temp file with stale perms. The
+  // final rename then atomically installs the 0o600 file into place.
+  let tmpDir: string | null = null;
+  let tmpFile: string | null = null;
+  try {
+    tmpDir = mkdtempSync(join(dirname(path), ".env-init-"));
+    tmpFile = join(tmpDir, "env");
+    writeFileSync(tmpFile, content, { mode: 0o600, encoding: "utf8" });
+    // Defense-in-depth: confirm the perms we asked for are what we got
+    // before we publish the file. On Windows the check is a no-op.
+    if (process.platform !== "win32") {
+      const mode = statSync(tmpFile).mode & 0o777;
+      if (mode !== 0o600) {
+        throw new Error(`temp file mode is ${mode.toString(8)}, expected 600`);
+      }
+    }
+    renameSync(tmpFile, path);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, path, reason: `failed to write ${path}: ${msg}` };
+  } finally {
+    if (tmpDir) {
+      try {
+        rmSync(tmpDir, { recursive: true, force: true });
+      } catch {
+        /* best effort */
+      }
+    }
+  }
+
+  // POSIX: file was created with mode 0o600 and that survives the rename.
+  // Windows: mode bits are largely meaningless. Either way, we never end up
+  // in a state where we'd need to apologize for the perms — if anything went
+  // wrong above we'd have returned the error already.
+  const lockedDown = process.platform !== "win32";
+
+  if (interactive) {
+    io.print("");
+    io.print(lockedDown ? `Wrote ${path} (chmod 600).` : `Wrote ${path}.`);
+    io.print("");
+    io.print("Next:");
+    io.print("  1. start a Copilot tmux session if one isn't running already");
+    io.print("     (any `omp-<digits>` name; e.g. `tmux new-session -d -s omp-9999`)");
+    io.print("  2. `omp gateway status`  — should report ready=true");
+    io.print("  3. `omp gateway serve`   — blocks; ^C to stop");
+    io.print("");
+  }
+
+  return { ok: true, path };
+}
+
+interface RenderedKeys {
+  botToken: string;
+  appToken: string;
+  session?: string;
+  users?: string;
+}
+
+function renderEnvFile(k: RenderedKeys): string {
+  const lines: string[] = [
+    "# Written by `omp env init`. Edit by hand or re-run the command.",
+    "# Precedence: shell exports always win over values in this file.",
+    "",
+    `SLACK_BOT_TOKEN=${k.botToken}`,
+    `SLACK_APP_TOKEN=${k.appToken}`,
+  ];
+  if (k.session) lines.push(`COPILOT_TMUX_SESSION=${k.session}`);
+  if (k.users) lines.push(`SLACK_ALLOWED_USERS=${k.users}`);
+  lines.push("");
+  return lines.join("\n");
+}
+
+async function promptForToken(io: InitIO, label: string, prefix: string): Promise<string> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const value = ((await io.ask(`${label} (starts with ${prefix}): `)) ?? "").trim();
+    if (value.startsWith(prefix)) return value;
+    if (!value) {
+      io.print(`  ${label} is required.`);
+      continue;
+    }
+    io.print(`  That doesn't look like a ${label.toLowerCase()} (expected to start with "${prefix}").`);
+  }
+  // Caller's final validation will reject — we don't throw here so the call
+  // site can return a structured error.
+  return "";
+}
+
+/** Read an existing file and return user-visible lines with values masked. */
+function readExistingMasked(path: string): string[] {
+  try {
+    return readFileSync(path, "utf8")
+      .split(/\r?\n/)
+      .filter((l) => l.trim() && !l.trim().startsWith("#"))
+      .map((line) => {
+        const i = line.indexOf("=");
+        if (i === -1) return line;
+        const key = line.slice(0, i);
+        const val = line.slice(i + 1);
+        return `${key}=${maskValue(val)}`;
+      });
+  } catch {
+    return ["(could not read existing file)"];
+  }
+}
+
+function maskValue(v: string): string {
+  const trimmed = v.trim();
+  if (trimmed.length <= 4) return "****";
+  // Show prefix (e.g. xoxb-) + 3 stars + last 4 chars to confirm identity
+  // without leaking the bulk of the secret.
+  const dashIndex = trimmed.indexOf("-");
+  const prefix = dashIndex >= 0 ? trimmed.slice(0, dashIndex + 1) : "";
+  const tail = trimmed.slice(-4);
+  return `${prefix}***${tail}`;
+}

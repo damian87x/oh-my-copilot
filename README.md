@@ -216,9 +216,10 @@ connectors (Telegram, Discord, webhooks) drop in as one file each.
 # 1. a Copilot tmux session is running (any `omp-<digits>` name)
 tmux new-session -d -s omp-9999
 
-# 2. env tokens (never paste secrets in chat or commit `.env`)
-export SLACK_BOT_TOKEN=xoxb-…
-export SLACK_APP_TOKEN=xapp-…   # app-level, scope connections:write
+# 2. interactive setup — explains where to grab each token and writes
+#    ~/.omp/.env (chmod 600). Re-runnable; masks existing values.
+#    `omp` auto-loads ~/.omp/.env every invocation; shell exports still win.
+omp env init
 
 # 3. preflight, then run
 omp gateway status              # ready=true means tokens + session look good

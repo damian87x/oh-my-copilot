@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { parseDotEnv } from './env/dotenv.js';
 
 export type JiraMode = 'live' | 'dry-run';
 export type JiraOperationName = 'create' | 'comment' | 'update' | 'transition' | 'link';
@@ -100,17 +101,7 @@ const SAFE_UPDATE_FIELDS = new Set(['summary', 'description', 'labels', 'compone
 export function loadDotEnv(cwd = process.cwd()): Record<string, string> {
   const path = join(cwd, '.env');
   if (!existsSync(path)) return {};
-  const env: Record<string, string> = {};
-  for (const rawLine of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-    const equals = line.indexOf('=');
-    if (equals === -1) continue;
-    const key = line.slice(0, equals).trim();
-    const value = line.slice(equals + 1).trim().replace(/^['"]|['"]$/g, '');
-    if (key) env[key] = value;
-  }
-  return env;
+  return parseDotEnv(readFileSync(path, 'utf8'));
 }
 
 export function discoverJiraConfig(options: {

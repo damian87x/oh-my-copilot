@@ -5,12 +5,16 @@
  * `copilotSession`/`copilotError`/`ready` keep working.
  */
 import { afterEach, beforeEach, describe, it, expect } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runCli } from "../../src/cli.js";
 
 const ENV_KEYS = [
   "SLACK_BOT_TOKEN",
   "SLACK_APP_TOKEN",
   "COPILOT_TMUX_SESSION",
+  "HOME",
 ] as const;
 
 function snapshotEnv(): Record<string, string | undefined> {
@@ -25,10 +29,21 @@ function restoreEnv(snap: Record<string, string | undefined>): void {
   }
 }
 
+// Point HOME at an empty temp dir so the global ~/.omp/.env autoloader
+// (src/cli.ts:runCli → loadOmpEnv) cannot leak the developer/CI tokens
+// into these tests.
+function withIsolatedHome(): { home: string; cleanup: () => void } {
+  const home = mkdtempSync(join(tmpdir(), "omp-cli-test-"));
+  process.env.HOME = home;
+  return { home, cleanup: () => rmSync(home, { recursive: true, force: true }) };
+}
+
 describe("omp slack doctor --json (legacy flat shape)", () => {
   let saved: Record<string, string | undefined>;
+  let cleanup: () => void;
   beforeEach(() => {
     saved = snapshotEnv();
+    ({ cleanup } = withIsolatedHome());
     delete process.env.SLACK_BOT_TOKEN;
     delete process.env.SLACK_APP_TOKEN;
     // Pin the session env so resolveSession returns a known value without
@@ -36,7 +51,10 @@ describe("omp slack doctor --json (legacy flat shape)", () => {
     // verbatim — see src/comms/resolve-session.ts.
     process.env.COPILOT_TMUX_SESSION = "omp-test-session";
   });
-  afterEach(() => restoreEnv(saved));
+  afterEach(() => {
+    cleanup();
+    restoreEnv(saved);
+  });
 
   it("emits {botToken, appToken, copilotSession, copilotError, ready} when tokens are missing", async () => {
     const r = await runCli(["slack", "doctor", "--json"]);
@@ -71,13 +89,18 @@ describe("omp slack doctor --json (legacy flat shape)", () => {
 
 describe("omp gateway status --json (new connector-shaped output)", () => {
   let saved: Record<string, string | undefined>;
+  let cleanup: () => void;
   beforeEach(() => {
     saved = snapshotEnv();
+    ({ cleanup } = withIsolatedHome());
     delete process.env.SLACK_BOT_TOKEN;
     delete process.env.SLACK_APP_TOKEN;
     process.env.COPILOT_TMUX_SESSION = "this-session-does-not-exist-omp-test";
   });
-  afterEach(() => restoreEnv(saved));
+  afterEach(() => {
+    cleanup();
+    restoreEnv(saved);
+  });
 
   it("emits {ready, connectors:[...], warnings:[...]}", async () => {
     const r = await runCli(["gateway", "status", "--json"]);
