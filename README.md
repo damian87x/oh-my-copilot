@@ -53,7 +53,8 @@ That's it.
 - **Team-first orchestration** — parallel tmux panes, each running an independent agent session
 - **Bare-flag bypass** — `omp --madmax` injects `--yolo` so non-interactive runs never block on a permission prompt
 - **Persistent execution** — Ralph, UltraQA, and Ultrawork keep going until the goal is verified
-- **MCP-powered shared state** — workers swap typed messages over an outbox/inbox cursor instead of summarising each other's summaries
+- **File-state coordination** — workers swap typed messages over an outbox/inbox cursor with atomic `O_EXCL` task locks; no broker or daemon to babysit
+- **Chat bridge** — `omp gateway` runs long-lived chat connectors (Slack today, more next) so you can DM Copilot from anywhere
 - **Lifecycle hooks** — `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SessionEnd`, `Error`
 - **Doctor included** — `omp doctor` verifies plugin manifest, skills discovery, hooks, and the underlying `copilot` CLI in one shot
 
@@ -76,14 +77,14 @@ That's it.
 ### Intelligent Orchestration
 
 - **7 specialized agents** — planner, architect, executor, verifier, code-reviewer, designer, researcher (all `--agent <name>` compatible with Copilot CLI)
-- **19 in-session skills** auto-discovered from `.github/skills/`
+- **22 in-session skills** auto-discovered from `.github/skills/`
 - **Smart pipeline routing** — `/research-codebase` → `/ralplan` → `/team` / `/ralph` / `/ultrawork` → `/code-review` → `/ultraqa`
 
 ### Developer Experience
 
-- **MCP server** ships with `notepad`, `project-memory`, `shared-memory`, `state`, and `trace` tools out of the box
+- **Context & history as CLI subcommands** — `omp state` (key-value with TTL), `omp project-memory` (notes + directives), `omp trace` (per-session timeline + summary), `omp goal` / `omp memory sync` (managed repo context), `omp daily-log`
 - **Lightweight Copilot context** — managed instructions keep only the repo goal plus on-demand memory commands; set `OMP_DISABLE_INSTRUCTIONS_MEMORY=1` to skip writing the managed block entirely
-- **File-state coordination** — outbox JSONL + byte cursor, atomic `O_EXCL` task locks, optimistic CAS on claim
+- **File-state worker coordination** — outbox JSONL + byte cursor, atomic `O_EXCL` task locks, optimistic CAS on claim
 - **Idle nudge** — content-based pane idle detection that pokes stuck workers
 - **Mode-state loops** — single source of truth per loop (Ralph/Ultrawork/UltraQA state files)
 
@@ -115,6 +116,8 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/caveman`              | Ultra-compressed communication mode                       | `/caveman`                                           |
 | `/worktree`             | Git worktree-based parallel branch work                   | `/worktree`                                          |
 | `/schedule`             | Durable local cron job — re-runs a prompt on a schedule, survives reboot | `/schedule "check the PR every 15 min"`   |
+| `/goal`                 | Set/read the repo-level goal injected into the managed Copilot context | `/goal "ship v1.0 of the billing flow"` |
+| `/daily-log`            | Per-day goal + work log surfaced at the start of new sessions | `/daily-log "ratelimit refactor landed"`        |
 
 ---
 
@@ -205,7 +208,12 @@ omp schedule list                           # registered jobs + OS-install statu
 omp schedule status <id>                    # last run + result summary
 omp schedule run-now <id>                   # trigger one run immediately
 omp schedule remove <id>                    # uninstall the OS entry + delete the job
-omp mcp                                     # MCP server over stdio
+omp goal set "<objective>" | read [--json]
+omp memory sync [--json]                    # render goal + directives into copilot-instructions.md
+omp daily-log set-goal "<text>" | add "<text>" | read [--days N] | prune [--keep-days N] [--json]
+omp state write <key> <val> [--ttl <s>] | read | delete | status <key> | list | cleanup [--json]
+omp project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" [--json]
+omp trace timeline [<sessionId>] [--limit N] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]
 omp catalog list | validate | capability <id>
 omp jira render <plan-file>
 omp jira apply <key-or-plan> --comment|--update|--transition|--link
@@ -216,6 +224,7 @@ Environment overrides:
 - `OMP_PLUGIN_ROOT` — path to the plugin checkout (with `OMC_PLUGIN_ROOT` accepted for back-compat)
 - `OMP_COPILOT_BIN` — alternate `copilot` binary
 - `OMP_BIN` — absolute path to the `omp` wrapper written into OS-scheduler entries (overrides `which omp`)
+- `OMP_SKIP_USER_ENV` — when `1`, skip auto-loading `~/.omp/.env` (useful for hermetic CI runs)
 
 **Scheduled jobs** register a durable per-job entry with the OS scheduler (macOS launchd,
 Linux systemd-user timers, or a managed `crontab` block as a cross-platform fallback) that
@@ -254,50 +263,29 @@ Full Slack-app setup (manifest + scopes) lives in [`docs/slack-setup.md`](docs/s
 
 ## Roadmap
 
-omp is intentionally small today and growing in vertical slices.
+omp grows in vertical slices. Items aren't pinned to specific semver versions — they land when they're ready.
 
-### Notification gateways
+### Already shipped
 
-- ✅ **Slack outbound** (shipped) — `omp gateway notify`, `/slack` in-session skill,
-  and `omp schedule add --notify-target slack:<ID>` for cron jobs. See
-  [`docs/slack-setup.md`](docs/slack-setup.md). Stateless REST; the v0.8.0
-  inbound bridge (`omp gateway serve`) remains the bidirectional chat path.
-- Telegram, Discord, and generic-webhook outbound — same Connector interface
-  inside `src/gateway/connectors/`; one file per connector.
-- A unified `omp notify add` config command + per-invocation tags
-  (`--telegram` / `--discord` / `--slack`) for orchestration modes.
+- **Scheduled tasks** (v0.6.0) — durable local cron: `omp schedule add --id pr-watch --cron "*/15 * * * *" --prompt "…"` plus `/schedule` in-session. Each job registers an OS-scheduler entry (launchd / systemd-user / crontab fallback) that fires a fresh agent session, survives reboot, locks out overlap, and surfaces results at the next session start.
+- **Chat bridge — Slack inbound** (v0.8.0) — `omp gateway` runs long-lived chat connectors that forward messages into a running Copilot tmux session and post replies back. Slack is the first connector (Socket Mode, no public URL). `omp env init` walks you through one-time token setup; tokens live in `~/.omp/.env` (auto-loaded on every invocation). See [`docs/slack-setup.md`](docs/slack-setup.md).
+- **Slack outbound — `omp gateway notify`** — stateless REST `chat.postMessage` from any process (cron `--notify-target`, in-session `/slack <message>`, ad-hoc `omp gateway notify --text "..."`). Default destination from `SLACK_HOME_CHANNEL`; explicit `--target slack:C…/G…/D…/U…` overrides; `U…` auto-resolves to a DM via `conversations.open`.
+- **Weighted-consensus council** — multi-model council with role weights + minority report. Via `omp council` or `/weighted-consensus`.
+- **Suggest** — `omp suggest "<task>"` recommends a slash-skill workflow without launching one.
 
-### v0.3 — Checkpoints + rollback
+### Up next
 
-Auto-snapshot the working tree before any tool-driven file edit. `omp rollback [id]` to revert a checkpoint. A safety net for autonomous loops that go wide before they go right.
+- **More chat connectors** — Telegram, Discord, generic webhook on the same `omp gateway` runtime. One file per connector.
+- **Outbound notifications** — long-running modes ping you when they finish, fail, or stall (`omp notify add` + per-invocation `--telegram`/`--discord`/`--slack` tags).
+- **Checkpoints + rollback** — auto-snapshot the working tree before any tool-driven file edit; `omp rollback [id]` reverts a checkpoint. Safety net for autonomous loops.
+- **Browser tool** — web search / page extraction / full automation (navigate, click, type, screenshot) for research skills that need fresh data instead of training-cutoff guesses.
 
-### v0.4 — Provider advisor (`omp ask`)
+### Later
 
-One command to consult an alternate provider CLI (`claude`, `codex`, `gemini`) and save the response as a markdown artifact under `.omp/artifacts/ask/`. Same surface in-session via `/ask`.
-
-### v0.5 — Scheduled tasks ✅ (shipped)
-
-Durable local cron: `omp schedule add --id pr-watch --cron "*/15 * * * *" --prompt "…"` plus `/schedule` in-session. Each job registers an OS-scheduler entry (launchd / systemd-user / crontab fallback) that fires a fresh agent session, survives reboot, locks out overlap, and surfaces results at the next session start. Follow-ups: natural-language cron parsing, notification-gateway delivery, pause/resume/edit, and an orphan-sweep (`omp schedule gc`).
-
-### v0.6 — Browser tool (MCP)
-
-A first-class browser MCP tool: web search, page extraction, full automation (navigate, click, type, screenshot). For research skills that need fresh data instead of training-cutoff guesses.
-
-### v0.7 — HUD-lite statusline
-
-Live orchestration metrics in the terminal: active mode, current task, worker count, tokens, cache hit rate, last error.
-
-### v0.8 — Provider routing
-
-Fine-grained per-task provider selection — sorting, whitelists, priority ordering, cost-aware fallback. For mixed pipelines that want Opus for planning and Haiku for grunt work without manual model switching.
-
-### v0.9 — Skill learning
-
-Extract repeating patterns from session transcripts into reusable skill files with strict quality gates. Auto-injects into context when relevant triggers fire.
-
-### v1.0 — Pre-built agent templates
-
-One-shot deployable templates for common workflows: research, security audit, design-system migration, content automation. `omp template add <name>` drops a curated skill + agent pair into your project.
+- **HUD-lite statusline** — live orchestration metrics in the terminal: active mode, current task, worker count, tokens, cache hit rate, last error.
+- **Provider routing** — fine-grained per-task provider selection: sorting, whitelists, priority ordering, cost-aware fallback. For mixed pipelines that want Opus for planning and Haiku for grunt work without manual model switching.
+- **Skill learning** — extract repeating patterns from session transcripts into reusable skill files with strict quality gates. Auto-injects into context when relevant triggers fire.
+- **Pre-built agent templates** — one-shot deployable templates for common workflows (research, security audit, design-system migration, content automation). `omp template add <name>` drops a curated skill + agent pair into your project.
 
 ---
 
@@ -307,6 +295,7 @@ One-shot deployable templates for common workflows: research, security audit, de
 - [Copilot distribution](docs/copilot-distribution.md) — project/user skill installs and the case against GitHub App Extensions
 - [Jira adapter](docs/jira.md) — configuration discovery, safe operations, dry-runs, fallback payloads
 - [Self-evolve](docs/self-evolve.md) — extracting reusable skills from session transcripts
+- [Slack setup](docs/slack-setup.md) — Slack app manifest, scopes, Socket-Mode token, `omp gateway serve`
 
 ## Layout
 
@@ -315,7 +304,7 @@ One-shot deployable templates for common workflows: research, security audit, de
 .github/skills/<name>/SKILL.md    # in-session slash skills
 hooks/hooks.json                  # lifecycle hook manifest
 scripts/*.mjs                     # hook implementations
-src/                              # omp CLI, MCP server, team runtime, mode-state loops
+src/                              # omp CLI, team runtime, gateway/comms, schedule, mode-state loops
 ```
 
 Skills follow the [Copilot agent-skills docs](https://docs.github.com/en/copilot) — project skills live in `.github/skills/` and are invoked with `/skill-name`.
