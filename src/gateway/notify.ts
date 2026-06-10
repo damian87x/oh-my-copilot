@@ -115,6 +115,17 @@ export async function notify(
     target = parsed.target;
   }
 
+  // Validate an explicit --thread-ts the same way we validate :thread_ts
+  // suffixes in the target string. Without this, a typo via the flag path
+  // bypasses parser validation and Slack reports an opaque error at runtime.
+  if (opts.threadTs && !/^[0-9]+\.[0-9]+$/.test(opts.threadTs)) {
+    return {
+      ok: false,
+      code: "BAD_TARGET",
+      reason: `threadTs "${opts.threadTs}" is not a Slack timestamp (expected digits.digits)`,
+    };
+  }
+
   // One absolute deadline for the whole notify call — shared across
   // conversations.open + chat.postMessage so a U-target send can't quietly
   // take 2× the documented budget.
@@ -277,7 +288,11 @@ async function callSlack(args: CallArgs): Promise<CallResult> {
     }
     if (payload.ok === true) return { ok: true, payload };
 
-    const reasonRaw = (payload.error as string | undefined) ?? `slack returned ok:false`;
+    // Slack's documented schema has `error` as a string, but proxies / WAFs /
+    // wrong endpoints can return object / array / null. Coerce defensively
+    // before redacting — the public contract is never-throws.
+    const rawError = (payload as Record<string, unknown>).error;
+    const reasonRaw = coerceErrorReason(rawError);
     const reason = redact(reasonRaw, args.token);
     // Slack uses `ratelimited` (no underscore) for rate-limit errors when not
     // surfaced as HTTP 429. Treat as RATE_LIMITED so callers can back off.
@@ -287,6 +302,23 @@ async function callSlack(args: CallArgs): Promise<CallResult> {
     return { ok: false, code: "POST_FAILED", reason };
   }
   return { ok: false, code: "POST_FAILED", reason: "exhausted retries" };
+}
+
+/**
+ * Coerce a Slack error field of unknown shape to a string. Slack documents
+ * `error: string`, but proxies/WAFs/mis-pointed endpoints can return objects,
+ * arrays, or null. We must NOT throw — the caller's never-throws guarantee
+ * is part of the public contract.
+ */
+function coerceErrorReason(raw: unknown): string {
+  if (raw == null) return "slack returned ok:false";
+  if (typeof raw === "string") return raw;
+  if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
+  try {
+    return JSON.stringify(raw);
+  } catch {
+    return "slack returned ok:false (unserializable error field)";
+  }
 }
 
 /**

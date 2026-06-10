@@ -4,8 +4,11 @@
  * Target grammar (Hermes-mirror — see apps/hermes-agent/tools/send_message_tool.py:21-46):
  *
  *   "<platform>:<ref>"   → explicit per-call target
- *   "<platform>"          → bare platform; caller falls back to env default
- *                          (e.g. SLACK_HOME_CHANNEL)
+ *
+ * Bare-platform fallback (`<platform>` with no `:<ref>`) is NOT implemented in
+ * this parser. The notify() caller layer handles the "no target → env default"
+ * decision by passing undefined/empty as the target and reading
+ * `SLACK_HOME_CHANNEL` directly — it never calls `parseTarget("slack")`.
  *
  * For slice 1 the only platform is "slack". <ref> for slack is a 9+ char
  * uppercase alphanumeric ID prefixed with one of:

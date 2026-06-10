@@ -1,6 +1,6 @@
 ---
 name: slack
-description: Post an outbound Slack notification from inside a Copilot session. One-way (publish only); the v0.8.0 gateway bridge still handles bidirectional DM chat. Use when the user says /slack <message>, "tell Slack ...", "notify me on Slack", or wants a quick ping to their default Slack target.
+description: Post an outbound Slack notification — ONLY when the user types the explicit `/slack` slash command. Never auto-trigger from natural-language phrases like "tell Slack" or "notify me on Slack"; those go to the regular chat. One-way (publish only); the v0.8.0 gateway bridge still handles bidirectional DM chat.
 argument-hint: "<message> [--target slack:C…|D…|G…|U…]"
 ---
 
@@ -9,6 +9,20 @@ argument-hint: "<message> [--target slack:C…|D…|G…|U…]"
 Post a single message to Slack and exit. **No conversation; no listener.** The
 v0.8.0 chat bridge (`omp gateway serve` + `@omp-copilot` DM) handles bidirectional
 chat; this skill is for one-shot publishes.
+
+## Activation rules (read first)
+
+- **Activate ONLY** when the user typed the literal slash command `/slack` (with or
+  without arguments). Never auto-activate from natural-language phrases like "tell
+  Slack X", "ping me on Slack", "notify me on Slack" — those are conversational.
+- **Confirm the destination before posting**, every time:
+  - If `--target` is present, echo it back: "Sending to `slack:<ID>` — confirm? (y/N)"
+  - If `--target` is absent AND `SLACK_HOME_CHANNEL` is a channel (`C…`/`G…`):
+    treat as a potential broadcast. Ask: "Post to default channel `<id>` (a channel,
+    not a DM)? (y/N)" — only proceed on explicit `y`.
+  - If `SLACK_HOME_CHANNEL` is a user (`U…`) or DM (`D…`), proceed without
+    confirmation — the user already configured a personal default.
+- If the user types just `/slack` with no message, ask: *"What should I send and where?"*.
 
 ## Contract
 
@@ -19,7 +33,7 @@ chat; this skill is for one-shot publishes.
 
 ## When invoked
 
-If the user passed a message: post it. If they didn't, ask: *"What should I send to Slack?"*
+Follow the **Activation rules** above. After confirmation passes, post the message.
 
 ## How
 

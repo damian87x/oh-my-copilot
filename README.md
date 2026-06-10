@@ -256,9 +256,16 @@ Full Slack-app setup (manifest + scopes) lives in [`docs/slack-setup.md`](docs/s
 
 omp is intentionally small today and growing in vertical slices.
 
-### v0.2 — Notification gateways
+### Notification gateways
 
-Telegram, Discord, Slack, and generic webhook integration so long-running modes can ping you when they finish, fail, or stall. Tag with `--telegram` / `--discord` / `--slack` per invocation; configure once with `omp notify add`.
+- ✅ **Slack outbound** (shipped) — `omp gateway notify`, `/slack` in-session skill,
+  and `omp schedule add --notify-target slack:<ID>` for cron jobs. See
+  [`docs/slack-setup.md`](docs/slack-setup.md). Stateless REST; the v0.8.0
+  inbound bridge (`omp gateway serve`) remains the bidirectional chat path.
+- Telegram, Discord, and generic-webhook outbound — same Connector interface
+  inside `src/gateway/connectors/`; one file per connector.
+- A unified `omp notify add` config command + per-invocation tags
+  (`--telegram` / `--discord` / `--slack`) for orchestration modes.
 
 ### v0.3 — Checkpoints + rollback
 

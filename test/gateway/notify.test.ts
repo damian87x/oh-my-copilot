@@ -301,6 +301,54 @@ describe("notify (deadline budget)", () => {
     expect(postCalls).toBe(1);
   });
 
+  it("never throws on a non-string Slack error body (object/array/null)", async () => {
+    // Slack documents `error` as a string. Proxies/WAFs/mis-pointed endpoints
+    // can return objects, arrays, or null. notify() must coerce, NOT throw.
+    for (const errVariant of [
+      { message: "bad token", code: 42 }, // object
+      ["x", "y"], // array
+      null, // explicit null (becomes default reason)
+      false, // boolean
+      999, // number
+    ]) {
+      const { fetch } = makeFetch([{ body: { ok: false, error: errVariant } }]);
+      const r = await notify(
+        { text: "x", target: "slack:C0BOQV5434G" },
+        { env: { SLACK_BOT_TOKEN: BOT_TOKEN }, fetch, sleep: NO_SLEEP },
+      );
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(typeof r.reason).toBe("string");
+        // Must not have leaked an `[object Object]` or thrown:
+        expect(r.reason).not.toContain("split is not a function");
+      }
+    }
+  });
+
+  it("rejects BAD_TARGET when --thread-ts has the wrong shape (digits.digits)", async () => {
+    // Without --thread-ts validation, a typo through the flag path would
+    // bypass the suffix regex tightened on the target string.
+    const r = await notify(
+      { text: "x", target: "slack:C0BOQV5434G", threadTs: "not-a-ts" },
+      { env: { SLACK_BOT_TOKEN: BOT_TOKEN }, sleep: NO_SLEEP },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("BAD_TARGET");
+      expect(r.reason).toMatch(/threadTs/);
+    }
+  });
+
+  it("accepts --thread-ts with the canonical digits.digits shape", async () => {
+    const { fetch, calls } = makeFetch([{ body: { ok: true, ts: "1700.0099" } }]);
+    const r = await notify(
+      { text: "x", target: "slack:C0BOQV5434G", threadTs: "1699.987654" },
+      { env: { SLACK_BOT_TOKEN: BOT_TOKEN }, fetch, sleep: NO_SLEEP },
+    );
+    expect(r.ok).toBe(true);
+    expect((calls[0].body as Record<string, unknown>).thread_ts).toBe("1699.987654");
+  });
+
   it("emits TIMEOUT when the deadline is already past at second call", async () => {
     let calls = 0;
     const slowFetch = (async (url: string) => {
