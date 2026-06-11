@@ -10,6 +10,12 @@ import { DEFAULT_TIMEOUT_MS, type ScheduleJob, type ScheduleRunResult, type Sche
 export interface RunOptions {
   /** Called when a job has expired (TTL passed or maxRuns reached) so the caller can uninstall the OS entry. */
   onExpire?: (job: ScheduleJob) => void;
+  /**
+   * Override the notify implementation (tests). Defaults to `gateway/notify.notify`.
+   * Returning anything falsy is treated as a delivery failure; the runner only
+   * logs it to stderr — notify failures never propagate into the job result.
+   */
+  notify?: (text: string, target: string) => Promise<{ ok: boolean; reason?: string }>;
 }
 
 function isExpired(job: ScheduleJob): boolean {
@@ -105,6 +111,10 @@ export async function runScheduledJob(
   mkdirSync(logDir, { recursive: true });
   const logPath = join(logDir, `${timestampSlug()}.log`);
 
+  // Tracks whether the lock was already released before we entered `finally`,
+  // so we don't double-release after the notify hand-off below.
+  let lockReleased = false;
+
   try {
     const bin = resolveCopilotBin(job.bin);
     const args: string[] = [];
@@ -158,8 +168,35 @@ export async function runScheduledJob(
     });
 
     persist(result.status, result, true);
+    // Release the overlap lock BEFORE attempting the Slack post. A slow
+    // Slack response must NOT extend the critical section — otherwise the
+    // next cron tick can see `locked` even though the job itself finished.
+    lock.release();
+    lockReleased = true;
+
+    // Best-effort end-of-run Slack notification. Failure NEVER breaks the job
+    // — the run already persisted successfully. We log to stderr so cron
+    // post-mortems can see why a notify dropped.
+    if (job.notifyTarget) {
+      try {
+        const notify = opts.notify ?? (async (text, target) => {
+          const { notify: realNotify } = await import("../gateway/notify.js");
+          const r = await realNotify({ text, target });
+          return r.ok ? { ok: true } : { ok: false, reason: `${r.code}: ${r.reason}` };
+        });
+        const summary = `[schedule] ${job.id}: ${result.status} (${result.summary})`;
+        const r = await notify(summary, job.notifyTarget);
+        if (!r.ok) {
+          process.stderr.write(`schedule: notify failed for ${job.id}: ${r.reason ?? "unknown"}\n`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`schedule: notify crashed for ${job.id}: ${msg}\n`);
+      }
+    }
+
     return result;
   } finally {
-    lock.release();
+    if (!lockReleased) lock.release();
   }
 }

@@ -86,6 +86,7 @@ export function addScheduleJob(stateCwd: string, opts: ScheduleAddOptions): AddR
     backend: "crontab",
     ompBinPath: resolveOmpBinPath(),
     active: true,
+    notifyTarget: opts.notifyTarget,
   };
 
   if (opts.dryRun) {

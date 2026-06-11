@@ -46,6 +46,12 @@ export interface InitAnswers {
   slackAppToken: string;
   copilotTmuxSession: string;
   slackAllowedUsers: string;
+  /**
+   * Default Slack target for `omp gateway notify` and `/slack send`. Channel
+   * ID (`C…`/`G…`/`D…`) or user ID (`U…`). Optional — when unset, all notify
+   * calls must pass an explicit `--target`.
+   */
+  slackHomeChannel: string;
 }
 
 export interface InitResult {
@@ -172,6 +178,7 @@ export async function runEnvInit(opts: InitOptions): Promise<InitResult> {
     slackAppToken: "",
     copilotTmuxSession: "",
     slackAllowedUsers: "",
+    slackHomeChannel: "",
   };
 
   if (answers) {
@@ -184,6 +191,9 @@ export async function runEnvInit(opts: InitOptions): Promise<InitResult> {
     )) ?? "";
     collected.slackAllowedUsers = (await io.ask(
       "Slack user ID allowlist (optional, comma-separated, e.g. U0123ABCD): ",
+    )) ?? "";
+    collected.slackHomeChannel = (await io.ask(
+      "Default Slack target for notifications (optional, channel C…/G…/D… or user U…): ",
     )) ?? "";
   }
 
@@ -209,12 +219,27 @@ export async function runEnvInit(opts: InitOptions): Promise<InitResult> {
 
   const session = collected.copilotTmuxSession.trim();
   const users = collected.slackAllowedUsers.trim();
+  const homeChannel = collected.slackHomeChannel.trim();
+
+  // Light validation: looksLikeSlackId catches typos before they cause a
+  // bewildering BAD_HOME_CHANNEL error at notify-time.
+  if (homeChannel) {
+    const { looksLikeSlackId } = await import("../gateway/target-parser.js");
+    if (!looksLikeSlackId(homeChannel)) {
+      return {
+        ok: false,
+        path,
+        reason: `SLACK_HOME_CHANNEL "${homeChannel}" doesn't look like a Slack ID (C…/G…/D…/U… plus 8+ uppercase alphanumeric chars).`,
+      };
+    }
+  }
 
   const content = renderEnvFile({
     botToken,
     appToken,
     session: session || undefined,
     users: users || undefined,
+    homeChannel: homeChannel || undefined,
   });
 
   mkdirSync(dirname(path), { recursive: true });
@@ -277,6 +302,7 @@ interface RenderedKeys {
   appToken: string;
   session?: string;
   users?: string;
+  homeChannel?: string;
 }
 
 function renderEnvFile(k: RenderedKeys): string {
@@ -289,6 +315,7 @@ function renderEnvFile(k: RenderedKeys): string {
   ];
   if (k.session) lines.push(`COPILOT_TMUX_SESSION=${k.session}`);
   if (k.users) lines.push(`SLACK_ALLOWED_USERS=${k.users}`);
+  if (k.homeChannel) lines.push(`SLACK_HOME_CHANNEL=${k.homeChannel}`);
   lines.push("");
   return lines.join("\n");
 }

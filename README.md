@@ -198,10 +198,12 @@ omp council "<question>" [--models a,b,c] [--context @file] [--json]   # multi-m
 omp comms status | send | recv | ask        # drive a running copilot tmux session
 omp gateway serve [--only slack]            # run chat connectors (today: slack)
 omp gateway status [--json]                 # per-connector readiness (no sockets)
+omp gateway notify --text "<msg>" [--target slack:C…|G…|D…|U… [:thread_ts]] [--thread-ts <ts>] [--json]
+                                            # one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL
 omp slack serve                             # deprecated alias of `gateway serve --only slack`
 omp slack doctor [--json]                   # deprecated alias of `gateway status --only slack`
 omp env init [--force]                      # write ~/.omp/.env (interactive Slack token setup)
-omp schedule add --id <id> --cron "*/15 * * * *" --prompt "<text>" [--allow-all-tools] [--cwd <dir>] [--model <m>] [--timeout <ms>] [--max-runs N] [--ttl-hours H] [--dry-run]
+omp schedule add --id <id> --cron "*/15 * * * *" --prompt "<text>" [--allow-all-tools] [--cwd <dir>] [--model <m>] [--timeout <ms>] [--max-runs N] [--ttl-hours H] [--notify-target slack:U0123ABCD] [--dry-run]
 omp schedule list                           # registered jobs + OS-install status
 omp schedule status <id>                    # last run + result summary
 omp schedule run-now <id>                   # trigger one run immediately
@@ -266,7 +268,8 @@ omp grows in vertical slices. Items aren't pinned to specific semver versions �
 ### Already shipped
 
 - **Scheduled tasks** (v0.6.0) — durable local cron: `omp schedule add --id pr-watch --cron "*/15 * * * *" --prompt "…"` plus `/schedule` in-session. Each job registers an OS-scheduler entry (launchd / systemd-user / crontab fallback) that fires a fresh agent session, survives reboot, locks out overlap, and surfaces results at the next session start.
-- **Chat bridge — Slack** (v0.8.0) — `omp gateway` runs long-lived chat connectors that forward messages into a running Copilot tmux session and post replies back. Slack is the first connector (Socket Mode, no public URL). `omp env init` walks you through one-time token setup; tokens live in `~/.omp/.env` (auto-loaded on every invocation). See [`docs/slack-setup.md`](docs/slack-setup.md).
+- **Chat bridge — Slack inbound** (v0.8.0) — `omp gateway` runs long-lived chat connectors that forward messages into a running Copilot tmux session and post replies back. Slack is the first connector (Socket Mode, no public URL). `omp env init` walks you through one-time token setup; tokens live in `~/.omp/.env` (auto-loaded on every invocation). See [`docs/slack-setup.md`](docs/slack-setup.md).
+- **Slack outbound — `omp gateway notify`** — stateless REST `chat.postMessage` from any process (cron `--notify-target`, in-session `/slack <message>`, ad-hoc `omp gateway notify --text "..."`). Default destination from `SLACK_HOME_CHANNEL`; explicit `--target slack:C…/G…/D…/U…` overrides; `U…` auto-resolves to a DM via `conversations.open`.
 - **Weighted-consensus council** — multi-model council with role weights + minority report. Via `omp council` or `/weighted-consensus`.
 - **Suggest** — `omp suggest "<task>"` recommends a slash-skill workflow without launching one.
 

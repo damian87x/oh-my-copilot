@@ -502,6 +502,32 @@
       },
       "projection": "project-skill",
       "phase1": true
+    },
+    {
+      "name": "slack",
+      "capabilityId": "slack",
+      "capabilityIds": [
+        "slack",
+        "notify.slack"
+      ],
+      "source": ".github/skills/slack/SKILL.md",
+      "sourcePath": ".github/skills/slack/SKILL.md",
+      "canonicalPath": ".github/skills/slack/SKILL.md",
+      "description": "Post an outbound Slack notification from inside a Copilot session.",
+      "summary": "Post an outbound Slack notification from inside a Copilot session.",
+      "support": "project-skill",
+      "aliases": [],
+      "slashCommands": [
+        "slack"
+      ],
+      "projections": {
+        "copilot": {
+          "command": "/slack",
+          "state": "supported"
+        }
+      },
+      "projection": "project-skill",
+      "phase1": true
     }
   ]
 }

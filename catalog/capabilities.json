@@ -862,6 +862,52 @@
           "notes": "Use /weighted-consensus from .github/skills/weighted-consensus/SKILL.md."
         }
       }
+    },
+    {
+      "id": "slack",
+      "name": "slack",
+      "title": "Slack Notification",
+      "category": "notify",
+      "summary": "Post an outbound Slack notification from inside a Copilot session.",
+      "notes": "Thin in-session wrapper over `omp gateway notify`. Stateless REST call. v0.8.0 inbound chat bridge unchanged.",
+      "defaultCommand": "slack",
+      "phase1": true,
+      "sourceSkill": "slack",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /slack from .github/skills/slack/SKILL.md."
+        }
+      }
+    },
+    {
+      "id": "notify.slack",
+      "name": "notify.slack",
+      "title": "Slack Notification",
+      "category": "notify",
+      "summary": "Alias capability id for `slack`.",
+      "notes": "Same skill as `slack`.",
+      "defaultCommand": "slack",
+      "phase1": true,
+      "sourceSkill": "slack",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /slack from .github/skills/slack/SKILL.md."
+        }
+      }
     }
   ]
 }

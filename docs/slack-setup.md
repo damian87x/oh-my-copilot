@@ -142,3 +142,36 @@ scripts keep running.
 - One Copilot session at a time (multiple `omp-<digits>` sessions → the bridge reports the
   ambiguity and asks you to pin `COPILOT_TMUX_SESSION`).
 - `omp gateway serve` is a long-running foreground process — run it under tmux/systemd to keep it up.
+
+## Outbound notifications (`omp gateway notify` + `/slack`)
+
+The v0.8.0 inbound bridge above handles bidirectional chat (DM the bot → reply). For *outbound*
+notifications (cron job results, ad-hoc "ping me when done", `/slack` in-session), you don't
+need the gateway daemon running — outbound is a stateless REST call to `chat.postMessage`.
+
+```bash
+# Default target lives in ~/.omp/.env (set during `omp env init`):
+SLACK_HOME_CHANNEL=C0BOQV5434G          # channel ID, or a user ID like U0123ABCD
+
+# One-shot send (uses SLACK_HOME_CHANNEL):
+omp gateway notify --text "deploy finished"
+
+# Explicit target overrides:
+omp gateway notify --text "hi #releases" --target slack:C0RELEASE9
+omp gateway notify --text "PR review please" --target slack:U0123ABCD   # auto-DMs the user
+
+# Inside Copilot — same thing via skill:
+/slack the migration just finished cleanly
+
+# Cron job posts its result at end-of-run:
+omp schedule add --id pr-watch --cron "*/15 * * * *" --prompt "..." \
+  --notify-target slack:U0123ABCD
+```
+
+Accepted target prefixes: `C` (public channel), `G` (private channel), `D` (DM channel),
+`U` (user — we auto-call `conversations.open` to convert to a DM). Append `:<thread_ts>` to
+pin to a thread (or pass `--thread-ts`).
+
+Failure codes (`omp gateway notify --json` returns them):
+`MISSING_TOKEN`, `MISSING_TARGET`, `BAD_TARGET`, `BAD_HOME_CHANNEL`, `OPEN_FAILED`,
+`POST_FAILED`, `RATE_LIMITED`, `TIMEOUT`, `NETWORK_ERROR`.

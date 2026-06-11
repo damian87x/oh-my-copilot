@@ -15,6 +15,7 @@ const ENV_KEYS = [
   "OMP_INIT_APP_TOKEN",
   "OMP_INIT_SESSION",
   "OMP_INIT_USERS",
+  "OMP_INIT_HOME_CHANNEL",
   "OMP_INIT_NO_WARN",
 ] as const;
 
@@ -44,6 +45,7 @@ describe("omp env init (runCli surface)", () => {
     delete process.env.OMP_INIT_APP_TOKEN;
     delete process.env.OMP_INIT_SESSION;
     delete process.env.OMP_INIT_USERS;
+    delete process.env.OMP_INIT_HOME_CHANNEL;
     delete process.env.OMP_INIT_NO_WARN;
     errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -127,6 +129,62 @@ describe("omp env init (runCli surface)", () => {
     const r3 = await runCli(["env", "init", "--force", "--json"]);
     expect(r3.ok).toBe(true);
     expect(readFileSync(join(home, ".omp", ".env"), "utf8")).toMatch(/xoxb-2/);
+  });
+
+  it("writes SLACK_HOME_CHANNEL from OMP_INIT_HOME_CHANNEL env var", async () => {
+    process.env.OMP_INIT_BOT_TOKEN = "xoxb-a";
+    process.env.OMP_INIT_APP_TOKEN = "xapp-a";
+    process.env.OMP_INIT_HOME_CHANNEL = "C0FROMENV99";
+    const r = await runCli(["env", "init", "--json"]);
+    expect(r.ok).toBe(true);
+    const text = readFileSync(join(home, ".omp", ".env"), "utf8");
+    expect(text).toMatch(/^SLACK_HOME_CHANNEL=C0FROMENV99$/m);
+  });
+
+  it("writes SLACK_HOME_CHANNEL from --home-channel flag when env var is unset", async () => {
+    process.env.OMP_INIT_BOT_TOKEN = "xoxb-b";
+    process.env.OMP_INIT_APP_TOKEN = "xapp-b";
+    const r = await runCli([
+      "env",
+      "init",
+      "--home-channel",
+      "U0FLAGUSER1",
+      "--json",
+    ]);
+    expect(r.ok).toBe(true);
+    const text = readFileSync(join(home, ".omp", ".env"), "utf8");
+    expect(text).toMatch(/^SLACK_HOME_CHANNEL=U0FLAGUSER1$/m);
+  });
+
+  it("OMP_INIT_HOME_CHANNEL takes precedence over --home-channel flag (env > flag)", async () => {
+    process.env.OMP_INIT_BOT_TOKEN = "xoxb-c";
+    process.env.OMP_INIT_APP_TOKEN = "xapp-c";
+    process.env.OMP_INIT_HOME_CHANNEL = "C0FROMENV99";
+    const r = await runCli([
+      "env",
+      "init",
+      "--home-channel",
+      "C0FROMFLAGX",
+      "--json",
+    ]);
+    expect(r.ok).toBe(true);
+    const text = readFileSync(join(home, ".omp", ".env"), "utf8");
+    expect(text).toMatch(/^SLACK_HOME_CHANNEL=C0FROMENV99$/m);
+    expect(text).not.toMatch(/C0FROMFLAGX/);
+  });
+
+  it("rejects a malformed --home-channel (e.g. doesn't look like a Slack ID)", async () => {
+    process.env.OMP_INIT_BOT_TOKEN = "xoxb-d";
+    process.env.OMP_INIT_APP_TOKEN = "xapp-d";
+    const r = await runCli([
+      "env",
+      "init",
+      "--home-channel",
+      "junk-value",
+      "--json",
+    ]);
+    expect(r.ok).toBe(false);
+    expect((r.output as { reason: string }).reason).toMatch(/SLACK_HOME_CHANNEL/);
   });
 
   it("--json mode keeps stdout pure (the secret-leak warning lands on stderr)", async () => {

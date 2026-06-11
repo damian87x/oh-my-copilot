@@ -28,7 +28,7 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  gateway serve [--only <name>[,<name>]]        (run all configured connectors; today: slack)\n  gateway status [--json] [--only <name>[,...]] (per-connector readiness; no sockets opened)\n  gateway doctor [--json] [--only <name>[,...]] (alias for 'gateway status')\n  slack serve                                   (deprecated alias for 'gateway serve --only slack')\n  slack doctor [--json]                         (deprecated alias for 'gateway status --only slack')\n  env init [--force]                            (interactive: write ~/.omp/.env with Slack tokens)\n                                                non-interactive: set OMP_INIT_BOT_TOKEN/OMP_INIT_APP_TOKEN\n                                                (env vars preferred over --bot-token/--app-token flags)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n${registeredCommandHelpLines().join("\n")}\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--dry-run] [--json]\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (render goal+directives into copilot-instructions.md)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  gateway serve [--only <name>[,<name>]]        (run all configured connectors; today: slack)\n  gateway status [--json] [--only <name>[,...]] (per-connector readiness; no sockets opened)\n  gateway doctor [--json] [--only <name>[,...]] (alias for 'gateway status')\n  gateway notify --text "<msg>" [--target slack:C\\|D\\|G\\|U... [:thread_ts]] [--thread-ts <ts>] [--json]\n                                                (one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL)\n  slack serve                                   (deprecated alias for 'gateway serve --only slack')\n  slack doctor [--json]                         (deprecated alias for 'gateway status --only slack')\n  env init [--force]                            (interactive: write ~/.omp/.env with Slack tokens + optional SLACK_HOME_CHANNEL)\n                                                non-interactive: set OMP_INIT_BOT_TOKEN/OMP_INIT_APP_TOKEN/OMP_INIT_HOME_CHANNEL\n                                                (env vars preferred over --bot-token/--app-token/--home-channel flags)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n${registeredCommandHelpLines().join("\n")}\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--notify-target slack:<ID>] [--dry-run] [--json]\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (render goal+directives into copilot-instructions.md)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -784,11 +784,13 @@ async function handleEnvCommand(argv: string[], json: boolean): Promise<CliResul
   const appEnv = process.env.OMP_INIT_APP_TOKEN;
   const sessionEnv = process.env.OMP_INIT_SESSION;
   const usersEnv = process.env.OMP_INIT_USERS;
+  const homeChannelEnv = process.env.OMP_INIT_HOME_CHANNEL;
 
   const botFlag = flagValue(argv, "--bot-token");
   const appFlag = flagValue(argv, "--app-token");
   const sessionFlag = flagValue(argv, "--session");
   const usersFlag = flagValue(argv, "--users");
+  const homeChannelFlag = flagValue(argv, "--home-channel");
 
   if ((botFlag !== undefined || appFlag !== undefined) && process.env.OMP_INIT_NO_WARN !== "1") {
     console.error(
@@ -801,11 +803,17 @@ async function handleEnvCommand(argv: string[], json: boolean): Promise<CliResul
   const appToken = appEnv ?? appFlag;
   const session = sessionEnv ?? sessionFlag;
   const users = usersEnv ?? usersFlag;
+  const homeChannel = homeChannelEnv ?? homeChannelFlag;
 
   // Non-interactive when stdin isn't a TTY OR when any answer is already
   // supplied (via env or flag). Partial answers are allowed; missing required
   // ones will be rejected by runEnvInit's validator.
-  const anyAnswer = botToken !== undefined || appToken !== undefined || session !== undefined || users !== undefined;
+  const anyAnswer =
+    botToken !== undefined ||
+    appToken !== undefined ||
+    session !== undefined ||
+    users !== undefined ||
+    homeChannel !== undefined;
   const force = hasFlag(argv, "--force");
 
   let result;
@@ -825,6 +833,7 @@ async function handleEnvCommand(argv: string[], json: boolean): Promise<CliResul
         slackAppToken: appToken ?? "",
         copilotTmuxSession: session ?? "",
         slackAllowedUsers: users ?? "",
+        slackHomeChannel: homeChannel ?? "",
       },
     });
   } else {
@@ -958,12 +967,38 @@ async function handleGatewayCommand(argv: string[], json: boolean): Promise<CliR
     return { ok: ready, exitCode: ready ? 0 : 1, message: lines.join("\n") };
   }
 
+  if (command === "notify") {
+    const text = flagValue(argv, "--text");
+    if (!text || !text.trim()) {
+      return { ok: false, exitCode: 1, message: 'gateway notify requires --text "<message>"' };
+    }
+    const target = flagValue(argv, "--target");
+    const threadTs = flagValue(argv, "--thread-ts");
+    const { notify } = await import("./gateway/notify.js");
+    const result = await notify({ text, target, threadTs });
+    if (json) {
+      return {
+        ok: result.ok,
+        exitCode: result.ok ? 0 : 1,
+        output: result,
+      };
+    }
+    return {
+      ok: result.ok,
+      exitCode: result.ok ? 0 : 1,
+      message: result.ok
+        ? `posted to ${result.channel} (ts=${result.ts}${result.openedIm ? ", opened IM" : ""})`
+        : `notify failed [${result.code}]: ${result.reason}`,
+    };
+  }
+
   // Silence the unused warning emitted when no command path is hit.
   void getGatewayStatus;
   return {
     ok: false,
     exitCode: 1,
-    message: "Unknown gateway subcommand. Try: gateway serve | status | doctor",
+    message:
+      "Unknown gateway subcommand. Try: gateway serve | status | doctor | notify --text \"...\"",
   };
 }
 
@@ -1263,6 +1298,14 @@ async function handleScheduleCommand(argv: string[], json: boolean): Promise<Cli
     } catch (err) {
       return { ok: false, exitCode: 1, message: String(err instanceof Error ? err.message : err) };
     }
+    const notifyTarget = flagValue(argv, "--notify-target");
+    if (notifyTarget) {
+      const { parseTarget } = await import("./gateway/target-parser.js");
+      const parsed = parseTarget(notifyTarget);
+      if (!parsed.ok) {
+        return { ok: false, exitCode: 1, message: `--notify-target: ${parsed.error}` };
+      }
+    }
     const result = mod.addScheduleJob(cwd, {
       id,
       cron,
@@ -1275,6 +1318,7 @@ async function handleScheduleCommand(argv: string[], json: boolean): Promise<Cli
       ttlHours,
       allowAllTools: hasFlag(argv, "--allow-all-tools"),
       dryRun: hasFlag(argv, "--dry-run"),
+      notifyTarget,
     });
     return json
       ? { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result }

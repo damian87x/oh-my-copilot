@@ -39,6 +39,13 @@ export interface ScheduleJob {
   lastSummary?: string;
   lastLogPath?: string;
   active: boolean;
+  /**
+   * Optional outbound Slack target (`slack:C…`/`slack:G…`/`slack:D…`/`slack:U…`)
+   * for end-of-run notification. When set, the runner calls
+   * `gateway/notify.notify` with the run summary after each completed run.
+   * Notify failures never fail the job — they're logged to stderr only.
+   */
+  notifyTarget?: string;
 }
 
 /** One line in `results/<id>.jsonl`. "Seen" state lives in the cursor, not here. */
@@ -63,4 +70,6 @@ export interface ScheduleAddOptions {
   ttlHours?: number;
   allowAllTools?: boolean;
   dryRun?: boolean;
+  /** See ScheduleJob.notifyTarget. */
+  notifyTarget?: string;
 }

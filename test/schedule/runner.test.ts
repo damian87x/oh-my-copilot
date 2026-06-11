@@ -122,4 +122,69 @@ describe("schedule runner", () => {
     expect(existsSync(argLog)).toBe(false);
     expect(readJob(jobFilePath(paths.jobsDir, "t"))?.active).toBe(false);
   });
+
+  describe("notifyTarget integration", () => {
+    it("calls notify with a summary string + the configured target after a successful run", async () => {
+      const calls: Array<{ text: string; target: string }> = [];
+      const job = makeJob({ notifyTarget: "slack:C0BOQV5434G" });
+      const result = await runScheduledJob(job, paths, {
+        notify: async (text, target) => {
+          calls.push({ text, target });
+          return { ok: true };
+        },
+      });
+      expect(result.status).toBe("ok");
+      expect(calls).toHaveLength(1);
+      expect(calls[0].target).toBe("slack:C0BOQV5434G");
+      expect(calls[0].text).toMatch(/\[schedule\] t: ok/);
+    });
+
+    it("does NOT call notify when notifyTarget is unset", async () => {
+      const calls: Array<unknown> = [];
+      const job = makeJob(); // no notifyTarget
+      await runScheduledJob(job, paths, {
+        notify: async () => {
+          calls.push(true);
+          return { ok: true };
+        },
+      });
+      expect(calls).toHaveLength(0);
+    });
+
+    it("notify failure does NOT change the job result (best-effort delivery)", async () => {
+      const job = makeJob({ notifyTarget: "slack:C0BOQV5434G" });
+      const result = await runScheduledJob(job, paths, {
+        notify: async () => ({ ok: false, reason: "MISSING_TOKEN: SLACK_BOT_TOKEN is not set" }),
+      });
+      // Run still considered successful — notify failures never propagate.
+      expect(result.status).toBe("ok");
+      expect(readJob(jobFilePath(paths.jobsDir, "t"))?.lastStatus).toBe("ok");
+    });
+
+    it("notify crash does NOT break the run", async () => {
+      const job = makeJob({ notifyTarget: "slack:C0BOQV5434G" });
+      const result = await runScheduledJob(job, paths, {
+        notify: async () => {
+          throw new Error("network on fire");
+        },
+      });
+      expect(result.status).toBe("ok");
+    });
+
+    it("releases the overlap lock BEFORE notify (so a slow Slack doesn't keep the next tick locked out)", async () => {
+      const job = makeJob({ notifyTarget: "slack:C0BOQV5434G" });
+      let lockHeldDuringNotify = false;
+      await runScheduledJob(job, paths, {
+        notify: async () => {
+          // Inside notify, the lock file should NO LONGER be held — a fresh
+          // acquire must succeed.
+          const probe = acquireLock(jobLockPath(paths.jobsDir, "t"));
+          lockHeldDuringNotify = !probe.acquired;
+          if (probe.acquired) probe.release();
+          return { ok: true };
+        },
+      });
+      expect(lockHeldDuringNotify).toBe(false);
+    });
+  });
 });
