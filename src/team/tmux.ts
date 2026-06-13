@@ -161,6 +161,25 @@ export interface SendToWorkerOptions {
   delayMs?: number;
 }
 
+/**
+ * True if `probe` still sits on the active input line (the last prompt-glyph
+ * line plus any wrapped continuation). Checks the input region only — not the
+ * whole scrollback — so the echo of an already-submitted message is not
+ * mistaken for a still-buffered prompt.
+ */
+function promptStillBuffered(pane: string, probe: string): boolean {
+  const lines = pane.split(/\r?\n/);
+  let idx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].includes("❯")) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx === -1) return false;
+  return lines.slice(idx).join("\n").includes(probe);
+}
+
 export async function sendToWorker(
   api: TmuxApi,
   target: string,
@@ -170,16 +189,18 @@ export async function sendToWorker(
   const rounds = options.rounds ?? 6;
   const delayMs = options.delayMs ?? 150;
   const payload = text.length > 200 ? text.slice(0, 200) : text;
+  const probe = payload.slice(-Math.min(20, payload.length));
   api.sendText(target, payload);
   for (let i = 0; i < rounds; i++) {
     // Use the `Enter` key name: Copilot CLI (>=1.0.61) ignores a literal `C-m`,
     // leaving the prompt buffered and unsent.
     api.sendKeys(target, "Enter");
     await sleep(delayMs);
-    const captured = api.capturePane(target, 5).stdout;
-    if (!captured.includes(payload)) return true;
+    // Submitted once the prompt leaves the input line (the echo in scrollback
+    // does not count, so we never retype an already-sent message).
+    if (!promptStillBuffered(api.capturePane(target, 5).stdout, probe)) return true;
   }
-  // adaptive fallback: kill-line then retry once
+  // adaptive fallback: kill-line, retype, submit once more
   api.sendKeys(target, "C-u");
   await sleep(delayMs);
   api.sendText(target, payload);

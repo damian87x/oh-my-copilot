@@ -176,10 +176,32 @@ describe("commsSend", () => {
       sleep: noSleep,
     });
     expect(r.ok).toBe(true);
+    expect(r.submitted).toBe(true);
     const sendText = calls.find((c) => c[0] === "send-keys" && c.includes("-l"));
     const enter = calls.filter((c) => c[0] === "send-keys" && c.includes("Enter"));
     expect(sendText).toContain("hello copilot");
     expect(enter).toHaveLength(1);
+  });
+
+  it("returns ok:false when the prompt never leaves the input buffer", async () => {
+    // Models the swallow-forever case: the prompt stays on the input line no
+    // matter how many times Enter is pressed.
+    const calls: string[][] = [];
+    const runner: TmuxRunner = (args) => {
+      calls.push(args);
+      if (args[0] === "has-session") return { stdout: "", stderr: "", status: 0 };
+      if (args[0] === "capture-pane") {
+        return { stdout: "task done\n❯ hello copilot", stderr: "", status: 0 };
+      }
+      return { stdout: "", stderr: "", status: 0 };
+    };
+    const r = await commsSend("omp-x", "hello copilot", {
+      tmux: makeTmux(runner),
+      isOnline: async () => true,
+      sleep: noSleep,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.submitted).toBe(false);
   });
 
   it("re-sends Enter when the first C-m is swallowed and the prompt stays buffered", async () => {

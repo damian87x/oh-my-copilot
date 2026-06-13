@@ -166,17 +166,27 @@ export interface SendOptions {
  */
 function inputLineHasProbe(pane: string, probe: string): boolean {
   const lines = pane.split(/\r?\n/);
+  // Find the active input line (last line bearing Copilot's prompt glyph).
+  let idx = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (line.includes("❯") || /^\s*>/.test(line)) return line.includes(probe);
+    if (lines[i].includes("❯")) {
+      idx = i;
+      break;
+    }
   }
-  return false;
+  if (idx === -1) return false;
+  // Include any wrapped continuation rows below the glyph so a long buffered
+  // prompt (whose suffix wrapped onto the next row) is still detected. After
+  // submit the glyph line is empty and the probe only survives in scrollback
+  // above it, so this region no longer contains it.
+  return lines.slice(idx).join("\n").includes(probe);
 }
 
 /**
  * Send a prompt into the Copilot pane. Refuses unless the session exists AND
- * the host is online. Sends the text literally, then presses Enter (C-m) and
- * verifies the prompt actually left the input buffer.
+ * the host is online. Sends the text literally, then presses Enter and
+ * verifies the prompt actually left the input buffer (returns ok:false if it
+ * could not be submitted).
  *
  * Before pressing Enter it confirms the text landed in the input buffer by
  * comparing pane captures (a delta check, so prompt text already present in
@@ -260,6 +270,16 @@ export async function commsSend(
       }
       await sleep(100);
     }
+  }
+  if (!submitted) {
+    // No silent success: the prompt was typed but never left the input buffer.
+    return {
+      ok: false,
+      session,
+      confirmed,
+      submitted,
+      error: "prompt typed but did not submit (input buffer still held it after retries)",
+    };
   }
   return { ok: true, session, confirmed, submitted };
 }
