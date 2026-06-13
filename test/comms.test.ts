@@ -177,9 +177,45 @@ describe("commsSend", () => {
     });
     expect(r.ok).toBe(true);
     const sendText = calls.find((c) => c[0] === "send-keys" && c.includes("-l"));
-    const enter = calls.filter((c) => c[0] === "send-keys" && c.includes("C-m"));
+    const enter = calls.filter((c) => c[0] === "send-keys" && c.includes("Enter"));
     expect(sendText).toContain("hello copilot");
     expect(enter).toHaveLength(1);
+  });
+
+  it("re-sends Enter when the first C-m is swallowed and the prompt stays buffered", async () => {
+    // Reproduces the Copilot CLI >=1.0.61 bug: a C-m right after a bracketed
+    // paste is absorbed, so the prompt sits unsent in the input line until a
+    // second Enter submits it.
+    const calls: string[][] = [];
+    let textSent = false;
+    let enters = 0;
+    const EMPTY = "task done\n❯ ";
+    const BUFFERED = "task done\n❯ hello copilot";
+    const CLEARED = "❯ hello copilot\n● reply\n❯ \n / commands · ? help";
+    const runner: TmuxRunner = (args) => {
+      calls.push(args);
+      const sub = args[0];
+      if (sub === "has-session") return { stdout: "", stderr: "", status: 0 };
+      if (sub === "send-keys") {
+        if (args.includes("-l")) textSent = true;
+        if (args.includes("Enter")) enters++;
+        return { stdout: "", stderr: "", status: 0 };
+      }
+      if (sub === "capture-pane") {
+        const pane = !textSent ? EMPTY : enters < 2 ? BUFFERED : CLEARED;
+        return { stdout: pane, stderr: "", status: 0 };
+      }
+      return { stdout: "", stderr: "", status: 0 };
+    };
+    const r = await commsSend("omp-x", "hello copilot", {
+      tmux: makeTmux(runner),
+      isOnline: async () => true,
+      sleep: noSleep,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.submitted).toBe(true);
+    const entersSent = calls.filter((c) => c[0] === "send-keys" && c.includes("Enter"));
+    expect(entersSent).toHaveLength(2);
   });
 });
 

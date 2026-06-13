@@ -143,9 +143,10 @@ export async function waitForReady(
     // Ready: the '/ commands' status bar means the CLI input prompt is active
     if (CLI_READY_RE.test(captured)) return true;
 
-    // Auto-accept the folder trust dialog (send Enter = accept default)
+    // Auto-accept the folder trust dialog (send Enter = accept default).
+    // Use the `Enter` key name: Copilot CLI (>=1.0.61) ignores a literal `C-m`.
     if (!acceptedTrust && TRUST_RE.test(captured)) {
-      api.sendKeys(target, "C-m");
+      api.sendKeys(target, "Enter");
       acceptedTrust = true;
     }
 
@@ -171,7 +172,9 @@ export async function sendToWorker(
   const payload = text.length > 200 ? text.slice(0, 200) : text;
   api.sendText(target, payload);
   for (let i = 0; i < rounds; i++) {
-    api.sendKeys(target, "C-m");
+    // Use the `Enter` key name: Copilot CLI (>=1.0.61) ignores a literal `C-m`,
+    // leaving the prompt buffered and unsent.
+    api.sendKeys(target, "Enter");
     await sleep(delayMs);
     const captured = api.capturePane(target, 5).stdout;
     if (!captured.includes(payload)) return true;
@@ -180,6 +183,6 @@ export async function sendToWorker(
   api.sendKeys(target, "C-u");
   await sleep(delayMs);
   api.sendText(target, payload);
-  api.sendKeys(target, "C-m");
+  api.sendKeys(target, "Enter");
   return true;
 }
