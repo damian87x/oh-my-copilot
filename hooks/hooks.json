@@ -1,74 +1,61 @@
 {
-  "SessionStart": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/session-start.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ],
-  "UserPromptSubmit": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/prompt-submit.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ],
-  "PreToolUse": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/pre-tool-use.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ],
-  "PostToolUse": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/post-tool-use.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ],
-  "SessionEnd": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/session-end.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ],
-  "Error": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/error.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ]
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/session-start.mjs",
+        "powershell": "$root = if ($env:OMP_PLUGIN_ROOT) { $env:OMP_PLUGIN_ROOT } else { $env:OMC_PLUGIN_ROOT }; node \"$root/scripts/session-start.mjs\"",
+        "timeoutSec": 10
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/prompt-submit.mjs",
+        "powershell": "$root = if ($env:OMP_PLUGIN_ROOT) { $env:OMP_PLUGIN_ROOT } else { $env:OMC_PLUGIN_ROOT }; node \"$root/scripts/prompt-submit.mjs\"",
+        "timeoutSec": 10
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/pre-tool-use.mjs",
+        "powershell": "$root = if ($env:OMP_PLUGIN_ROOT) { $env:OMP_PLUGIN_ROOT } else { $env:OMC_PLUGIN_ROOT }; node \"$root/scripts/pre-tool-use.mjs\"",
+        "timeoutSec": 10
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/post-tool-use.mjs",
+        "powershell": "$root = if ($env:OMP_PLUGIN_ROOT) { $env:OMP_PLUGIN_ROOT } else { $env:OMC_PLUGIN_ROOT }; node \"$root/scripts/post-tool-use.mjs\"",
+        "timeoutSec": 10
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "type": "command",
+        "bash": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/post-tool-use-failure.mjs",
+        "powershell": "$root = if ($env:OMP_PLUGIN_ROOT) { $env:OMP_PLUGIN_ROOT } else { $env:OMC_PLUGIN_ROOT }; node \"$root/scripts/post-tool-use-failure.mjs\"",
+        "timeoutSec": 10
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/session-end.mjs",
+        "powershell": "$root = if ($env:OMP_PLUGIN_ROOT) { $env:OMP_PLUGIN_ROOT } else { $env:OMC_PLUGIN_ROOT }; node \"$root/scripts/session-end.mjs\"",
+        "timeoutSec": 10
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "bash": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/error.mjs",
+        "powershell": "$root = if ($env:OMP_PLUGIN_ROOT) { $env:OMP_PLUGIN_ROOT } else { $env:OMC_PLUGIN_ROOT }; node \"$root/scripts/error.mjs\"",
+        "timeoutSec": 10
+      }
+    ]
+  }
 }

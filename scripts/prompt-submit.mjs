@@ -4,6 +4,9 @@ import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
 import { recordPrompt } from "./lib/daily-log.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
+import { failOpen, printContinue } from "./lib/hook-output.mjs";
+import { parseHookInput } from "./lib/hook-input.mjs";
+import { appendCostRecord, countTokens } from "./lib/cost-ledger.mjs";
 
 const HOOK_NAME = "UserPromptSubmit";
 
@@ -51,11 +54,16 @@ function appendLog(directory, payload) {
 (async () => {
   try {
     const raw = await readStdin();
-    const data = raw ? JSON.parse(raw) : {};
-    const sessionId = data.sessionId ?? data.session_id ?? "unknown";
-    const directory = data.directory ?? process.cwd();
-    const prompt = data.prompt ?? data.message?.content ?? "";
+    const input = parseHookInput(raw);
+    const sessionId = input.sessionId;
+    const directory = input.cwd;
+    const prompt = input.prompt;
     appendLog(directory, { sessionId, promptBytes: String(prompt).length });
+    appendCostRecord(directory, {
+      sessionId,
+      event: "userPromptSubmitted",
+      inTokens: countTokens(prompt),
+    });
     // Count this prompt as session work (signals the SessionEnd nudge logic).
     // Injects nothing — keeps per-turn token cost at zero.
     try {
@@ -67,12 +75,9 @@ function appendLog(directory, payload) {
     const cont = buildContinuationContext(directory);
     if (cont) parts.push(cont);
     const additionalContext = parts.join("\n\n---\n\n");
-    const output = additionalContext
-      ? { continue: true, hookSpecificOutput: { hookEventName: HOOK_NAME, additionalContext } }
-      : { continue: true };
-    console.log(JSON.stringify(output));
+    printContinue(HOOK_NAME, additionalContext);
   } catch (err) {
     console.error(`[hook ${HOOK_NAME}] failed: ${err?.message ?? err}`);
-    console.log(JSON.stringify({ continue: true }));
+    failOpen();
   }
 })();

@@ -32,7 +32,7 @@ Run `/research-codebase` to understand current state. Skip if you already have f
 
 ### Phase 2 — Plan
 
-Run `/ralplan` to produce an implementation plan with acceptance criteria. If a consensus plan already exists from a prior `/ralplan`, skip this phase.
+Run `/ralplan` to produce an implementation plan with acceptance criteria. If a plan already exists from a prior `/ralplan`, skip this phase.
 
 ### Phase 3 — Execute
 
@@ -73,3 +73,7 @@ Before claiming done:
 - [ ] Lint clean (if applicable)
 - [ ] `/verify` or `/ultraqa` produced PASS evidence
 - [ ] No uncommitted work left behind
+
+## Cost/token note
+
+This skill can drive multiple tool calls or long-running output. Use `omp cost [--today] [--session <id>]` for local hook-ledger estimates only; it is not provider billing. Keep injected summaries concise and prefer bounded output when rerunning noisy commands.

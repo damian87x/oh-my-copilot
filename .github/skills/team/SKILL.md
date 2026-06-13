@@ -48,6 +48,8 @@ Write a temporary file at `/tmp/team-lanes-<timestamp>.json`:
 ### Step 2 — Launch
 
 ```bash
+# Installed-plugin path (in a dev checkout the script is at the repo-relative
+# .github/skills/team/scripts/team-launch.sh instead):
 bash ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh \
   --session "team-<name>" --lanes <lanes-file>
 ```
@@ -76,7 +78,7 @@ Choose this only when the user explicitly wants the team to run in the backgroun
 ### Launch
 
 ```bash
-omp team <N>:copilot "<task description>"
+omp team <N>:copilot "<task description>" --name <name>
 ```
 
 The runtime automatically:
@@ -89,9 +91,9 @@ The runtime automatically:
 ### Monitor and cleanup
 
 ```bash
-omp team status <team-name>       # check progress
+omp team status <name>            # check progress (same <name> passed to --name)
 tmux attach -t omp-team-<name>    # watch panes live
-omp team shutdown <team-name>     # kill when done
+omp team shutdown <name>          # kill when done
 ```
 
 ## Prerequisites
@@ -125,3 +127,7 @@ Use `/ralplan` before `/team` to produce the plan. Use `/verify` after completio
 - Each pane is an independent session — no shared state
 - Workers can message each other via `omp team api send-message` (runtime mode only)
 - If tasks depend on each other, use `/ralph` instead
+
+## Cost/token note
+
+This skill can drive multiple tool calls or long-running output. Use `omp cost [--today] [--session <id>]` for local hook-ledger estimates only; it is not provider billing. Keep injected summaries concise and prefer bounded output when rerunning noisy commands.

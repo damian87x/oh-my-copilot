@@ -7,6 +7,7 @@ import { scanScheduleResults } from "./lib/schedule-results.mjs";
 import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
 import { readDirectives } from "./lib/project-memory.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
+import { failOpen, printContinue } from "./lib/hook-output.mjs";
 
 const HOOK_NAME = "SessionStart";
 
@@ -84,14 +85,9 @@ function buildDailyLogBreadcrumb(directory) {
     if (flush) parts.push(`[DAILY LOG] ${flush}`);
     const additionalContext = parts.join("\n\n---\n\n");
 
-    console.log(
-      JSON.stringify({
-        continue: true,
-        hookSpecificOutput: { hookEventName: HOOK_NAME, additionalContext },
-      }),
-    );
+    printContinue(HOOK_NAME, additionalContext);
   } catch (err) {
     console.error(`[hook ${HOOK_NAME}] failed: ${err?.message ?? err}`);
-    console.log(JSON.stringify({ continue: true }));
+    failOpen();
   }
 })();

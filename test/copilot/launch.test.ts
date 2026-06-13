@@ -119,6 +119,7 @@ describe("launchCopilot tmux wrapping", () => {
   const savedTmux = process.env.TMUX;
   const savedTmuxLogEnv = process.env.OMP_TEST_TMUX_LOG;
   const savedCopilotLogEnv = process.env.OMP_TEST_COPILOT_LOG;
+  const savedForceTmuxWrap = process.env.OMP_FORCE_TMUX_WRAP;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "omp-launch-"));
@@ -146,6 +147,7 @@ describe("launchCopilot tmux wrapping", () => {
     process.env.PATH = `${dir}:${savedPath}`;
     process.env.OMP_TEST_TMUX_LOG = tmuxLog;
     process.env.OMP_TEST_COPILOT_LOG = copilotLog;
+    process.env.OMP_FORCE_TMUX_WRAP = "1";
   });
 
   afterEach(() => {
@@ -153,6 +155,7 @@ describe("launchCopilot tmux wrapping", () => {
     restoreEnv("TMUX", savedTmux);
     restoreEnv("OMP_TEST_TMUX_LOG", savedTmuxLogEnv);
     restoreEnv("OMP_TEST_COPILOT_LOG", savedCopilotLogEnv);
+    restoreEnv("OMP_FORCE_TMUX_WRAP", savedForceTmuxWrap);
     rmSync(dir, { recursive: true, force: true });
   });
 

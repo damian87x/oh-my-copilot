@@ -21,17 +21,17 @@ Use `/ultrawork` when there are many independent, low-conflict work items that c
 
 ## Composition
 
-Ultrawork is the **parallelism primitive** in the skill stack:
+Ultrawork is the **batch-execution** branch of `/omp-autopilot` Phase 3 — a sibling of `/ralph` (single linear task) and `/team` (parallel panes), not nested inside them:
 ```
-/omp-autopilot → /ralph (persistence) → /ultrawork (parallelism)
+/omp-autopilot → /ralph  OR  /team  OR  /ultrawork
 ```
-Ralph wraps ultrawork when a persistent verify loop is needed around batched work.
+Pick `/ultrawork` when the work is many independent mechanical items. It can also be invoked directly.
 
 ## Steps
 
 ### 1. Inventory
 
-List all tasks. For each, note the files it touches. Flag any collisions.
+Register the batch so the run is tracked and `/team` nudges can see it: `omp ultrawork start "<objective>" --task-count <n>`. Then list all tasks. For each, note the files it touches. Flag any collisions.
 
 ### 2. Dependency check
 
@@ -51,7 +51,7 @@ Process each wave. For each task in the wave:
 
 ### 4. Report
 
-Summarise: completed, failed, blocked.
+Summarise: completed, failed, blocked. Then clear the tracked state with `omp ultrawork cancel`.
 
 ## Stop conditions
 
@@ -71,3 +71,7 @@ Summarise: completed, failed, blocked.
 - `Completed` — items done with evidence
 - `Failed/blockers` — items that couldn't be completed and why
 - `Verification` — test/lint/build results per wave
+
+## Cost/token note
+
+This skill can drive multiple tool calls or long-running output. Use `omp cost [--today] [--session <id>]` for local hook-ledger estimates only; it is not provider billing. Keep injected summaries concise and prefer bounded output when rerunning noisy commands.

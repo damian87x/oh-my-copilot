@@ -22,7 +22,7 @@ Respond: "I'm ready to research the codebase. What area or question should I inv
 
 ### 1. Read mentioned files
 
-If the user references specific files, read them with `view` in the **main context** before anything else.
+If the user references specific files, read them directly in the **main context** before anything else.
 
 ### 2. Scope the tech stack
 
@@ -32,14 +32,14 @@ Detect from `package.json`, config files, directory structure, and project conve
 
 | Tier | When | Agent strategy |
 |------|------|----------------|
-| **Small** | Single file/component, narrow question | Main agent reads directly. No subagents. |
-| **Medium** | Cross-file, single area (e.g. "how does auth work") | 1–2 `explore` agents for locate + analyse |
-| **Large** | Cross-cutting, multi-area (e.g. "map the entire API layer") | Parallel locator → analyser → pattern-finder (see `reference/agent-prompts.md`) |
+| **Small** | Single file/component, narrow question | Read and search directly (glob/grep/read). No delegation. |
+| **Medium** | Cross-file, single area (e.g. "how does auth work") | Locate with glob/grep, then read and analyse the hits directly. |
+| **Large** | Cross-cutting, multi-area (e.g. "map the entire API layer") | Sweep area-by-area (locate → analyse → find patterns), or delegate areas to parallel `omp team` workers (see `reference/agent-prompts.md`). |
 
 ### 4. Research
 
-- Track subtasks via SQL `todos` table
-- For medium/large: read `reference/agent-prompts.md` for subagent prompt templates
+- Track subtasks in a markdown checklist as you go
+- For large: read `reference/agent-prompts.md` for `omp team` worker prompt templates
 - **MUST GATE**: Before writing findings, show file:line evidence for every claim
 
 ### 5. Synthesise & write document
@@ -56,3 +56,7 @@ Show concise summary to user with key file references. Ask if they have follow-u
 ### 7. Follow-ups
 
 If the user has follow-ups, read `reference/follow-up.md` for the append protocol.
+
+## Cost/token note
+
+This skill can drive multiple tool calls or long-running output. Use `omp cost [--today] [--session <id>]` for local hook-ledger estimates only; it is not provider billing. Keep injected summaries concise and prefer bounded output when rerunning noisy commands.
