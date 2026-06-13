@@ -31,6 +31,14 @@ describe("pane content classification", () => {
     expect(paneHasActiveTask("background terminal running")).toBe(true);
     expect(paneHasActiveTask("just text")).toBe(false);
   });
+
+  it("paneHasActiveTask detects Copilot CLI >=1.0.61 working state", () => {
+    // Copilot 1.0.61 shows "◉ Working esc cancel" instead of "esc to interrupt".
+    expect(paneHasActiveTask(" ◉ Working esc cancel                 GPT-5 mini")).toBe(true);
+    expect(paneHasActiveTask("esc cancel")).toBe(true);
+    // idle prompt bar must NOT read as busy
+    expect(paneHasActiveTask(" / commands · ? help            GPT-5 mini")).toBe(false);
+  });
 });
 
 describe("makeTmux", () => {

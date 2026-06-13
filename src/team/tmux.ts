@@ -20,6 +20,8 @@ export function tmuxExec(args: string[]): TmuxResult {
 const PROMPT_RE = /(?:^|\s)(?:[│┃║▌▐▏▕╎┆┊]\s*)?[›>❯$#%]\s*$/;
 const ACTIVE_HINTS = [
   /esc to interrupt/i,
+  /esc cancel/i, // Copilot CLI >=1.0.61 working indicator ("◉ Working esc cancel")
+  /[◉○◐◑]\s*working/i, // Copilot spinner + "Working"
   /running\s*[…\.]/,
   /background terminal/i,
   /tool call in progress/i,
