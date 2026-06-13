@@ -26,7 +26,7 @@ function renderBlock(cwd: string): string {
     "Project memory is available on demand:",
     "- `omp project-memory read` for project hints and the note index",
     "- `omp project-memory read <id>` for a specific note body",
-    "- `omp daily-log read` for recent daily context",
+    "- `omp daily-log read --days 7` for recent daily context",
     "",
     `Available note index: ${notes.length} note${notes.length === 1 ? "" : "s"}.`,
     END,

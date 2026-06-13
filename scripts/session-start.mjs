@@ -21,7 +21,7 @@ function buildDailyLogBreadcrumb(directory) {
     if (goal) lines.push(`Goal: ${goal}`);
     if (entries > 0)
       lines.push(
-        `${entries} ${entries === 1 ? "entry" : "entries"} logged in the last 7 days — run \`omp daily-log read\` to load if relevant.`,
+        `${entries} ${entries === 1 ? "entry" : "entries"} logged in the last 7 days — run \`omp daily-log read --days 7\` to load if relevant.`,
       );
     return lines.join("\n");
   } catch {

@@ -20,6 +20,8 @@ Use `/ultraqa` after implementation when shallow checks are not enough.
 
 ## Steps
 
+Register the QA run first: `omp ultraqa start "<goal>" --max-cycles 5`. This tracks the cycle count and enforces the cap, and lets `omp ultraqa status`/`cancel` see the run.
+
 ### Cycle 1 (and each subsequent cycle)
 
 Number every cycle explicitly: "Cycle 1", "Cycle 2", etc.
@@ -33,13 +35,14 @@ Number every cycle explicitly: "Cycle 1", "Cycle 2", etc.
 
 ### After each cycle
 
+- Record the outcome: `omp ultraqa cycle fail` (issues found) or `omp ultraqa cycle pass` (clean). This increments the counter and reports when the cap is reached.
 - If issues found → fix and start next cycle
-- If clean → report PASS and stop
+- If clean → report PASS and run `omp ultraqa cancel` to clear the run
 - Track which issues were found and fixed per cycle
 
 ## Early exit conditions
 
-- **5 cycles reached** — stop, report remaining issues as known gaps
+- **5 cycles reached** (enforced by `omp ultraqa cycle`) — stop, report remaining issues as known gaps
 - **Same failure 3 consecutive cycles** — stop, this is a design issue not a bug. Report it for `/ralplan`
 - **Critical regression found** — stop immediately, report before fixing anything else
 
