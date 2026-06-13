@@ -66,6 +66,28 @@ describe("postToolUse output minimizer", () => {
     expect(readFileSync(rows[0].rawPath, "utf8")).toBe(noisy);
   });
 
+  it("preserves diagnostic failure lines from the omitted middle of noisy output", () => {
+    const noisy = [
+      ...Array.from({ length: 130 }, (_, i) => `setup noise ${String(i).padStart(3, "0")} ${"x".repeat(60)}`),
+      "FAIL critical-case.spec.ts > calculates tax edge case",
+      "AssertionError: expected 42 to equal 43",
+      "src/b.ts(88,3): error TS2552: Cannot find name makeWidget.",
+      ...Array.from({ length: 130 }, (_, i) => `teardown noise ${String(i).padStart(3, "0")} ${"y".repeat(60)}`),
+    ].join("\n");
+
+    const output = runPostTool(root, {
+      sessionId: "s-diagnostics",
+      cwd: root,
+      toolName: "bash",
+      toolArgs: { command: "npm test" },
+      toolResult: { resultType: "success", textResultForLlm: noisy },
+    });
+
+    expect(output.modifiedResult.textResultForLlm).toContain("FAIL critical-case.spec.ts > calculates tax edge case");
+    expect(output.modifiedResult.textResultForLlm).toContain("AssertionError: expected 42 to equal 43");
+    expect(output.modifiedResult.textResultForLlm).toContain("src/b.ts(88,3): error TS2552");
+  });
+
   it("fails open without modifiedResult when raw output cannot be preserved", () => {
     const noisy = Array.from({ length: 260 }, (_, i) => `line ${String(i).padStart(3, "0")} ${"x".repeat(60)}`).join("\n");
 
