@@ -3,16 +3,17 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
 import { failOpen } from "./lib/hook-output.mjs";
+import { parseHookInput } from "./lib/hook-input.mjs";
 
 const HOOK_NAME = "PreToolUse";
 
 (async () => {
   try {
     const raw = await readStdin();
-    const data = raw ? JSON.parse(raw) : {};
-    const sessionId = data.sessionId ?? data.session_id ?? "unknown";
-    const directory = data.cwd ?? data.directory ?? process.cwd();
-    const toolName = data.toolName ?? data.tool_name ?? "unknown";
+    const input = parseHookInput(raw);
+    const sessionId = input.sessionId;
+    const directory = input.cwd;
+    const toolName = input.toolName;
     const logFile = join(directory, ".omp", "state", "hooks.log");
     try {
       mkdirSync(dirname(logFile), { recursive: true });

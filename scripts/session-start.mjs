@@ -2,13 +2,13 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
-import { hookCwd, printContinue, failOpen } from "./lib/hook-output.mjs";
+import { failOpen, printContinue } from "./lib/hook-output.mjs";
 import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
 import { scanScheduleResults } from "./lib/schedule-results.mjs";
 import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
 import { readDirectives } from "./lib/project-memory.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
-import { failOpen, printContinue } from "./lib/hook-output.mjs";
+import { parseHookInput } from "./lib/hook-input.mjs";
 
 const HOOK_NAME = "SessionStart";
 
@@ -32,9 +32,9 @@ function buildDailyLogBreadcrumb(directory) {
 (async () => {
   try {
     const raw = await readStdin();
-    const data = raw ? JSON.parse(raw) : {};
-    const sessionId = data.sessionId ?? data.session_id ?? "unknown";
-    const directory = hookCwd(data);
+    const input = parseHookInput(raw);
+    const sessionId = input.sessionId;
+    const directory = input.cwd;
     const stateDir = join(ompRoot(directory), ".omp", "state");
     const logFile = join(stateDir, "hooks.log");
     mkdirSync(dirname(logFile), { recursive: true });
