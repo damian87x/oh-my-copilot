@@ -8,6 +8,7 @@ import { appendCostRecord, countTokens } from "./lib/cost-ledger.mjs";
 import { minifyToolOutput } from "./lib/minify.mjs";
 
 const HOOK_NAME = "PostToolUse";
+const NOISY_COMMAND_RE = /\b(npm|pnpm|yarn|bun|vitest|jest|mocha|pytest|cargo|go|tsc|eslint|biome|ruff|mypy|make|gradle|mvn)\b/i;
 
 function safePathPart(value) {
   return (
@@ -15,6 +16,13 @@ function safePathPart(value) {
       .replace(/[^a-zA-Z0-9._-]+/g, "-")
       .replace(/^-+|-+$/g, "") || "unknown"
   );
+}
+
+function shouldMinify(input) {
+  if (process.env.OMP_MINIFY === "0") return false;
+  const toolName = String(input.toolName || "").toLowerCase();
+  const command = String(input.toolArgs?.command ?? input.toolArgs?.cmd ?? "");
+  return (toolName === "bash" || toolName === "shell" || toolName === "terminal") && NOISY_COMMAND_RE.test(command);
 }
 
 (async () => {
@@ -26,7 +34,7 @@ function safePathPart(value) {
     const toolName = input.toolName;
     const ok = input.toolResult != null;
     const rawText = input.toolResult?.textResultForLlm ?? "";
-    const minified = process.env.OMP_MINIFY === "0" ? {
+    const minified = !shouldMinify(input) ? {
       changed: false,
       text: rawText,
       rawTokens: countTokens(rawText),
@@ -35,6 +43,7 @@ function safePathPart(value) {
     } : minifyToolOutput(rawText);
     let rawPath;
     const logFile = join(directory, ".omp", "state", "hooks.log");
+    let canModifyResult = minified.changed;
     try {
       mkdirSync(dirname(logFile), { recursive: true });
       appendFileSync(
@@ -53,23 +62,27 @@ function safePathPart(value) {
         mkdirSync(dirname(rawPath), { recursive: true });
         writeFileSync(rawPath, rawText, "utf8");
       }
+    } catch {
+      canModifyResult = false;
+    }
+    try {
       appendCostRecord(directory, {
         sessionId,
         event: "postToolUse",
         toolName,
         inTokens: countTokens(input.toolArgs),
-        outTokens: minified.modelTokens,
+        outTokens: canModifyResult ? minified.modelTokens : minified.rawTokens,
         rawOutTokens: minified.rawTokens,
-        savedTokens: minified.savedTokens,
+        savedTokens: canModifyResult ? minified.savedTokens : 0,
         rawPath,
       });
     } catch {
       // best effort
     }
-    if (minified.changed) {
+    if (canModifyResult) {
       console.log(JSON.stringify(buildModifiedResultOutput(
         minified.text,
-        `[omp] output trimmed ${minified.rawTokens}→${minified.modelTokens} tokens; full output at ${rawPath ?? "(raw write failed)"}`,
+        `[omp] output trimmed ${minified.rawTokens}→${minified.modelTokens} tokens; full output at ${rawPath}`,
       )));
       return;
     }

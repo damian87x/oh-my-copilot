@@ -8,6 +8,7 @@ import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./l
 import { readDirectives } from "./lib/project-memory.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
 import { failOpen, printContinue } from "./lib/hook-output.mjs";
+import { parseHookInput } from "./lib/hook-input.mjs";
 
 const HOOK_NAME = "SessionStart";
 
@@ -31,9 +32,9 @@ function buildDailyLogBreadcrumb(directory) {
 (async () => {
   try {
     const raw = await readStdin();
-    const data = raw ? JSON.parse(raw) : {};
-    const sessionId = data.sessionId ?? data.session_id ?? "unknown";
-    const directory = data.directory ?? process.cwd();
+    const input = parseHookInput(raw);
+    const sessionId = input.sessionId;
+    const directory = input.cwd;
     const stateDir = join(ompRoot(directory), ".omp", "state");
     const logFile = join(stateDir, "hooks.log");
     mkdirSync(dirname(logFile), { recursive: true });
