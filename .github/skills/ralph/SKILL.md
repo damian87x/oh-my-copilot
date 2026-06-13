@@ -21,16 +21,18 @@ Use `/ralph` when one owner should complete one clear task end-to-end.
 
 ## Input
 
-Accept a plan from `/ralplan`, a ticket, or a concrete task description. If a `/ralplan` consensus plan exists, use its acceptance criteria as your definition of done.
+Accept a plan from `/ralplan`, a ticket, or a concrete task description. If a `/ralplan` plan exists, use its acceptance criteria as your definition of done.
 
 ## Steps
 
-1. **Start** from the plan or task. State what "done" looks like before writing code.
+1. **Register the loop** — run `omp ralph start "<task>" --max-iterations 10`. This tracks the loop so `omp ralph status` and `/team` nudges can see it and the iteration cap is enforced. State what "done" looks like before writing code.
 2. **Implement** one slice at a time, in plan order.
 3. **Verify after each slice** — run tests, lint, type-check. Do not batch verification to the end.
 4. **Fix** any failures immediately before moving to the next slice.
-5. **Repeat** until all slices complete with evidence, or a blocker is hit.
-6. **Final verification** — run the full test suite one last time after all slices.
+5. **Tick the loop** — run `omp ralph tick` after each slice. If it reports the iteration cap is reached, stop and report.
+6. **Repeat** until all slices complete with evidence, or a blocker is hit.
+7. **Final verification** — run the full test suite one last time after all slices.
+8. **End the loop** — run `omp ralph cancel` once done or blocked, so the tracked state is cleared.
 
 ## Circuit breaker
 
