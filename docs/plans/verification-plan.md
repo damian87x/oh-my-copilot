@@ -8,6 +8,14 @@
 - ✅ done = already executed and green this cycle (do not redo)
 - ⏳ deferred = needs Copilot model quota; run when available
 
+## Verification log — 2026-06-13 (live, no model quota needed)
+**B1 (hooks fire) EXECUTED and a real bug was found + fixed.**
+- Copilot CLI 1.0.61 DOES load+run plugin hooks (logged `Invalid hooks config … hooks must be an object` on the old Claude-format file; accepted the new v1 format with no error).
+- First live run: every hook fired but failed — `HookExitCodeError: code 1` — because the command used `${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}`, which Copilot does NOT set. Captured the hook runtime env: Copilot exposes **`COPILOT_PLUGIN_ROOT`** (and `PLUGIN_ROOT` / `CLAUDE_PLUGIN_ROOT`).
+- Fix (commit e7658d8): manifest now uses `${COPILOT_PLUGIN_ROOT:-…}`.
+- Re-run after fix: `.omp/state/hooks.log` recorded `SessionStart` (correct `directory`), `UserPromptSubmit`, and `errorOccurred` (caught the quota error); **zero new HookExitCodeError**. → B1 PASS.
+- Still ⏳: `agentStop` firing on a *completed* turn + Copilot honoring `{decision:"block"}` re-prompt — the turn quota-errored (→ errorOccurred) instead of completing, so the loop re-prompt is unexercised until quota.
+
 ---
 
 ## A. Already verified (evidence on record)
