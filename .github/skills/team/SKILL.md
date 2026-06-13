@@ -48,6 +48,8 @@ Write a temporary file at `/tmp/team-lanes-<timestamp>.json`:
 ### Step 2 — Launch
 
 ```bash
+# Installed-plugin path (in a dev checkout the script is at the repo-relative
+# .github/skills/team/scripts/team-launch.sh instead):
 bash ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh \
   --session "team-<name>" --lanes <lanes-file>
 ```
@@ -76,7 +78,7 @@ Choose this only when the user explicitly wants the team to run in the backgroun
 ### Launch
 
 ```bash
-omp team <N>:copilot "<task description>"
+omp team <N>:copilot "<task description>" --name <name>
 ```
 
 The runtime automatically:
@@ -89,9 +91,9 @@ The runtime automatically:
 ### Monitor and cleanup
 
 ```bash
-omp team status <team-name>       # check progress
+omp team status <name>            # check progress (same <name> passed to --name)
 tmux attach -t omp-team-<name>    # watch panes live
-omp team shutdown <team-name>     # kill when done
+omp team shutdown <name>          # kill when done
 ```
 
 ## Prerequisites

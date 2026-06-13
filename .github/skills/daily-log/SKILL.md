@@ -23,7 +23,7 @@ The SessionStart hook injects a one-line breadcrumb, e.g.:
 
 ```
 [DAILY LOG] Goal: <today's goal>
-N entries logged in the last 7 days — run `omp daily-log read` to load if relevant.
+N entries logged in the last 7 days — run `omp daily-log read --days 7` to load if relevant.
 ```
 
 If the breadcrumb looks relevant to what the user is asking for — same feature, an open

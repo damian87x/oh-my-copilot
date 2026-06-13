@@ -57,6 +57,7 @@ The CLI returns a structured result:
 - Success: `posted to <channel> (ts=<ts>[, opened IM])` — relay that.
 - Failure: `notify failed [<CODE>]: <reason>` — surface the code + reason so the user
   can act. Common codes:
+  - `MISSING_TEXT` — the message body was empty; pass a non-empty `--text`.
   - `MISSING_TOKEN` — run `omp env init` to set `SLACK_BOT_TOKEN`.
   - `MISSING_TARGET` — pass `--target` or run `omp env init` to set `SLACK_HOME_CHANNEL`.
   - `BAD_TARGET` / `BAD_HOME_CHANNEL` — the ID is malformed; show the user the expected shape.
