@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +9,13 @@ function tempProject(version = "9.9.9") {
   writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "tmp", version }));
   return root;
 }
+
+const originalVersionOverride = process.env.OMP_VERSION_OVERRIDE;
+
+afterEach(() => {
+  if (originalVersionOverride === undefined) delete process.env.OMP_VERSION_OVERRIDE;
+  else process.env.OMP_VERSION_OVERRIDE = originalVersionOverride;
+});
 
 describe("getVersionInfo", () => {
   it("reads the package version from package.json", () => {
@@ -25,6 +32,13 @@ describe("getVersionInfo", () => {
     writeFileSync(path.join(root, "package.json"), '{"name":"tmp"}');
     const info = getVersionInfo({ cwd: root });
     expect(info.package).toBe("unknown");
+  });
+
+  it("prefers OMP_VERSION_OVERRIDE when set", () => {
+    process.env.OMP_VERSION_OVERRIDE = "0.0.0-test";
+    const root = tempProject("4.2.0");
+    const info = getVersionInfo({ cwd: root });
+    expect(info.package).toBe("0.0.0-test");
   });
 });
 

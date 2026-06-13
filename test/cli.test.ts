@@ -118,6 +118,33 @@ describe("runCli: bare-flag launch routing", () => {
   });
 });
 
+describe("runCli: version", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "omp-cli-version-"));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("includes the update notice when npm has a newer version", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ version: "999.0.0" }), { status: 200 })),
+    );
+
+    const result = await runCli(["--version", "--root", dir]);
+
+    expect(result.ok).toBe(true);
+    expect(result.message ?? "").toContain("[OMP UPDATE AVAILABLE]");
+    expect(result.message ?? "").toContain("v999.0.0");
+    expect(result.message ?? "").toContain("npm i -g @damian87/omp@latest");
+  });
+});
+
 describe("runCli: schedule subcommands", () => {
   let dir: string;
   beforeEach(() => {

@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { packageRootFromImportMeta, resolveProjectPaths } from "../project.js";
 
+const VERSION_OVERRIDE_ENV = "OMP_VERSION_OVERRIDE";
+
 export interface VersionInfo {
   package: string;
   node: string;
@@ -19,6 +21,15 @@ export function getVersionInfo(options: VersionOptions = {}): VersionInfo {
   const root = options.importMetaUrl
     ? packageRootFromImportMeta(options.importMetaUrl)
     : resolveProjectPaths({ cwd: options.cwd, packageRoot: options.packageRoot }).packageRoot;
+  const overriddenVersion = process.env[VERSION_OVERRIDE_ENV]?.trim();
+  if (overriddenVersion) {
+    return {
+      package: overriddenVersion,
+      node: process.version,
+      platform: `${process.platform}-${process.arch}`,
+      packageRoot: root,
+    };
+  }
   const pkgPath = join(root, "package.json");
   let pkgVersion = "unknown";
   if (existsSync(pkgPath)) {

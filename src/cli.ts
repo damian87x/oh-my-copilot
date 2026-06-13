@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { findCapability, loadCatalogBundle, validateCatalogBundle } from "./catalog.js";
 import { findRegisteredCommand, registeredCommandHelpLines } from "./commands/registry.js";
 import type { CliResult } from "./commands/types.js";
 import { loadOmpEnv } from "./env/dotenv.js";
-import { inspectProject } from "./project.js";
+import { ompRoot } from "./omp-root.js";
+import { inspectProject, packageRootFromImportMeta } from "./project.js";
 
 function hasFlag(args: string[], flag: string): boolean {
   return args.includes(flag);
@@ -15,6 +17,15 @@ function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
   if (index === -1) return undefined;
   return args[index + 1];
+}
+
+interface VersionCheckModule {
+  checkForUpdate(options?: {
+    stateDir?: string;
+    now?: number;
+    fetchLatest?: () => Promise<string | null>;
+  }): Promise<{ current: string; latest: string } | null>;
+  formatUpdateNotice(current: string, latest: string): string;
 }
 
 function printResult(result: CliResult, json: boolean): void {
@@ -54,7 +65,17 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   if (group === "version" || group === "--version" || group === "-v") {
     const { getVersionInfo, formatVersionInfo } = await import("./copilot/version.js");
     const info = getVersionInfo({ importMetaUrl: import.meta.url });
-    return json ? { ok: true, output: info } : { ok: true, message: formatVersionInfo(info) };
+    const versionCheckUrl = pathToFileURL(join(packageRootFromImportMeta(import.meta.url), "scripts", "lib", "version-check.mjs")).href;
+    const { checkForUpdate, formatUpdateNotice } = (await import(versionCheckUrl)) as VersionCheckModule;
+    const cwd = flagValue(argv, "--root") ?? process.cwd();
+    const update = await checkForUpdate({ stateDir: join(ompRoot(cwd), ".omp", "state") });
+    if (json) {
+      return { ok: true, output: { ...info, update } };
+    }
+    const message = update
+      ? `${formatVersionInfo(info)}\n\n${formatUpdateNotice(update.current, update.latest)}`
+      : formatVersionInfo(info);
+    return { ok: true, message };
   }
 
   // Auto-load ~/.omp/.env so subcommands that read process.env (slack tokens,

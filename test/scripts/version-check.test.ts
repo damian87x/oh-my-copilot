@@ -32,13 +32,17 @@ describe("formatUpdateNotice", () => {
 
 describe("checkForUpdate", () => {
   let stateDir: string;
+  const originalVersionOverride = process.env.OMP_VERSION_OVERRIDE;
 
   beforeEach(() => {
     stateDir = mkdtempSync(join(tmpdir(), "omp-version-check-"));
+    delete process.env.OMP_VERSION_OVERRIDE;
   });
 
   afterEach(() => {
     rmSync(stateDir, { recursive: true, force: true });
+    if (originalVersionOverride === undefined) delete process.env.OMP_VERSION_OVERRIDE;
+    else process.env.OMP_VERSION_OVERRIDE = originalVersionOverride;
   });
 
   it("returns null when latest <= current", async () => {
@@ -89,5 +93,14 @@ describe("checkForUpdate", () => {
       fetchLatest: async () => "999.0.0",
     });
     expect(result).toMatchObject({ latest: "999.0.0" });
+  });
+
+  it("uses OMP_VERSION_OVERRIDE as the current version", async () => {
+    process.env.OMP_VERSION_OVERRIDE = "0.0.0";
+    const result = await checkForUpdate({
+      stateDir,
+      fetchLatest: async () => "0.0.1",
+    });
+    expect(result).toEqual({ current: "0.0.0", latest: "0.0.1" });
   });
 });

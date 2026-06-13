@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 2000;
 const PACKAGE_NAME = "@damian87/omp";
+const VERSION_OVERRIDE_ENV = "OMP_VERSION_OVERRIDE";
 
 export function isNewer(latest, current) {
   if (!latest || !current) return false;
@@ -21,6 +22,8 @@ export function formatUpdateNotice(current, latest) {
 }
 
 export function readCurrentVersion() {
+  const overriddenVersion = process.env[VERSION_OVERRIDE_ENV]?.trim();
+  if (overriddenVersion) return overriddenVersion;
   try {
     const here = dirname(fileURLToPath(import.meta.url));
     const pkgPath = join(here, "..", "..", "package.json");
