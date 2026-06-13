@@ -127,3 +127,7 @@ Use `/ralplan` before `/team` to produce the plan. Use `/verify` after completio
 - Each pane is an independent session — no shared state
 - Workers can message each other via `omp team api send-message` (runtime mode only)
 - If tasks depend on each other, use `/ralph` instead
+
+## Cost/token note
+
+This skill can drive multiple tool calls or long-running output. Use `omp cost [--today] [--session <id>]` for local hook-ledger estimates only; it is not provider billing. Keep injected summaries concise and prefer bounded output when rerunning noisy commands.

@@ -2,6 +2,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
+import { failOpen } from "./lib/hook-output.mjs";
 
 const HOOK_NAME = "Error";
 
@@ -23,9 +24,9 @@ const HOOK_NAME = "Error";
     } catch {
       // best effort
     }
-    console.log(JSON.stringify({ continue: true }));
+    failOpen();
   } catch (err) {
     console.error(`[hook ${HOOK_NAME}] failed: ${err?.message ?? err}`);
-    console.log(JSON.stringify({ continue: true }));
+    failOpen();
   }
 })();

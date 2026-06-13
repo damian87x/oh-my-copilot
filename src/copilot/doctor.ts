@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { resolveCopilotPaths, type CopilotPaths, type ResolveCopilotPathsOptions } from "./paths.js";
 
 export type CheckStatus = "pass" | "fail" | "warn";
@@ -20,6 +21,7 @@ export interface DoctorReport {
 export interface DoctorOptions extends ResolveCopilotPathsOptions {
   skipCopilot?: boolean;
   copilotBin?: string;
+  checkHooks?: boolean;
 }
 
 function checkNodeVersion(): DoctorCheck {
@@ -60,50 +62,242 @@ function checkSkillsDiscovery(paths: CopilotPaths): DoctorCheck {
   };
 }
 
-// Recognized Copilot CLI hook events. `agentStop` powers the omp loop driver.
-const COPILOT_HOOK_EVENTS = [
+// Recognized Copilot CLI hook events (camelCase native + VS Code-compatible
+// PascalCase aliases). `agentStop` powers the omp loop driver.
+const SUPPORTED_HOOK_EVENTS = new Set([
   "sessionStart",
-  "sessionEnd",
   "userPromptSubmitted",
   "preToolUse",
   "postToolUse",
-  "errorOccurred",
+  "postToolUseFailure",
   "agentStop",
-];
+  "subagentStart",
+  "subagentStop",
+  "preCompact",
+  "sessionEnd",
+  "errorOccurred",
+  "permissionRequest",
+  "notification",
+  // VS Code-compatible event names accepted by Copilot CLI.
+  "SessionStart",
+  "UserPromptSubmit",
+  "PreToolUse",
+  "PostToolUse",
+  "PostToolUseFailure",
+  "Stop",
+  "SubagentStart",
+  "SubagentStop",
+  "PreCompact",
+  "SessionEnd",
+  "ErrorOccurred",
+  "PermissionRequest",
+  "Notification",
+]);
+
+function describeUnsupportedEvent(eventName: string): string {
+  if (eventName === "Error") return 'unsupported hook event "Error" (use errorOccurred or ErrorOccurred)';
+  return `unsupported hook event "${eventName}"`;
+}
+
+function validateHookEntry(eventName: string, entry: unknown, index: number): string[] {
+  const issues: string[] = [];
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return [`${eventName}[${index}] must be an object`];
+  }
+  const record = entry as Record<string, unknown>;
+  const type = record.type ?? "command";
+  if (type === "command") {
+    if (
+      typeof record.bash !== "string" &&
+      typeof record.powershell !== "string" &&
+      typeof record.command !== "string"
+    ) {
+      issues.push(`${eventName}[${index}] command hook needs bash, powershell, or command`);
+    }
+  } else if (type === "http") {
+    if (typeof record.url !== "string") issues.push(`${eventName}[${index}] http hook needs url`);
+  } else if (type === "prompt") {
+    if (eventName !== "sessionStart" && eventName !== "SessionStart") {
+      issues.push(`${eventName}[${index}] prompt hooks are only supported on sessionStart`);
+    }
+    if (typeof record.prompt !== "string") issues.push(`${eventName}[${index}] prompt hook needs prompt`);
+  } else {
+    issues.push(`${eventName}[${index}] has unsupported hook type "${String(type)}"`);
+  }
+  return issues;
+}
+
+function validateHooksManifestShape(manifest: unknown): string[] {
+  const issues: string[] = [];
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return ["manifest must be a JSON object with version: 1 and hooks"];
+  }
+  const record = manifest as Record<string, unknown>;
+  if (record.version !== 1) issues.push("manifest must declare version: 1");
+  if (!record.hooks || typeof record.hooks !== "object" || Array.isArray(record.hooks)) {
+    issues.push("manifest must declare a hooks object");
+    return issues;
+  }
+  for (const [eventName, entries] of Object.entries(record.hooks as Record<string, unknown>)) {
+    if (!SUPPORTED_HOOK_EVENTS.has(eventName)) issues.push(describeUnsupportedEvent(eventName));
+    if (!Array.isArray(entries)) {
+      issues.push(`${eventName} must be an array of hook entries`);
+      continue;
+    }
+    entries.forEach((entry, index) => issues.push(...validateHookEntry(eventName, entry, index)));
+  }
+  return issues;
+}
+
+function sampleHookPayload(eventName: string, cwd: string): Record<string, unknown> {
+  switch (eventName) {
+    case "UserPromptSubmit":
+      return { hook_event_name: eventName, session_id: "doctor-smoke", timestamp: new Date().toISOString(), cwd, prompt: "doctor smoke" };
+    case "PreToolUse":
+      return { hook_event_name: eventName, session_id: "doctor-smoke", timestamp: new Date().toISOString(), cwd, tool_name: "view", tool_input: { path: "README.md" } };
+    case "PostToolUse":
+      return {
+        hook_event_name: eventName,
+        session_id: "doctor-smoke",
+        timestamp: new Date().toISOString(),
+        cwd,
+        tool_name: "view",
+        tool_input: { path: "README.md" },
+        tool_result: { result_type: "success", text_result_for_llm: "doctor smoke" },
+      };
+    case "PostToolUseFailure":
+      return { hook_event_name: eventName, session_id: "doctor-smoke", timestamp: new Date().toISOString(), cwd, tool_name: "edit", tool_input: {}, error: "doctor smoke" };
+    case "Stop":
+      return { hook_event_name: eventName, session_id: "doctor-smoke", timestamp: new Date().toISOString(), cwd, transcript_path: "", stop_reason: "end_turn" };
+    case "SubagentStart":
+    case "SubagentStop":
+      return { hook_event_name: eventName, session_id: "doctor-smoke", timestamp: new Date().toISOString(), cwd, transcript_path: "", agent_name: "doctor" };
+    case "PreCompact":
+      return { hook_event_name: eventName, session_id: "doctor-smoke", timestamp: new Date().toISOString(), cwd, transcript_path: "", trigger: "manual", custom_instructions: "" };
+    case "SessionStart":
+    case "SessionEnd":
+    case "ErrorOccurred":
+    case "PermissionRequest":
+    case "Notification":
+      return { hook_event_name: eventName, session_id: "doctor-smoke", timestamp: new Date().toISOString(), cwd, error: "doctor smoke", message: "doctor smoke" };
+    default:
+      return {
+        sessionId: "doctor-smoke",
+        timestamp: Date.now(),
+        cwd,
+        prompt: "doctor smoke",
+        toolName: "view",
+        toolArgs: { path: "README.md" },
+        toolResult: { resultType: "success", textResultForLlm: "doctor smoke" },
+        error: "doctor smoke",
+        transcriptPath: "",
+        stopReason: "end_turn",
+        trigger: "manual",
+        customInstructions: "",
+      };
+  }
+}
+
+function commandForSmoke(entry: Record<string, unknown>): string | undefined {
+  const platformPreference = process.platform === "win32"
+    ? [entry.powershell, entry.command, entry.bash]
+    : [entry.bash, entry.command, entry.powershell];
+  const command = platformPreference.find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  return command;
+}
+
+function timeoutMsForSmoke(entry: Record<string, unknown>): number {
+  const timeout = typeof entry.timeoutSec === "number" ? entry.timeoutSec : typeof entry.timeout === "number" ? entry.timeout : 10;
+  return Math.max(1, timeout) * 1000;
+}
+
+function checkHooksSmoke(paths: CopilotPaths): DoctorCheck {
+  if (!existsSync(paths.hooksManifest)) {
+    return { name: "hooks-smoke", status: "warn", detail: `skipped; no hooks manifest: ${paths.hooksManifest}` };
+  }
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(readFileSync(paths.hooksManifest, "utf8")) as unknown;
+  } catch (error) {
+    return { name: "hooks-smoke", status: "fail", detail: `skipped; invalid hooks JSON (${error instanceof Error ? error.message : String(error)})` };
+  }
+  const schemaIssues = validateHooksManifestShape(manifest);
+  if (schemaIssues.length > 0) {
+    return { name: "hooks-smoke", status: "fail", detail: `skipped; hooks schema invalid: ${schemaIssues.join("; ")}` };
+  }
+
+  const hooks = (manifest as { hooks: Record<string, unknown[]> }).hooks;
+  const smokeCwd = mkdtempSync(join(tmpdir(), "omp-hooks-smoke-"));
+  const issues: string[] = [];
+  let ran = 0;
+  for (const [eventName, entries] of Object.entries(hooks)) {
+    for (const [index, entry] of entries.entries()) {
+      const record = entry as Record<string, unknown>;
+      const type = record.type ?? "command";
+      if (type !== "command") continue;
+      const command = commandForSmoke(record);
+      if (!command) {
+        issues.push(`${eventName}[${index}] has no runnable command`);
+        continue;
+      }
+      ran += 1;
+      const result = spawnSync(command, {
+        cwd: smokeCwd,
+        env: { ...process.env, OMP_PLUGIN_ROOT: paths.pluginRoot, OMC_PLUGIN_ROOT: paths.pluginRoot },
+        input: JSON.stringify(sampleHookPayload(eventName, smokeCwd)),
+        encoding: "utf8",
+        shell: true,
+        timeout: timeoutMsForSmoke(record),
+      });
+      if (result.error) {
+        issues.push(`${eventName}[${index}] failed: ${result.error.message}`);
+        continue;
+      }
+      if (result.status !== 0) {
+        issues.push(`${eventName}[${index}] exited ${result.status ?? "?"}: ${(result.stderr || result.stdout).trim()}`);
+        continue;
+      }
+      const stdout = (result.stdout ?? "").trim();
+      if (!stdout) continue;
+      try {
+        const parsed = JSON.parse(stdout) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          issues.push(`${eventName}[${index}] stdout JSON must be an object`);
+          continue;
+        }
+        // Hooks dual-emit Copilot v1 keys AND Claude Code keys (continue /
+        // hookSpecificOutput); both vocabularies are valid here.
+      } catch {
+        issues.push(`${eventName}[${index}] invalid stdout JSON: ${stdout.slice(0, 120)}`);
+      }
+    }
+  }
+  if (issues.length > 0) return { name: "hooks-smoke", status: "fail", detail: issues.join("; ") };
+  return { name: "hooks-smoke", status: "pass", detail: `ran ${ran} command hook${ran === 1 ? "" : "s"} with documented sample payloads` };
+}
 
 function checkHooksManifest(paths: CopilotPaths): DoctorCheck {
   if (!existsSync(paths.hooksManifest)) {
-    return { name: "hooks-manifest", status: "warn", detail: `not present: ${paths.hooksManifest}` };
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(paths.hooksManifest, "utf8"));
-  } catch {
-    return { name: "hooks-manifest", status: "fail", detail: `invalid JSON: ${paths.hooksManifest}` };
-  }
-  const manifest = parsed as { version?: unknown; hooks?: Record<string, unknown> };
-  if (manifest.version !== 1 || typeof manifest.hooks !== "object" || manifest.hooks === null) {
-    return {
-      name: "hooks-manifest",
-      status: "fail",
-      detail: `not Copilot v1 format (need {"version":1,"hooks":{…}}): ${paths.hooksManifest}`,
-    };
-  }
-  const events = Object.keys(manifest.hooks);
-  const unknown = events.filter((e) => !COPILOT_HOOK_EVENTS.includes(e));
-  if (unknown.length > 0) {
     return {
       name: "hooks-manifest",
       status: "warn",
-      detail: `unrecognized hook events ${unknown.join(", ")} (Claude-format?): ${paths.hooksManifest}`,
+      detail: `not present: ${paths.hooksManifest}`,
     };
   }
-  const hasLoop = events.includes("agentStop");
-  return {
-    name: "hooks-manifest",
-    status: "pass",
-    detail: `Copilot v1, ${events.length} events${hasLoop ? " (agentStop loop driver present)" : ""}`,
-  };
+  try {
+    const manifest = JSON.parse(readFileSync(paths.hooksManifest, "utf8")) as unknown;
+    const issues = validateHooksManifestShape(manifest);
+    if (issues.length > 0) {
+      return { name: "hooks-manifest", status: "fail", detail: `${paths.hooksManifest}: ${issues.join("; ")}` };
+    }
+  } catch (error) {
+    return {
+      name: "hooks-manifest",
+      status: "fail",
+      detail: `${paths.hooksManifest}: invalid JSON (${error instanceof Error ? error.message : String(error)})`,
+    };
+  }
+  return { name: "hooks-manifest", status: "pass", detail: paths.hooksManifest };
 }
 
 function checkCopilotCli(bin: string): DoctorCheck {
@@ -128,6 +322,9 @@ export function runDoctor(options: DoctorOptions = {}): DoctorReport {
     checkSkillsDiscovery(paths),
     checkHooksManifest(paths),
   ];
+  if (options.checkHooks) {
+    checks.push(checkHooksSmoke(paths));
+  }
   if (!options.skipCopilot) {
     checks.push(checkCopilotCli(options.copilotBin ?? "copilot"));
   }

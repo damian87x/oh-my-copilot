@@ -71,3 +71,7 @@ Summarise: completed, failed, blocked. Then clear the tracked state with `omp ul
 - `Completed` — items done with evidence
 - `Failed/blockers` — items that couldn't be completed and why
 - `Verification` — test/lint/build results per wave
+
+## Cost/token note
+
+This skill can drive multiple tool calls or long-running output. Use `omp cost [--today] [--session <id>]` for local hook-ledger estimates only; it is not provider billing. Keep injected summaries concise and prefer bounded output when rerunning noisy commands.

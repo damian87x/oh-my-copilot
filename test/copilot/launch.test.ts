@@ -134,6 +134,7 @@ describe("launchCopilot tmux wrapping", () => {
   // Strip any COPILOT_* vars so the base-shape assertions are not perturbed by
   // -e passthrough args coming from the ambient (possibly BYOK) shell.
   const savedCopilotVars: Record<string, string | undefined> = {};
+  const savedForceTmuxWrap = process.env.OMP_FORCE_TMUX_WRAP;
 
   beforeEach(() => {
     for (const key of Object.keys(process.env)) {
@@ -167,6 +168,7 @@ describe("launchCopilot tmux wrapping", () => {
     process.env.PATH = `${dir}:${savedPath}`;
     process.env.OMP_TEST_TMUX_LOG = tmuxLog;
     process.env.OMP_TEST_COPILOT_LOG = copilotLog;
+    process.env.OMP_FORCE_TMUX_WRAP = "1";
   });
 
   afterEach(() => {
@@ -178,6 +180,7 @@ describe("launchCopilot tmux wrapping", () => {
       restoreEnv(key, value);
       delete savedCopilotVars[key];
     }
+    restoreEnv("OMP_FORCE_TMUX_WRAP", savedForceTmuxWrap);
     rmSync(dir, { recursive: true, force: true });
   });
 

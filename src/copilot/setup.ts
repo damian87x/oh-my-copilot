@@ -37,6 +37,19 @@ Default behaviours installed by \`omp setup\`. Override per project as needed.
 - Run tests for code you change.
 - Read the diff before committing.
 - If unsure about scope, ask.
+
+## Cost/token discipline
+Cost data is local, best-effort, and estimated. \`omp cost [--today] [--session <id>]\`
+summarizes prompt/tool token estimates from the hook ledger; it is not provider billing.
+
+The cost hooks apply when this plugin's \`hooks/hooks.json\` is active in a Copilot CLI
+session. They give session-wide visibility for skills invoked inside that session, not
+standalone coverage for copied skills, raw shell scripts, or external CLIs.
+
+Before rerunning noisy commands or failed edits, inspect the latest output and narrow the
+next attempt. Prefer bounded summaries for large logs. Oversized postToolUse output is
+minimized before it re-enters model context, with raw output preserved on disk and savings
+recorded in the cost ledger. Budget gates and retry-cost guidance are not current live behavior.
 `;
 
 function copyDirRecursive(source: string, target: string, actions: SetupAction[], dryRun: boolean): void {

@@ -8,6 +8,7 @@ import { scanScheduleResults } from "./lib/schedule-results.mjs";
 import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
 import { readDirectives } from "./lib/project-memory.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
+import { failOpen, printContinue } from "./lib/hook-output.mjs";
 
 const HOOK_NAME = "SessionStart";
 

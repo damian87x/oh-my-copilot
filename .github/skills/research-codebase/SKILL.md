@@ -56,3 +56,7 @@ Show concise summary to user with key file references. Ask if they have follow-u
 ### 7. Follow-ups
 
 If the user has follow-ups, read `reference/follow-up.md` for the append protocol.
+
+## Cost/token note
+
+This skill can drive multiple tool calls or long-running output. Use `omp cost [--today] [--session <id>]` for local hook-ledger estimates only; it is not provider billing. Keep injected summaries concise and prefer bounded output when rerunning noisy commands.

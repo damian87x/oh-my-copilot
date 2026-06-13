@@ -69,3 +69,7 @@ omp schedule add --id nightly-tests --cron "0 2 * * *" \
   --prompt "Run the test suite; if anything fails, open an issue with the log." \
   --allow-all-tools --max-runs 7
 ```
+
+## Cost/token note
+
+This skill can drive multiple tool calls or long-running output. Use `omp cost [--today] [--session <id>]` for local hook-ledger estimates only; it is not provider billing. Keep injected summaries concise and prefer bounded output when rerunning noisy commands.
