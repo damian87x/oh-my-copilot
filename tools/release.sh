@@ -81,16 +81,25 @@ npm run build
 
 if $DRY; then
   NEXT="$(node -e "const s=require('semver');" 2>/dev/null && node -p "require('semver').inc(require('./package.json').version,'$BUMP')" 2>/dev/null || echo '<next>')"
-  echo "[dry-run] would: npm version $BUMP → $NEXT, push --follow-tags, gh release, npm publish"
+  echo "[dry-run] would: npm version $BUMP → $NEXT, sync plugin.json → $NEXT, commit + tag, push --follow-tags, gh release, npm publish, verify npm at $NEXT"
   npm publish --dry-run --access public
   exit 0
 fi
 
 # --- bump + tag (commit message matches the repo convention) ---
+# Bump package.json without committing so plugin.json can ride along in the
+# same release commit (keeps the Copilot plugin manifest version in sync).
 echo "→ bumping version ($BUMP)"
-npm version "$BUMP" -m "chore: release v%s"
+npm version "$BUMP" --no-git-tag-version
 VERSION="$(node -p "require('./package.json').version")"
 TAG="v$VERSION"
+
+echo "→ syncing plugin.json to $VERSION"
+node -e "const fs=require('fs');const p=require('./plugin.json');p.version='$VERSION';fs.writeFileSync('./plugin.json',JSON.stringify(p,null,2)+'\n')"
+
+git add package.json package-lock.json plugin.json
+git commit -m "chore: release v$VERSION"
+git tag "$TAG"
 
 echo "→ pushing main + tag $TAG"
 git push origin main --follow-tags
@@ -105,6 +114,18 @@ if $DO_PUBLISH; then
   echo "→ publishing to npm"
   npm run build
   npm_publish
+
+  # Verify the publish actually landed — the registry can lag a few seconds.
+  # This guards against the silent "tagged but never published" drift.
+  echo "→ verifying npm registry advanced to $VERSION"
+  PUBLISHED="none"
+  for i in 1 2 3 4 5; do
+    PUBLISHED="$(npm view @damian87/omp version 2>/dev/null || echo none)"
+    [[ "$PUBLISHED" == "$VERSION" ]] && break
+    sleep 3
+  done
+  [[ "$PUBLISHED" == "$VERSION" ]] || { echo "✗ npm still at $PUBLISHED, expected $VERSION — publish did NOT land" >&2; exit 1; }
+  echo "✓ npm confirmed at $VERSION"
 fi
 
 echo "✓ released $TAG"

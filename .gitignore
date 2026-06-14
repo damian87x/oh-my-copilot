@@ -5,6 +5,8 @@ coverage/
 .DS_Store
 .omx
 .omc
+.omp/
+.review/
 # secrets — never commit real tokens
 .env
 .env.*

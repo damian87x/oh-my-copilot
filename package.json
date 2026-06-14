@@ -1,7 +1,7 @@
 {
   "name": "@damian87/omp",
   "version": "0.9.0",
-  "description": "GitHub Copilot project skills catalog and Jira handoff tools.",
+  "description": "Multi-agent orchestration for GitHub Copilot CLI — autonomous loops (Autopilot, Ralph, UltraQA, Ultrawork), parallel tmux agent teams, a weighted-consensus model council, a Slack chat bridge, durable scheduled jobs, and in-session skills + custom agents. Zero learning curve.",
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -42,7 +42,15 @@
     "copilot",
     "skills",
     "agents",
-    "slash-commands"
+    "slash-commands",
+    "orchestration",
+    "multi-agent",
+    "ai-agents",
+    "tmux",
+    "automation",
+    "autopilot",
+    "slack",
+    "cli"
   ],
   "license": "MIT",
   "engines": {
