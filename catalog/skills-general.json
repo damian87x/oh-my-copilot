@@ -528,6 +528,31 @@
       },
       "projection": "project-skill",
       "phase1": true
+    },
+    {
+      "name": "verify-byok",
+      "capabilityId": "verify-byok",
+      "capabilityIds": [
+        "verify-byok"
+      ],
+      "source": ".github/skills/verify-byok/SKILL.md",
+      "sourcePath": ".github/skills/verify-byok/SKILL.md",
+      "canonicalPath": ".github/skills/verify-byok/SKILL.md",
+      "description": "Verify an omp change with a static gate plus a live BYOK run.",
+      "summary": "Verify an omp change with a static gate plus a live BYOK run.",
+      "support": "project-skill",
+      "aliases": [],
+      "slashCommands": [
+        "verify-byok"
+      ],
+      "projections": {
+        "copilot": {
+          "command": "/verify-byok",
+          "state": "supported"
+        }
+      },
+      "projection": "project-skill",
+      "phase1": true
     }
   ]
 }
