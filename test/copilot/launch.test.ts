@@ -8,6 +8,18 @@ import {
   resolveCopilotBin,
 } from "../../src/copilot/launch.js";
 
+// launchCopilot pre-trusts its cwd by writing the real ~/.copilot/config.json.
+// Disable that side effect for the whole suite so tests never mutate user state.
+let savedNoAutoTrust: string | undefined;
+beforeEach(() => {
+  savedNoAutoTrust = process.env.OMP_NO_AUTO_TRUST;
+  process.env.OMP_NO_AUTO_TRUST = "1";
+});
+afterEach(() => {
+  if (savedNoAutoTrust === undefined) delete process.env.OMP_NO_AUTO_TRUST;
+  else process.env.OMP_NO_AUTO_TRUST = savedNoAutoTrust;
+});
+
 describe("resolveCopilotBin", () => {
   it("uses explicit override when provided", () => {
     expect(resolveCopilotBin("/usr/local/bin/copilot")).toBe("/usr/local/bin/copilot");

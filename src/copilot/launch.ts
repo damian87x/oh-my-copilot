@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { copilotEnvPassthroughArgs } from "./env-passthrough.js";
+import { ensureFolderTrusted } from "./trust.js";
 
 const MADMAX_FLAG = "--madmax";
 const COPILOT_BYPASS_FLAG = "--yolo";
@@ -68,6 +69,10 @@ export async function launchCopilot(options: LaunchOptions): Promise<LaunchResul
   const bin = resolveCopilotBin(options.bin);
   const args = normalizeCopilotLaunchArgs(options.args);
   const cwd = options.cwd ?? process.cwd();
+
+  // Pre-trust the launch folder so neither this session nor team workers block on
+  // Copilot's folder-trust dialog (which --yolo/--allow-all-paths do NOT skip).
+  ensureFolderTrusted(cwd);
 
   // If not already inside tmux and tmux is available, wrap in a tmux session
   if (!isInsideTmux() && tmuxAvailable()) {
