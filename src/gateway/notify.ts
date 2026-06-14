@@ -41,6 +41,7 @@ export interface NotifyOptions {
 }
 
 export type NotifyErrorCode =
+  | "MISSING_TEXT"
   | "MISSING_TOKEN"
   | "MISSING_TARGET"
   | "BAD_TARGET"
@@ -80,7 +81,7 @@ export async function notify(
 
   const text = (opts.text ?? "").toString();
   if (!text.trim()) {
-    return { ok: false, code: "POST_FAILED", reason: "text is empty" };
+    return { ok: false, code: "MISSING_TEXT", reason: "text is empty" };
   }
 
   const token = (env.SLACK_BOT_TOKEN ?? "").trim();

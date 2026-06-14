@@ -45,7 +45,9 @@ fi
 if command -v omp &>/dev/null; then
   AGENT_CMD="omp --madmax"
 elif command -v copilot &>/dev/null; then
-  AGENT_CMD="copilot"
+  # --yolo = all permissions (tools+paths+urls) so worker panes never block on a
+  # trust/permission dialog. Matches the bypass `omp --madmax` grants.
+  AGENT_CMD="copilot --yolo"
 else
   echo "Neither omp nor copilot CLI found" >&2; exit 1
 fi
@@ -78,9 +80,11 @@ wait_for_ready() {
       return 0
     fi
 
-    # Auto-accept folder trust dialog
+    # Auto-accept folder trust dialog. Use the `Enter` key NAME, not C-m:
+    # Copilot CLI >=1.0.61 ignores a literal carriage return (C-m) for TUI
+    # selection/submit, so C-m left the trust dialog open and the agent hung.
     if (( accepted == 0 )) && echo "$txt" | grep -q 'Do you trust'; then
-      tmux send-keys -t "$pane" C-m
+      tmux send-keys -t "$pane" Enter
       accepted=1
       echo "    ↳ Auto-accepted folder trust for $pane"
     fi
@@ -142,10 +146,12 @@ for i in $(seq 0 $((LANE_COUNT - 1))); do
   LANE_NAME=$(jq -r ".[$i].name" "$LANES_FILE")
   PANE_ID="${PANE_IDS[$i]}"
 
-  # -l = literal (no key interpretation), then C-m = Enter as a separate call
+  # -l = literal (no key interpretation), then submit. Use the `Enter` key NAME,
+  # not C-m: Copilot CLI >=1.0.61 ignores a literal carriage return, so C-m left
+  # the prompt sitting unsent in the input buffer and the agent never started.
   tmux send-keys -t "$PANE_ID" -l "$LANE_PROMPT"
   sleep 0.3
-  tmux send-keys -t "$PANE_ID" C-m
+  tmux send-keys -t "$PANE_ID" Enter
 
   echo "  📨 Sent to $PANE_ID ($LANE_NAME)"
 done

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { resolveCopilotPaths, type CopilotPaths, type ResolveCopilotPathsOptions } from "./paths.js";
@@ -60,14 +60,49 @@ function checkSkillsDiscovery(paths: CopilotPaths): DoctorCheck {
   };
 }
 
+// Recognized Copilot CLI hook events. `agentStop` powers the omp loop driver.
+const COPILOT_HOOK_EVENTS = [
+  "sessionStart",
+  "sessionEnd",
+  "userPromptSubmitted",
+  "preToolUse",
+  "postToolUse",
+  "errorOccurred",
+  "agentStop",
+];
+
 function checkHooksManifest(paths: CopilotPaths): DoctorCheck {
-  if (existsSync(paths.hooksManifest)) {
-    return { name: "hooks-manifest", status: "pass", detail: paths.hooksManifest };
+  if (!existsSync(paths.hooksManifest)) {
+    return { name: "hooks-manifest", status: "warn", detail: `not present: ${paths.hooksManifest}` };
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(paths.hooksManifest, "utf8"));
+  } catch {
+    return { name: "hooks-manifest", status: "fail", detail: `invalid JSON: ${paths.hooksManifest}` };
+  }
+  const manifest = parsed as { version?: unknown; hooks?: Record<string, unknown> };
+  if (manifest.version !== 1 || typeof manifest.hooks !== "object" || manifest.hooks === null) {
+    return {
+      name: "hooks-manifest",
+      status: "fail",
+      detail: `not Copilot v1 format (need {"version":1,"hooks":{…}}): ${paths.hooksManifest}`,
+    };
+  }
+  const events = Object.keys(manifest.hooks);
+  const unknown = events.filter((e) => !COPILOT_HOOK_EVENTS.includes(e));
+  if (unknown.length > 0) {
+    return {
+      name: "hooks-manifest",
+      status: "warn",
+      detail: `unrecognized hook events ${unknown.join(", ")} (Claude-format?): ${paths.hooksManifest}`,
+    };
+  }
+  const hasLoop = events.includes("agentStop");
   return {
     name: "hooks-manifest",
-    status: "warn",
-    detail: `not present: ${paths.hooksManifest}`,
+    status: "pass",
+    detail: `Copilot v1, ${events.length} events${hasLoop ? " (agentStop loop driver present)" : ""}`,
   };
 }
 

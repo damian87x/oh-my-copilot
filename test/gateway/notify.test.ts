@@ -132,13 +132,13 @@ describe("notify (preflight failures)", () => {
     if (!r.ok) expect(r.code).toBe("BAD_HOME_CHANNEL");
   });
 
-  it("POST_FAILED on empty text", async () => {
+  it("MISSING_TEXT on empty text", async () => {
     const r = await notify(
       { text: "" },
       { env: { SLACK_BOT_TOKEN: BOT_TOKEN }, sleep: NO_SLEEP },
     );
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("POST_FAILED");
+    if (!r.ok) expect(r.code).toBe("MISSING_TEXT");
   });
 });
 

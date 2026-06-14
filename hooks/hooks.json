@@ -1,74 +1,54 @@
 {
-  "SessionStart": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/session-start.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ],
-  "UserPromptSubmit": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/prompt-submit.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ],
-  "PreToolUse": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/pre-tool-use.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ],
-  "PostToolUse": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/post-tool-use.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ],
-  "SessionEnd": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/session-end.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ],
-  "Error": [
-    {
-      "matcher": "*",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "node \"${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}\"/scripts/error.mjs",
-          "timeout": 5
-        }
-      ]
-    }
-  ]
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "node \"${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}}}}\"/scripts/session-start.mjs",
+        "timeoutSec": 5
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "node \"${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}}}}\"/scripts/prompt-submit.mjs",
+        "timeoutSec": 5
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "node \"${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}}}}\"/scripts/pre-tool-use.mjs",
+        "timeoutSec": 5
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "node \"${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}}}}\"/scripts/post-tool-use.mjs",
+        "timeoutSec": 5
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "bash": "node \"${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}}}}\"/scripts/error.mjs",
+        "timeoutSec": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "node \"${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}}}}\"/scripts/session-end.mjs",
+        "timeoutSec": 5
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "node \"${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}}}}\"/scripts/agent-stop.mjs",
+        "timeoutSec": 10
+      }
+    ]
+  }
 }

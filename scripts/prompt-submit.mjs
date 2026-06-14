@@ -2,6 +2,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
+import { hookCwd, printContinue, failOpen } from "./lib/hook-output.mjs";
 import { recordPrompt } from "./lib/daily-log.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
 
@@ -53,7 +54,7 @@ function appendLog(directory, payload) {
     const raw = await readStdin();
     const data = raw ? JSON.parse(raw) : {};
     const sessionId = data.sessionId ?? data.session_id ?? "unknown";
-    const directory = data.directory ?? process.cwd();
+    const directory = hookCwd(data);
     const prompt = data.prompt ?? data.message?.content ?? "";
     appendLog(directory, { sessionId, promptBytes: String(prompt).length });
     // Count this prompt as session work (signals the SessionEnd nudge logic).
@@ -67,12 +68,9 @@ function appendLog(directory, payload) {
     const cont = buildContinuationContext(directory);
     if (cont) parts.push(cont);
     const additionalContext = parts.join("\n\n---\n\n");
-    const output = additionalContext
-      ? { continue: true, hookSpecificOutput: { hookEventName: HOOK_NAME, additionalContext } }
-      : { continue: true };
-    console.log(JSON.stringify(output));
+    printContinue(HOOK_NAME, additionalContext);
   } catch (err) {
     console.error(`[hook ${HOOK_NAME}] failed: ${err?.message ?? err}`);
-    console.log(JSON.stringify({ continue: true }));
+    failOpen();
   }
 })();

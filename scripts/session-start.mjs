@@ -2,6 +2,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
+import { hookCwd, printContinue, failOpen } from "./lib/hook-output.mjs";
 import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
 import { scanScheduleResults } from "./lib/schedule-results.mjs";
 import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
@@ -19,7 +20,7 @@ function buildDailyLogBreadcrumb(directory) {
     if (goal) lines.push(`Goal: ${goal}`);
     if (entries > 0)
       lines.push(
-        `${entries} ${entries === 1 ? "entry" : "entries"} logged in the last 7 days — run \`omp daily-log read\` to load if relevant.`,
+        `${entries} ${entries === 1 ? "entry" : "entries"} logged in the last 7 days — run \`omp daily-log read --days 7\` to load if relevant.`,
       );
     return lines.join("\n");
   } catch {
@@ -32,7 +33,7 @@ function buildDailyLogBreadcrumb(directory) {
     const raw = await readStdin();
     const data = raw ? JSON.parse(raw) : {};
     const sessionId = data.sessionId ?? data.session_id ?? "unknown";
-    const directory = data.directory ?? process.cwd();
+    const directory = hookCwd(data);
     const stateDir = join(ompRoot(directory), ".omp", "state");
     const logFile = join(stateDir, "hooks.log");
     mkdirSync(dirname(logFile), { recursive: true });
@@ -84,14 +85,9 @@ function buildDailyLogBreadcrumb(directory) {
     if (flush) parts.push(`[DAILY LOG] ${flush}`);
     const additionalContext = parts.join("\n\n---\n\n");
 
-    console.log(
-      JSON.stringify({
-        continue: true,
-        hookSpecificOutput: { hookEventName: HOOK_NAME, additionalContext },
-      }),
-    );
+    printContinue(HOOK_NAME, additionalContext);
   } catch (err) {
     console.error(`[hook ${HOOK_NAME}] failed: ${err?.message ?? err}`);
-    console.log(JSON.stringify({ continue: true }));
+    failOpen();
   }
 })();

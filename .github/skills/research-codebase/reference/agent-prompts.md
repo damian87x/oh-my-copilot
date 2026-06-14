@@ -1,8 +1,8 @@
-# Subagent Prompt Templates
+# Worker Prompt Templates
 
-Use these templates when spawning `explore` agents via the `task` tool. Only used for **medium** and **large** research tasks.
+Use these templates when delegating research areas to parallel `omp team` workers. Only needed for **large** research tasks; for small/medium, run these roles directly in the main agent with glob/grep/read.
 
-## Agent roles
+## Worker roles
 
 ### Locator — find WHERE files and components live
 
@@ -31,8 +31,8 @@ Do not evaluate consistency or suggest changes — only document occurrences.
 
 ## Guidelines
 
-- Each agent is stateless — provide complete context in the prompt
-- Remind every agent: "You are documenting, not evaluating"
-- Run independent explorations in parallel
-- For web research (only if user explicitly asks), use a `research` agent instead of `explore`
-- **Wait for ALL agents to complete before synthesising**
+- Each worker is stateless — provide complete context in the prompt
+- Remind every worker: "You are documenting, not evaluating"
+- Run independent explorations in parallel across team panes
+- For web research (only if user explicitly asks), do it in the main agent
+- **Collect all worker outputs before synthesising**

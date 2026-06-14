@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { copilotEnvPassthroughArgs } from "../copilot/env-passthrough.js";
 
 export interface TmuxResult {
   stdout: string;
@@ -20,6 +21,8 @@ export function tmuxExec(args: string[]): TmuxResult {
 const PROMPT_RE = /(?:^|\s)(?:[│┃║▌▐▏▕╎┆┊]\s*)?[›>❯$#%]\s*$/;
 const ACTIVE_HINTS = [
   /esc to interrupt/i,
+  /esc cancel/i, // Copilot CLI >=1.0.61 working indicator ("◉ Working esc cancel")
+  /[◉○◐◑]\s*working/i, // Copilot spinner + "Working"
   /running\s*[…\.]/,
   /background terminal/i,
   /tool call in progress/i,
@@ -59,13 +62,20 @@ export interface TmuxApi {
   listSessions(): string[];
 }
 
-export function makeTmux(runner: TmuxRunner = tmuxExec): TmuxApi {
+export function makeTmux(
+  runner: TmuxRunner = tmuxExec,
+  env: NodeJS.ProcessEnv = process.env,
+): TmuxApi {
+  // Forward COPILOT_* (BYOK) vars into worker panes; a running tmux server
+  // otherwise seeds new panes from its own global env, so workers fall back to
+  // GitHub-hosted models instead of the launcher's BYOK provider.
+  const envArgs = copilotEnvPassthroughArgs(env);
   return {
     newSession(session, cwd) {
-      return runner(["new-session", "-d", "-P", "-F", "#S:0 #{pane_id}", "-s", session, "-c", cwd]);
+      return runner(["new-session", "-d", "-P", "-F", "#S:0 #{pane_id}", "-s", session, "-c", cwd, ...envArgs]);
     },
     splitWindow(target, cwd) {
-      return runner(["split-window", "-h", "-t", target, "-d", "-P", "-F", "#{pane_id}", "-c", cwd]);
+      return runner(["split-window", "-h", "-t", target, "-d", "-P", "-F", "#{pane_id}", "-c", cwd, ...envArgs]);
     },
     sendKeys(target, ...keys) {
       return runner(["send-keys", "-t", target, ...keys]);
@@ -143,9 +153,10 @@ export async function waitForReady(
     // Ready: the '/ commands' status bar means the CLI input prompt is active
     if (CLI_READY_RE.test(captured)) return true;
 
-    // Auto-accept the folder trust dialog (send Enter = accept default)
+    // Auto-accept the folder trust dialog (send Enter = accept default).
+    // Use the `Enter` key name: Copilot CLI (>=1.0.61) ignores a literal `C-m`.
     if (!acceptedTrust && TRUST_RE.test(captured)) {
-      api.sendKeys(target, "C-m");
+      api.sendKeys(target, "Enter");
       acceptedTrust = true;
     }
 
@@ -160,6 +171,25 @@ export interface SendToWorkerOptions {
   delayMs?: number;
 }
 
+/**
+ * True if `probe` still sits on the active input line (the last prompt-glyph
+ * line plus any wrapped continuation). Checks the input region only — not the
+ * whole scrollback — so the echo of an already-submitted message is not
+ * mistaken for a still-buffered prompt.
+ */
+function promptStillBuffered(pane: string, probe: string): boolean {
+  const lines = pane.split(/\r?\n/);
+  let idx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].includes("❯")) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx === -1) return false;
+  return lines.slice(idx).join("\n").includes(probe);
+}
+
 export async function sendToWorker(
   api: TmuxApi,
   target: string,
@@ -169,17 +199,21 @@ export async function sendToWorker(
   const rounds = options.rounds ?? 6;
   const delayMs = options.delayMs ?? 150;
   const payload = text.length > 200 ? text.slice(0, 200) : text;
+  const probe = payload.slice(-Math.min(20, payload.length));
   api.sendText(target, payload);
   for (let i = 0; i < rounds; i++) {
-    api.sendKeys(target, "C-m");
+    // Use the `Enter` key name: Copilot CLI (>=1.0.61) ignores a literal `C-m`,
+    // leaving the prompt buffered and unsent.
+    api.sendKeys(target, "Enter");
     await sleep(delayMs);
-    const captured = api.capturePane(target, 5).stdout;
-    if (!captured.includes(payload)) return true;
+    // Submitted once the prompt leaves the input line (the echo in scrollback
+    // does not count, so we never retype an already-sent message).
+    if (!promptStillBuffered(api.capturePane(target, 5).stdout, probe)) return true;
   }
-  // adaptive fallback: kill-line then retry once
+  // adaptive fallback: kill-line, retype, submit once more
   api.sendKeys(target, "C-u");
   await sleep(delayMs);
   api.sendText(target, payload);
-  api.sendKeys(target, "C-m");
+  api.sendKeys(target, "Enter");
   return true;
 }

@@ -12,7 +12,7 @@ const HOOK_NAME = "SessionEnd";
     const raw = await readStdin();
     const data = raw ? JSON.parse(raw) : {};
     const sessionId = data.sessionId ?? data.session_id ?? "unknown";
-    const directory = data.directory ?? process.cwd();
+    const directory = data.cwd ?? data.directory ?? process.cwd();
     const logFile = join(ompRoot(directory), ".omp", "state", "hooks.log");
     try {
       mkdirSync(dirname(logFile), { recursive: true });

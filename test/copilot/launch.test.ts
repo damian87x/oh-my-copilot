@@ -8,6 +8,18 @@ import {
   resolveCopilotBin,
 } from "../../src/copilot/launch.js";
 
+// launchCopilot pre-trusts its cwd by writing the real ~/.copilot/config.json.
+// Disable that side effect for the whole suite so tests never mutate user state.
+let savedNoAutoTrust: string | undefined;
+beforeEach(() => {
+  savedNoAutoTrust = process.env.OMP_NO_AUTO_TRUST;
+  process.env.OMP_NO_AUTO_TRUST = "1";
+});
+afterEach(() => {
+  if (savedNoAutoTrust === undefined) delete process.env.OMP_NO_AUTO_TRUST;
+  else process.env.OMP_NO_AUTO_TRUST = savedNoAutoTrust;
+});
+
 describe("resolveCopilotBin", () => {
   it("uses explicit override when provided", () => {
     expect(resolveCopilotBin("/usr/local/bin/copilot")).toBe("/usr/local/bin/copilot");
@@ -119,8 +131,17 @@ describe("launchCopilot tmux wrapping", () => {
   const savedTmux = process.env.TMUX;
   const savedTmuxLogEnv = process.env.OMP_TEST_TMUX_LOG;
   const savedCopilotLogEnv = process.env.OMP_TEST_COPILOT_LOG;
+  // Strip any COPILOT_* vars so the base-shape assertions are not perturbed by
+  // -e passthrough args coming from the ambient (possibly BYOK) shell.
+  const savedCopilotVars: Record<string, string | undefined> = {};
 
   beforeEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("COPILOT_")) {
+        savedCopilotVars[key] = process.env[key];
+        delete process.env[key];
+      }
+    }
     dir = mkdtempSync(join(tmpdir(), "omp-launch-"));
     tmuxLog = join(dir, "tmux-argv.json");
     copilotLog = join(dir, "copilot-argv.json");
@@ -153,6 +174,10 @@ describe("launchCopilot tmux wrapping", () => {
     restoreEnv("TMUX", savedTmux);
     restoreEnv("OMP_TEST_TMUX_LOG", savedTmuxLogEnv);
     restoreEnv("OMP_TEST_COPILOT_LOG", savedCopilotLogEnv);
+    for (const [key, value] of Object.entries(savedCopilotVars)) {
+      restoreEnv(key, value);
+      delete savedCopilotVars[key];
+    }
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -168,6 +193,23 @@ describe("launchCopilot tmux wrapping", () => {
     expect(argv[3]).toBe("-c");
     expect(argv[4]).toBe(dir); // session opened in exactly the requested cwd
     expect(argv[5]).toBe(`${fakeCopilot} probe --yolo`); // bin + bypass-mapped command
+  });
+
+  it("forwards COPILOT_* (BYOK) env into the new tmux session via -e", async () => {
+    delete process.env.TMUX;
+    const result = await launchCopilot({
+      args: ["probe"],
+      bin: fakeCopilot,
+      cwd: dir,
+      env: { ...process.env, COPILOT_PROVIDER_BASE_URL: "https://openrouter.ai/api/v1" },
+    });
+    expect(result.ok).toBe(true);
+    const argv = JSON.parse(readFileSync(tmuxLog, "utf8")) as string[];
+    // -e KEY=VALUE appears before the command, which remains the final arg.
+    expect(argv).toContain("-e");
+    expect(argv).toContain("COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1");
+    expect(argv[argv.length - 1]).toBe(`${fakeCopilot} probe`);
+    expect(argv[0]).toBe("new-session");
   });
 
   it("launches directly (no tmux wrap) when already inside tmux", async () => {

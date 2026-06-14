@@ -4,11 +4,12 @@ import { ompRoot } from "./omp-root.js";
 import { readRepoGoal } from "./goal.js";
 import { noteIndex } from "./project-memory.js";
 
-// Copilot CLI does not execute plugin lifecycle hooks (verified: neither
-// SessionStart nor UserPromptSubmit fire), so we can't inject memory via hooks.
-// Copilot DOES read .github/copilot-instructions.md, so we render a lightweight
-// pointer block there. The block keeps repo goal visible but leaves project
-// memory and daily logs on demand to avoid bloating or over-steering context.
+// Copilot CLI can inject memory via the `sessionStart` hook's `additionalContext`
+// (see hooks/hooks.json + scripts/session-start.mjs, ported to Copilot's hook
+// schema). This copilot-instructions.md block remains the always-on fallback: it
+// works even when hooks are disabled or in headless `copilot -p` (which skips
+// hooks). The block keeps the repo goal visible but leaves project memory and
+// daily logs on demand to avoid bloating or over-steering context.
 
 const START = "<!-- omp:memory:start -->";
 const END = "<!-- omp:memory:end -->";
