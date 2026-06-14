@@ -180,6 +180,17 @@ describe("launchCopilot tmux wrapping", () => {
 });
 
 describe("launchCopilot", () => {
+  // Force the direct (non-tmux-wrap) launch path with TMUX set so exit-code
+  // propagation is tested deterministically regardless of whether the runner
+  // is inside tmux (the tmux-wrap path is covered by its own describe above).
+  const savedTmux = process.env.TMUX;
+  beforeEach(() => {
+    process.env.TMUX = "/tmp/fake,1,0";
+  });
+  afterEach(() => {
+    restoreEnv("TMUX", savedTmux);
+  });
+
   it("returns exit code 127 when the binary is missing", async () => {
     const result = await launchCopilot({ args: [], bin: "definitely-missing-xyz-binary" });
     expect(result.ok).toBe(false);

@@ -72,6 +72,17 @@ describe("runCli: bare `omp` launches copilot (bypass off by default)", () => {
 });
 
 describe("runCli: bare-flag launch routing", () => {
+  // Force the direct (non-tmux-wrap) launch path with TMUX set so spawn
+  // results are deterministic regardless of whether the runner is inside tmux.
+  const savedTmux = process.env.TMUX;
+  beforeEach(() => {
+    process.env.TMUX = "/tmp/fake,1,0";
+  });
+  afterEach(() => {
+    if (savedTmux === undefined) delete process.env.TMUX;
+    else process.env.TMUX = savedTmux;
+  });
+
   it("forwards --madmax to launchCopilot (spawns the configured bin)", async () => {
     const original = process.env.OMP_COPILOT_BIN;
     process.env.OMP_COPILOT_BIN = "/bin/echo";
