@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { copilotEnvPassthroughArgs } from "./env-passthrough.js";
 
 const MADMAX_FLAG = "--madmax";
 const COPILOT_BYPASS_FLAG = "--yolo";
@@ -72,11 +73,14 @@ export async function launchCopilot(options: LaunchOptions): Promise<LaunchResul
   if (!isInsideTmux() && tmuxAvailable()) {
     const sessionName = `omp-${Date.now()}`;
     const copilotCmd = [bin, ...args].map(shellEscape).join(" ");
+    // Forward COPILOT_* (BYOK) vars into the new pane: a running tmux server
+    // otherwise seeds the pane from its own global env, dropping them.
+    const envArgs = copilotEnvPassthroughArgs(options.env ?? process.env);
     return new Promise<LaunchResult>((resolveFn) => {
       let settled = false;
       const child = spawn(
         "tmux",
-        ["new-session", "-s", sessionName, "-c", cwd, copilotCmd],
+        ["new-session", "-s", sessionName, "-c", cwd, ...envArgs, copilotCmd],
         {
           stdio: "inherit",
           cwd,

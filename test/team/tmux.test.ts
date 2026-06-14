@@ -44,12 +44,13 @@ describe("pane content classification", () => {
 describe("makeTmux", () => {
   it("constructs the correct args for each operation", () => {
     const calls: string[][] = [];
+    // Empty env -> no -e passthrough args, so the base arg shapes stay exact.
     const api = makeTmux((args) => {
       calls.push(args);
       if (args[0] === "display-message") return ok("0");
       if (args[0] === "has-session") return { stdout: "", stderr: "", status: 1 };
       return ok("%5");
-    });
+    }, {});
     api.newSession("s", "/tmp");
     api.splitWindow("%4", "/tmp");
     api.sendKeys("%5", "C-m");
@@ -64,6 +65,27 @@ describe("makeTmux", () => {
     expect(calls[3]).toEqual(["send-keys", "-t", "%5", "-l", "--", "hello"]);
     expect(calls[4]).toEqual(["display-message", "-t", "%5", "--", "done"]);
     expect(calls[5]).toEqual(["capture-pane", "-t", "%5", "-p", "-S", "-80"]);
+  });
+
+  it("forwards COPILOT_* (BYOK) env into new panes via -e", () => {
+    const calls: string[][] = [];
+    const api = makeTmux(
+      (args) => {
+        calls.push(args);
+        return ok("%5");
+      },
+      { COPILOT_PROVIDER_BASE_URL: "https://openrouter.ai/api/v1", PATH: "/usr/bin" },
+    );
+    api.newSession("s", "/tmp");
+    api.splitWindow("%4", "/tmp");
+    expect(calls[0]).toEqual([
+      "new-session", "-d", "-P", "-F", "#S:0 #{pane_id}", "-s", "s", "-c", "/tmp",
+      "-e", "COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1",
+    ]);
+    expect(calls[1]).toEqual([
+      "split-window", "-h", "-t", "%4", "-d", "-P", "-F", "#{pane_id}", "-c", "/tmp",
+      "-e", "COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1",
+    ]);
   });
 });
 

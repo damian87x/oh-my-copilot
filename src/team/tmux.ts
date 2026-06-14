@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { copilotEnvPassthroughArgs } from "../copilot/env-passthrough.js";
 
 export interface TmuxResult {
   stdout: string;
@@ -61,13 +62,20 @@ export interface TmuxApi {
   listSessions(): string[];
 }
 
-export function makeTmux(runner: TmuxRunner = tmuxExec): TmuxApi {
+export function makeTmux(
+  runner: TmuxRunner = tmuxExec,
+  env: NodeJS.ProcessEnv = process.env,
+): TmuxApi {
+  // Forward COPILOT_* (BYOK) vars into worker panes; a running tmux server
+  // otherwise seeds new panes from its own global env, so workers fall back to
+  // GitHub-hosted models instead of the launcher's BYOK provider.
+  const envArgs = copilotEnvPassthroughArgs(env);
   return {
     newSession(session, cwd) {
-      return runner(["new-session", "-d", "-P", "-F", "#S:0 #{pane_id}", "-s", session, "-c", cwd]);
+      return runner(["new-session", "-d", "-P", "-F", "#S:0 #{pane_id}", "-s", session, "-c", cwd, ...envArgs]);
     },
     splitWindow(target, cwd) {
-      return runner(["split-window", "-h", "-t", target, "-d", "-P", "-F", "#{pane_id}", "-c", cwd]);
+      return runner(["split-window", "-h", "-t", target, "-d", "-P", "-F", "#{pane_id}", "-c", cwd, ...envArgs]);
     },
     sendKeys(target, ...keys) {
       return runner(["send-keys", "-t", target, ...keys]);
