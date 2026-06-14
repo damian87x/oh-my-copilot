@@ -149,6 +149,8 @@ export interface SendResult {
   session?: string;
   /** true if the text was observed in the pane before Enter was pressed. */
   confirmed?: boolean;
+  /** true if the prompt was observed to leave the input buffer (actually submitted). */
+  submitted?: boolean;
   error?: string;
 }
 
@@ -158,14 +160,42 @@ export interface SendOptions {
 }
 
 /**
+ * True if the active input line (the last prompt line) still holds `probe`.
+ * Distinguishes a buffered-but-unsent prompt from a submitted one: after submit
+ * the trailing prompt line is empty and `probe` only survives in scrollback.
+ */
+function inputLineHasProbe(pane: string, probe: string): boolean {
+  const lines = pane.split(/\r?\n/);
+  // Find the active input line (last line bearing Copilot's prompt glyph).
+  let idx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].includes("❯")) {
+      idx = i;
+      break;
+    }
+  }
+  if (idx === -1) return false;
+  // Include any wrapped continuation rows below the glyph so a long buffered
+  // prompt (whose suffix wrapped onto the next row) is still detected. After
+  // submit the glyph line is empty and the probe only survives in scrollback
+  // above it, so this region no longer contains it.
+  return lines.slice(idx).join("\n").includes(probe);
+}
+
+/**
  * Send a prompt into the Copilot pane. Refuses unless the session exists AND
- * the host is online. Sends the text literally, then a single Enter (C-m).
+ * the host is online. Sends the text literally, then presses Enter and
+ * verifies the prompt actually left the input buffer (returns ok:false if it
+ * could not be submitted).
  *
- * Before pressing Enter it tries to confirm the text actually landed in the
- * input buffer by comparing pane captures before/after the keystrokes (a
- * delta check, so prompt text already present in scrollback can't false-
- * confirm). Enter is sent exactly once regardless, so a slow render never
- * causes a double-submit.
+ * Before pressing Enter it confirms the text landed in the input buffer by
+ * comparing pane captures (a delta check, so prompt text already present in
+ * scrollback can't false-confirm). Copilot CLI (>=1.0.61) can absorb a C-m
+ * that arrives immediately after a bracketed paste, leaving the prompt
+ * buffered and unsent; so after Enter we verify the input line cleared and
+ * re-send Enter up to twice if it did not. Submission is detected by the input
+ * line emptying or the host going busy, so a successful send is never
+ * double-submitted.
  */
 export async function commsSend(
   session: string,
@@ -220,11 +250,38 @@ export async function commsSend(
     }
     await sleep(50);
   }
-  const enter = tmux.sendKeys(session, "C-m");
-  if (enter.status !== 0) {
-    return { ok: false, error: `tmux send-keys C-m failed (exit ${enter.status})` };
+  // Press Enter, then verify the prompt actually left the input buffer.
+  // Copilot CLI (>=1.0.61) ignores a literal `C-m` carriage return but honors
+  // the tmux `Enter` key name; sending `C-m` leaves the prompt buffered and
+  // unsent. Settle first, then re-send if the input line still holds the text.
+  let submitted = false;
+  for (let attempt = 0; attempt < 3 && !submitted; attempt++) {
+    await sleep(attempt === 0 ? 250 : 400);
+    const enter = tmux.sendKeys(session, "Enter");
+    if (enter.status !== 0) {
+      return { ok: false, error: `tmux send-keys Enter failed (exit ${enter.status})` };
+    }
+    for (let i = 0; i < 6; i++) {
+      const cap = stripAnsi(tmux.capturePane(session, 5).stdout);
+      // Submitted if the host started working or the input line no longer holds the prompt.
+      if (paneHasActiveTask(cap) || !inputLineHasProbe(cap, probe)) {
+        submitted = true;
+        break;
+      }
+      await sleep(100);
+    }
   }
-  return { ok: true, session, confirmed };
+  if (!submitted) {
+    // No silent success: the prompt was typed but never left the input buffer.
+    return {
+      ok: false,
+      session,
+      confirmed,
+      submitted,
+      error: "prompt typed but did not submit (input buffer still held it after retries)",
+    };
+  }
+  return { ok: true, session, confirmed, submitted };
 }
 
 // --- recv ----------------------------------------------------------------

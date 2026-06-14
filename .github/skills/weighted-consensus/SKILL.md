@@ -70,9 +70,10 @@ omp council "<question>" [--models a,b,c | model:role:weight,...] \
 - Timed-out members that produced valid JSON before the kill signal are
   automatically recovered as survivors — they are not dropped.
 
-If `omp council` is not found (the published `omp` predates this feature), fall
-back to the local build from the repo root: `node dist/src/cli.js council "<question>" ...`
-(run `npm run build` first if `dist/` is stale).
+If `omp council` is not found (the published `omp` predates this feature),
+update the global CLI: `npm i -g @damian87/omp@latest`, then re-run `omp council`.
+(The `node dist/src/cli.js council` build only resolves from inside the
+oh-my-copilot repo, so it is not a portable fallback for an arbitrary project.)
 
 ### Step 3 — Present the result
 

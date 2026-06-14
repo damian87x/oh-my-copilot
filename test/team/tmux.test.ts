@@ -31,6 +31,14 @@ describe("pane content classification", () => {
     expect(paneHasActiveTask("background terminal running")).toBe(true);
     expect(paneHasActiveTask("just text")).toBe(false);
   });
+
+  it("paneHasActiveTask detects Copilot CLI >=1.0.61 working state", () => {
+    // Copilot 1.0.61 shows "◉ Working esc cancel" instead of "esc to interrupt".
+    expect(paneHasActiveTask(" ◉ Working esc cancel                 GPT-5 mini")).toBe(true);
+    expect(paneHasActiveTask("esc cancel")).toBe(true);
+    // idle prompt bar must NOT read as busy
+    expect(paneHasActiveTask(" / commands · ? help            GPT-5 mini")).toBe(false);
+  });
 });
 
 describe("makeTmux", () => {
@@ -60,14 +68,14 @@ describe("makeTmux", () => {
 });
 
 describe("sendToWorker", () => {
-  it("sends text then C-m and stops when message disappears from capture", async () => {
+  it("sends text then Enter and stops when message disappears from capture", async () => {
     const calls: string[][] = [];
     let captureCount = 0;
     const api = makeTmux((args) => {
       calls.push(args);
       if (args[0] === "capture-pane") {
         captureCount++;
-        // After first C-m round, pretend message vanished
+        // After first Enter round, pretend message vanished
         return ok(captureCount === 1 ? "$ " : "$ ");
       }
       return ok();
@@ -75,8 +83,8 @@ describe("sendToWorker", () => {
     const ok2 = await sendToWorker(api, "%1", "Hello world", { delayMs: 1 });
     expect(ok2).toBe(true);
     const sendKeysCalls = calls.filter((c) => c[0] === "send-keys");
-    const cmRounds = sendKeysCalls.filter((c) => c[c.length - 1] === "C-m").length;
-    expect(cmRounds).toBeGreaterThanOrEqual(1);
+    const enterRounds = sendKeysCalls.filter((c) => c[c.length - 1] === "Enter").length;
+    expect(enterRounds).toBeGreaterThanOrEqual(1);
   });
 
   it("truncates payloads longer than 200 chars", async () => {

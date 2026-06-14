@@ -36,7 +36,10 @@ describe("runDoctor", () => {
     mkdirSync(path.join(root, ".github", "skills"), { recursive: true });
     writeFileSync(path.join(root, ".github", "copilot-instructions.md"), "# instructions");
     mkdirSync(path.join(root, "hooks"), { recursive: true });
-    writeFileSync(path.join(root, "hooks", "hooks.json"), "{}");
+    writeFileSync(
+      path.join(root, "hooks", "hooks.json"),
+      JSON.stringify({ version: 1, hooks: { sessionStart: [], agentStop: [] } }),
+    );
 
     const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true });
     const passing = report.checks.filter((c) => c.status === "pass").map((c) => c.name);
@@ -44,7 +47,22 @@ describe("runDoctor", () => {
     expect(passing).toContain("copilot-instructions");
     expect(passing).toContain("skills-discovery");
     expect(passing).toContain("hooks-manifest");
+    const hooks = report.checks.find((c) => c.name === "hooks-manifest");
+    expect(hooks?.detail).toContain("agentStop");
     expect(report.ok).toBe(true);
+  });
+
+  it("fails the hooks check on a Claude-format (non-v1) manifest", () => {
+    const root = tempProjectWithPlugin();
+    mkdirSync(path.join(root, "hooks"), { recursive: true });
+    writeFileSync(
+      path.join(root, "hooks", "hooks.json"),
+      JSON.stringify({ SessionStart: [{ matcher: "*", hooks: [] }] }),
+    );
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true });
+    const hooks = report.checks.find((c) => c.name === "hooks-manifest");
+    expect(hooks?.status).toBe("fail");
+    expect(report.ok).toBe(false);
   });
 
   it("fails when plugin manifest is missing", () => {

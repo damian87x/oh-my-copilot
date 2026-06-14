@@ -16,21 +16,24 @@ Use `/jira-ticket` when work tracking is requested.
 ## Operations
 
 ### Create
-- Build from an approved plan or implementation slice
+- Build from an approved plan or implementation slice (a plan file or markdown)
 - Include: Summary, Description, Acceptance Criteria
-- If Jira config is available, create via API; otherwise output a dry-run payload
+- Render the payload with `omp jira render <plan-file>` — this **never** writes to Jira. To create/comment/update, run `omp jira apply <plan-file-or-ticket-key>`, which defaults to **dry-run** and only writes when Jira is configured with `JIRA_MODE=live` and the user has explicitly confirmed.
 
 ### Comment
 - Add implementation evidence, verification results, or status updates
 - Format for readability (use Jira wiki markup, not Markdown)
+- Apply with `omp jira apply <ticket-key> --comment` (dry-run by default; preview before confirming)
 
 ### Safe update
 - Only update known simple fields (summary, description, labels)
+- Apply with `omp jira apply <ticket-key> --update` (dry-run by default)
 - Do not guess transitions, issue links, project keys, or secrets
 
 ## Rules
 
-- If Jira config is missing, always output a **dry-run payload** — never fail silently
+- Always preview with `omp jira render` or `omp jira apply … --dry-run` (the default) before any live write
+- If Jira config is missing, the commands stay in dry-run and print the payload — never fail silently
 - Do not guess project keys, transitions, or credentials
 - Keep acceptance criteria testable and specific
 - Include file paths and evidence when commenting with implementation details

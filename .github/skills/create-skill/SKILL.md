@@ -25,13 +25,13 @@ Skills are modular, self-contained packages that extend agent capabilities by pr
 ### Three-Level Loading System
 
 1. **Metadata (name + description)** - Always in context (~100 words)
-2. **SKILL.md body** - When skill triggers (<200 lines, ideally <500 lines for optimal performance)
+2. **SKILL.md body** - When skill triggers (under 200 lines; split overflow into `references/`)
 3. **Bundled resources** - As needed by agent (unlimited)
 
 ### Why Progressive Disclosure Matters
 
-- 85% reduction in initial context load
-- Activation times drop from 500ms+ to under 100ms
+- Smaller initial context load
+- Faster activation — the agent loads the body only when the skill triggers
 - Agent loads only what's needed, when it's needed
 - Skills remain maintainable and focused
 
