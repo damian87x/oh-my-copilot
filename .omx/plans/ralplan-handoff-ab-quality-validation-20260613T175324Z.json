@@ -1,0 +1,45 @@
+{
+  "workflow": "ralplan",
+  "task": "A/B quality validation for cost/token optimization",
+  "created_at": "20260613T175324Z",
+  "planning_artifacts": {
+    "context": ".omx/context/ab-quality-validation-20260613T175324Z.md",
+    "prd": ".omx/plans/prd-ab-quality-validation-20260613T175324Z.md",
+    "test_spec": ".omx/plans/test-spec-ab-quality-validation-20260613T175324Z.md"
+  },
+  "ralplan_dr": {
+    "principles": [
+      "quality evidence outranks token savings",
+      "compare like-for-like",
+      "preserve observability",
+      "conservative rollout",
+      "honest reporting"
+    ],
+    "decision_drivers": [
+      "quality regression detection",
+      "realistic token savings",
+      "repeatability"
+    ],
+    "chosen_option": "Hybrid deterministic hook replay plus paired live Copilot A/B tasks"
+  },
+  "ralplan_consensus_gate": {
+    "complete": false,
+    "status": "waiting_for_architect_review_after_revision_1",
+    "blocked_reason": "subagent_usage_limit"
+  },
+  "revision": 1,
+  "ralplan_architect_review": {
+    "verdict": "APPROVE",
+    "agent_id": "019ec21e-2365-71b3-af47-490373c8def1"
+  },
+  "ralplan_critic_review_iteration_1": {
+    "verdict": "ITERATE",
+    "agent_id": "019ec220-2688-7d83-b8fc-ca448bf315e1",
+    "summary": "Required all 5 fixtures, smoke-suite rules, concrete live harness/artifacts, and updated handoff gate."
+  },
+  "ralplan_architect_review_iteration_2": {
+    "verdict": "BLOCKED",
+    "agent_id": "019ec222-9b0d-7ad1-bdfb-c4e11eb69fab",
+    "reason": "Native subagent quota/usage limit; retry after quota reset."
+  }
+}

@@ -39,6 +39,7 @@ Rules:
 - Keep each `SKILL.md` small: YAML frontmatter (`name`, `description`) plus focused Markdown instructions.
 - Optional `references/`, `scripts/`, or `assets/` may live beside `SKILL.md` when a fetched skill needs progressive disclosure.
 - Do not add runtime state to the lite skills.
+- Do not duplicate global cost/token boilerplate in every skill. The plugin-level hooks and `.github/copilot-instructions.md` provide estimate-only cost visibility; add only concise reminders to genuinely high-cost skills.
 
 ## Fetched skills
 

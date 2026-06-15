@@ -4,6 +4,7 @@ coverage/
 *.log
 .DS_Store
 .omx
+.omp/
 .omc
 .omp/
 .review/

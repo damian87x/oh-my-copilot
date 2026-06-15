@@ -56,8 +56,8 @@ export function resolveCopilotBin(override?: string): string {
   return "copilot";
 }
 
-function isInsideTmux(): boolean {
-  return !!process.env.TMUX;
+function isInsideTmux(env: NodeJS.ProcessEnv): boolean {
+  return !!env.TMUX;
 }
 
 function tmuxAvailable(): boolean {
@@ -65,17 +65,24 @@ function tmuxAvailable(): boolean {
   return r.status === 0;
 }
 
+function shouldAutoWrapInTmux(env: NodeJS.ProcessEnv): boolean {
+  if (env.OMP_FORCE_TMUX_WRAP === "1") return true;
+  if (env.OMP_DISABLE_TMUX_WRAP === "1") return false;
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
 export async function launchCopilot(options: LaunchOptions): Promise<LaunchResult> {
   const bin = resolveCopilotBin(options.bin);
   const args = normalizeCopilotLaunchArgs(options.args);
   const cwd = options.cwd ?? process.cwd();
+  const env = options.env ?? process.env;
 
   // Pre-trust the launch folder so neither this session nor team workers block on
   // Copilot's folder-trust dialog (which --yolo/--allow-all-paths do NOT skip).
   ensureFolderTrusted(cwd);
 
   // If not already inside tmux and tmux is available, wrap in a tmux session
-  if (!isInsideTmux() && tmuxAvailable()) {
+  if (!isInsideTmux(env) && shouldAutoWrapInTmux(env) && tmuxAvailable()) {
     const sessionName = `omp-${Date.now()}`;
     const copilotCmd = [bin, ...args].map(shellEscape).join(" ");
     // Forward COPILOT_* (BYOK) vars into the new pane: a running tmux server
@@ -89,7 +96,7 @@ export async function launchCopilot(options: LaunchOptions): Promise<LaunchResul
         {
           stdio: "inherit",
           cwd,
-          env: options.env ?? process.env,
+          env,
         },
       );
       child.on("error", () => {
@@ -112,7 +119,7 @@ export async function launchCopilot(options: LaunchOptions): Promise<LaunchResul
     const child = spawn(bin, args, {
       stdio: "inherit",
       cwd,
-      env: options.env ?? process.env,
+      env,
     });
     child.on("error", () => {
       if (settled) return;

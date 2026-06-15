@@ -26,7 +26,7 @@ describe("instructions memory block", () => {
     expect(text).toContain("Project memory is available on demand:");
     expect(text).toContain("`omp project-memory read`");
     expect(text).toContain("`omp project-memory read <id>`");
-    expect(text).toContain("`omp daily-log read`");
+    expect(text).toContain("`omp daily-log read --days 7`");
     expect(text).not.toContain("always run tests");
     expect(text).not.toContain("must follow");
     expect(text).toContain("omp:memory:end");

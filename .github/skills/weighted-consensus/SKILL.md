@@ -127,3 +127,7 @@ default roster is used.
 
 Pair with `/code-review` (pass a review rubric + the diff as context) for a
 multi-model review verdict, or with `/ralplan` to weigh competing plans.
+
+## Cost/token note
+
+This skill can drive multiple tool calls or long-running output. Use `omp cost [--today] [--session <id>]` for local hook-ledger estimates only; it is not provider billing. Keep injected summaries concise and prefer bounded output when rerunning noisy commands.

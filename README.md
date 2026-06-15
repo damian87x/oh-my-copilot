@@ -55,7 +55,7 @@ That's it.
 - **Persistent execution** — Ralph, UltraQA, and Ultrawork keep going until the goal is verified
 - **File-state coordination** — workers swap typed messages over an outbox/inbox cursor with atomic `O_EXCL` task locks; no broker or daemon to babysit
 - **Chat bridge** — `omp gateway` runs long-lived chat connectors (Slack today, more next) so you can DM Copilot from anywhere
-- **Lifecycle hooks** — `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `SessionEnd`, `Error`
+- **Lifecycle hooks** — `sessionStart`, `userPromptSubmitted`, `preToolUse`, `postToolUse`, `postToolUseFailure`, `sessionEnd`, `errorOccurred`
 - **Doctor included** — `omp doctor` verifies plugin manifest, skills discovery, hooks, and the underlying `copilot` CLI in one shot
 
 ---
@@ -84,6 +84,7 @@ That's it.
 
 - **Context & history as CLI subcommands** — `omp state` (key-value with TTL), `omp project-memory` (notes + directives), `omp trace` (per-session timeline + summary), `omp goal` / `omp memory sync` (managed repo context), `omp daily-log`
 - **Lightweight Copilot context** — managed instructions keep only the repo goal plus on-demand memory commands; set `OMP_DISABLE_INSTRUCTIONS_MEMORY=1` to skip writing the managed block entirely
+- **Estimated cost ledger** — `omp cost [--today] [--session <id>]` summarizes local prompt/tool token estimates recorded by hooks. These are best-effort estimates, not provider billing.
 - **File-state worker coordination** — outbox JSONL + byte cursor, atomic `O_EXCL` task locks, optimistic CAS on claim
 - **Idle nudge** — content-based pane idle detection that pokes stuck workers
 - **Mode-state loops** — single source of truth per loop (Ralph/Ultrawork/UltraQA state files)
@@ -195,6 +196,7 @@ omp ralph start "<task>" [--max-iterations N]
 omp ultrawork start "<objective>" [--task-count N]
 omp ultraqa start "<goal>" [--max-cycles N]
 omp council "<question>" [--models a,b,c] [--context @file] [--json]   # multi-model council
+omp cost [--today] [--session <id>]            # summarize estimated hook-ledger tokens
 omp comms status | send | recv | ask        # drive a running copilot tmux session
 omp gateway serve [--only slack]            # run chat connectors (today: slack)
 omp gateway status [--json]                 # per-connector readiness (no sockets)
@@ -272,6 +274,7 @@ omp grows in vertical slices. Items aren't pinned to specific semver versions �
 - **Slack outbound — `omp gateway notify`** — stateless REST `chat.postMessage` from any process (cron `--notify-target`, in-session `/slack <message>`, ad-hoc `omp gateway notify --text "..."`). Default destination from `SLACK_HOME_CHANNEL`; explicit `--target slack:C…/G…/D…/U…` overrides; `U…` auto-resolves to a DM via `conversations.open`.
 - **Weighted-consensus council** — multi-model council with role weights + minority report. Via `omp council` or `/weighted-consensus`.
 - **Suggest** — `omp suggest "<task>"` recommends a slash-skill workflow without launching one.
+- **Estimated cost ledger** — hook-driven prompt/tool token estimates are visible through `omp cost`; oversized `postToolUse` output is minimized before it re-enters model context, with raw output preserved on disk (diagnostics kept inline; other trimmed detail is recoverable by re-reading the raw path the hook reports — an extra tool call, so best with capable models). Budget gates and retry-cost guidance remain next-step optimization work, not shipped behavior yet.
 
 ### Up next
 
