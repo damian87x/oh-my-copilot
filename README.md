@@ -274,7 +274,7 @@ omp grows in vertical slices. Items aren't pinned to specific semver versions �
 - **Slack outbound — `omp gateway notify`** — stateless REST `chat.postMessage` from any process (cron `--notify-target`, in-session `/slack <message>`, ad-hoc `omp gateway notify --text "..."`). Default destination from `SLACK_HOME_CHANNEL`; explicit `--target slack:C…/G…/D…/U…` overrides; `U…` auto-resolves to a DM via `conversations.open`.
 - **Weighted-consensus council** — multi-model council with role weights + minority report. Via `omp council` or `/weighted-consensus`.
 - **Suggest** — `omp suggest "<task>"` recommends a slash-skill workflow without launching one.
-- **Estimated cost ledger** — hook-driven prompt/tool token estimates are visible through `omp cost`; oversized `postToolUse` output is minimized before it re-enters model context, with raw output preserved on disk. Budget gates and retry-cost guidance remain next-step optimization work, not shipped behavior yet.
+- **Estimated cost ledger** — hook-driven prompt/tool token estimates are visible through `omp cost`; oversized `postToolUse` output is minimized before it re-enters model context, with raw output preserved on disk (diagnostics kept inline; other trimmed detail is recoverable by re-reading the raw path the hook reports — an extra tool call, so best with capable models). Budget gates and retry-cost guidance remain next-step optimization work, not shipped behavior yet.
 
 ### Up next
 

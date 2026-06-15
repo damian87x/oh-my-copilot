@@ -24,7 +24,10 @@ standalone coverage for copied skills, raw shell scripts, or external CLIs.
 Before rerunning noisy commands or failed edits, inspect the latest output and narrow the
 next attempt. Prefer bounded summaries for large logs. Oversized postToolUse output is
 minimized before it re-enters model context, with raw output preserved on disk and savings
-recorded in the cost ledger. Budget gates and retry-cost guidance are not current live behavior.
+recorded in the cost ledger. Diagnostics (errors, stack traces, assertions) are preserved
+inline; other trimmed detail must be recovered by re-reading the raw file path noted in the
+hook output (an extra tool call), so full fidelity depends on the model following that pointer.
+Budget gates and retry-cost guidance are not current live behavior.
 
 ## Skills
 Slash commands under `.github/skills/<name>/SKILL.md` are auto-discovered by Copilot. See `omp list` for the catalog active in this project.
