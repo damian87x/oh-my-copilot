@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { ompRoot } from "./omp-root.js";
+import { existsSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { atomicWrite, ensureDir, readJSON } from "./utils/fs.js";
+import { statePath } from "./utils/paths.js";
 
 // Per-project key-value store with optional TTL at .omp/state/kv/<key>.json.
 // (Merges the former `state` + `shared-memory` — same mechanism; this is the
@@ -13,7 +14,7 @@ interface Entry {
 }
 
 function kvDir(cwd: string): string {
-  return join(ompRoot(cwd), ".omp", "state", "kv");
+  return statePath(cwd, "kv");
 }
 
 function kvPath(cwd: string, key: string): string {
@@ -29,27 +30,21 @@ export function stateWrite(cwd: string, key: string, value: unknown, ttlSeconds?
     expiresAt: ttlSeconds != null ? new Date(Date.now() + ttlSeconds * 1000).toISOString() : undefined,
   };
   const path = kvPath(cwd, key);
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
-  writeFileSync(tmp, JSON.stringify(entry, null, 2), "utf8");
-  renameSync(tmp, path);
+  ensureDir(path);
+  atomicWrite(path, JSON.stringify(entry, null, 2));
   return entry.expiresAt;
 }
 
 /** Read a value. Returns { value: null } when missing; auto-deletes if expired. */
 export function stateRead(cwd: string, key: string): { value: unknown; expired?: boolean } {
   const path = kvPath(cwd, key);
-  if (!existsSync(path)) return { value: null };
-  try {
-    const entry = JSON.parse(readFileSync(path, "utf8")) as Entry;
-    if (entry.expiresAt && Date.parse(entry.expiresAt) < Date.now()) {
-      unlinkSync(path);
-      return { value: null, expired: true };
-    }
-    return { value: entry.value };
-  } catch {
-    return { value: null };
+  const entry = readJSON<Entry | null>(path, null);
+  if (!entry) return { value: null };
+  if (entry.expiresAt && Date.parse(entry.expiresAt) < Date.now()) {
+    unlinkSync(path);
+    return { value: null, expired: true };
   }
+  return { value: entry.value };
 }
 
 export function stateDelete(cwd: string, key: string): void {
@@ -65,13 +60,10 @@ export function stateList(cwd: string): string[] {
   const keys: string[] = [];
   for (const f of readdirSync(dir)) {
     if (!f.endsWith(".json")) continue;
-    try {
-      const entry = JSON.parse(readFileSync(join(dir, f), "utf8")) as Entry;
-      if (entry.expiresAt && Date.parse(entry.expiresAt) < now) continue;
-      keys.push(f.replace(/\.json$/, ""));
-    } catch {
-      // skip unparseable
-    }
+    const entry = readJSON<Entry | null>(join(dir, f), null);
+    if (!entry) continue;
+    if (entry.expiresAt && Date.parse(entry.expiresAt) < now) continue;
+    keys.push(f.replace(/\.json$/, ""));
   }
   return keys.sort();
 }
@@ -85,14 +77,11 @@ export function stateCleanup(cwd: string): number {
   for (const f of readdirSync(dir)) {
     if (!f.endsWith(".json")) continue;
     const path = join(dir, f);
-    try {
-      const entry = JSON.parse(readFileSync(path, "utf8")) as Entry;
-      if (entry.expiresAt && Date.parse(entry.expiresAt) < now) {
-        unlinkSync(path);
-        deleted++;
-      }
-    } catch {
-      // skip
+    const entry = readJSON<Entry | null>(path, null);
+    if (!entry) continue;
+    if (entry.expiresAt && Date.parse(entry.expiresAt) < now) {
+      unlinkSync(path);
+      deleted++;
     }
   }
   return deleted;

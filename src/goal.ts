@@ -1,13 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { ompRoot } from "./omp-root.js";
+import { existsSync, readFileSync } from "node:fs";
+import { atomicWrite, ensureDir } from "./utils/fs.js";
+import { ompPath } from "./utils/paths.js";
 
 // The repo's durable objective ("what we want to achieve in this repo"), stored
 // once per project at .omp/goal.md — distinct from a daily log's per-day goal.
 // Exposed through the `omp goal` CLI subcommands (NOT MCP), so the project dir
 // is the CLI's cwd and never ambiguous.
 function goalFile(cwd: string): string {
-  return join(ompRoot(cwd), ".omp", "goal.md");
+  return ompPath(cwd, "goal.md");
 }
 
 // Strip ONLY our own serialized `# Repo Goal` header (not any heading), so a
@@ -36,9 +36,7 @@ export function writeRepoGoal(cwd: string, goal: string): string {
     .replace(/\s*\n\s*/g, " ")
     .trim();
   const p = goalFile(cwd);
-  mkdirSync(dirname(p), { recursive: true });
-  const tmp = `${p}.tmp.${process.pid}.${Date.now()}`;
-  writeFileSync(tmp, `# Repo Goal\n\n${clean}\n`, "utf8");
-  renameSync(tmp, p);
+  ensureDir(p);
+  atomicWrite(p, `# Repo Goal\n\n${clean}\n`);
   return clean;
 }
