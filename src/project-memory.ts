@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ompRoot } from "./omp-root.js";
 
@@ -112,6 +112,75 @@ export function noteIndex(cwd: string): NoteMeta[] {
       return { id, title };
     })
     .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** Notes ordered newest-first by mtime, optionally capped. Used to surface the
+ *  most recent titles in the injected block without unbounded growth. */
+export function recentNotes(cwd: string, limit?: number): NoteMeta[] {
+  const dir = notesDir(cwd);
+  if (!existsSync(dir)) return [];
+  const entries = readdirSync(dir)
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => {
+      const id = f.replace(/\.md$/, "");
+      let title = id;
+      let mtime = 0;
+      try {
+        const full = join(dir, f);
+        mtime = statSync(full).mtimeMs;
+        const first = readFileSync(full, "utf8").split("\n")[0] ?? "";
+        title = first.replace(/^#\s*/, "").trim() || id;
+      } catch {
+        // keep defaults
+      }
+      return { id, title, mtime };
+    })
+    .sort((a, b) => b.mtime - a.mtime);
+  const capped = typeof limit === "number" ? entries.slice(0, limit) : entries;
+  return capped.map(({ id, title }) => ({ id, title }));
+}
+
+/** Prune notes by count (keep N newest) and/or age (older than N days).
+ *  Returns the ids removed. No options → no-op (never deletes silently). */
+export function pruneNotes(
+  cwd: string,
+  opts: { keep?: number; olderThanDays?: number },
+): string[] {
+  const dir = notesDir(cwd);
+  if (!existsSync(dir)) return [];
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => {
+      let mtime = 0;
+      try {
+        mtime = statSync(join(dir, f)).mtimeMs;
+      } catch {
+        // unreadable — treat as oldest so it's eligible for pruning
+      }
+      return { id: f.replace(/\.md$/, ""), file: f, mtime };
+    })
+    .sort((a, b) => b.mtime - a.mtime); // newest-first
+
+  const toRemove = new Set<string>();
+  if (typeof opts.keep === "number" && opts.keep >= 0) {
+    for (const e of files.slice(opts.keep)) toRemove.add(e.file);
+  }
+  if (typeof opts.olderThanDays === "number" && opts.olderThanDays >= 0) {
+    const cutoff = Date.now() - opts.olderThanDays * 86400_000;
+    for (const e of files) if (e.mtime < cutoff) toRemove.add(e.file);
+  }
+
+  const removed: string[] = [];
+  for (const e of files) {
+    if (!toRemove.has(e.file)) continue;
+    try {
+      unlinkSync(join(dir, e.file));
+      removed.push(e.id);
+    } catch {
+      // skip files we can't remove
+    }
+  }
+  return removed.sort();
 }
 
 /** Full note body by id, or null when missing. */

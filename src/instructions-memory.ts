@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { ompRoot } from "./omp-root.js";
 import { readRepoGoal } from "./goal.js";
-import { noteIndex } from "./project-memory.js";
+import { noteIndex, recentNotes } from "./project-memory.js";
+
+// Cap surfaced note titles so the managed block can't balloon as notes
+// accumulate; overflow is summarized with a pointer (mirrors the directive cap
+// in scripts/session-start.mjs). Newest notes stay visible.
+const MAX_NOTE_TITLES = 12;
+const MAX_NOTE_TITLE_CHARS = 1200;
 
 // Copilot CLI can inject memory via the `sessionStart` hook's `additionalContext`
 // (see hooks/hooks.json + scripts/session-start.mjs, ported to Copilot's hook
@@ -20,7 +26,7 @@ function instructionsPath(cwd: string): string {
 
 function renderBlock(cwd: string): string {
   const goal = readRepoGoal(cwd);
-  const notes = noteIndex(cwd);
+  const total = noteIndex(cwd).length;
   const lines: string[] = [START, "## oh-my-copilot project context"];
   if (goal) lines.push("", `**Repo goal:** ${goal}`);
   lines.push(
@@ -29,10 +35,23 @@ function renderBlock(cwd: string): string {
     "- `omp project-memory read` for project hints and the note index",
     "- `omp project-memory read <id>` for a specific note body",
     "- `omp daily-log read --days 7` for recent daily context",
-    "",
-    `Available note index: ${notes.length} note${notes.length === 1 ? "" : "s"}.`,
-    END,
   );
+  if (total > 0) {
+    // Surface the most recent note titles (newest-first, capped) so the next
+    // session knows WHAT it remembers, not just that N notes exist. Bodies stay
+    // on demand via `omp project-memory read <id>`.
+    const shown: string[] = [];
+    let chars = 0;
+    for (const n of recentNotes(cwd, MAX_NOTE_TITLES)) {
+      if (chars + n.title.length > MAX_NOTE_TITLE_CHARS) break;
+      shown.push(`- ${n.title} (\`${n.id}\`)`);
+      chars += n.title.length;
+    }
+    const more = total - shown.length;
+    lines.push("", `Project memory notes (${total}):`, ...shown);
+    if (more > 0) lines.push(`- (+${more} more — \`omp project-memory read\` for the full index)`);
+  }
+  lines.push(END);
   return lines.join("\n");
 }
 

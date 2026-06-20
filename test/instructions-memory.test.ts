@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { syncInstructionsMemory } from "../src/instructions-memory.js";
 import { writeRepoGoal } from "../src/goal.js";
-import { addDirective } from "../src/project-memory.js";
+import { addDirective, addNote } from "../src/project-memory.js";
 
 const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-instr-"));
 const instr = (root: string) => readFileSync(path.join(root, ".github", "copilot-instructions.md"), "utf8");
@@ -30,6 +30,18 @@ describe("instructions memory block", () => {
     expect(text).not.toContain("always run tests");
     expect(text).not.toContain("must follow");
     expect(text).toContain("omp:memory:end");
+  });
+
+  it("lists note titles (not just a count) so memory is discoverable next session", () => {
+    const root = cwd();
+    addNote(root, "Auth lives in src/auth", "details");
+    addNote(root, "DB schema notes", "details");
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    expect(text).toContain("Auth lives in src/auth");
+    expect(text).toContain("DB schema notes");
+    // bodies stay on-demand (progressive disclosure)
+    expect(text).not.toContain("details");
   });
 
   it("replaces the block on re-sync without duplicating", () => {

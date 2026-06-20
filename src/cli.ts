@@ -39,7 +39,7 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot] [--hooks]\n  cost [--json] [--session <id>] [--days <n>]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  gateway serve [--only <name>[,<name>]]        (run all configured connectors; today: slack)\n  gateway status [--json] [--only <name>[,...]] (per-connector readiness; no sockets opened)\n  gateway doctor [--json] [--only <name>[,...]] (alias for 'gateway status')\n  gateway notify --text "<msg>" [--target slack:C\\|D\\|G\\|U... [:thread_ts]] [--thread-ts <ts>] [--json]\n                                                (one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL)\n  slack serve                                   (deprecated alias for 'gateway serve --only slack')\n  slack doctor [--json]                         (deprecated alias for 'gateway status --only slack')\n  env init [--force]                            (interactive: write ~/.omp/.env with Slack tokens + optional SLACK_HOME_CHANNEL)\n                                                non-interactive: set OMP_INIT_BOT_TOKEN/OMP_INIT_APP_TOKEN/OMP_INIT_HOME_CHANNEL\n                                                (env vars preferred over --bot-token/--app-token/--home-channel flags)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n${registeredCommandHelpLines().join("\n")}\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--notify-target slack:<ID>] [--dry-run] [--json]\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (render goal+directives into copilot-instructions.md)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot] [--hooks]\n  cost [--json] [--session <id>] [--days <n>]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  gateway serve [--only <name>[,<name>]]        (run all configured connectors; today: slack)\n  gateway status [--json] [--only <name>[,...]] (per-connector readiness; no sockets opened)\n  gateway doctor [--json] [--only <name>[,...]] (alias for 'gateway status')\n  gateway notify --text "<msg>" [--target slack:C\\|D\\|G\\|U... [:thread_ts]] [--thread-ts <ts>] [--json]\n                                                (one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL)\n  slack serve                                   (deprecated alias for 'gateway serve --only slack')\n  slack doctor [--json]                         (deprecated alias for 'gateway status --only slack')\n  env init [--force]                            (interactive: write ~/.omp/.env with Slack tokens + optional SLACK_HOME_CHANNEL)\n                                                non-interactive: set OMP_INIT_BOT_TOKEN/OMP_INIT_APP_TOKEN/OMP_INIT_HOME_CHANNEL\n                                                (env vars preferred over --bot-token/--app-token/--home-channel flags)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n${registeredCommandHelpLines().join("\n")}\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--notify-target slack:<ID>] [--dry-run] [--json]\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (render goal+directives into copilot-instructions.md)\n  config get [--json] | config set memory-mode on|off | config set memory-review-model <slug> | config set memory-review-min-messages <n>\n  memory-review --session <uuid|latest> [--model <slug>] [--json]   (cheap-model end-of-session review; opt-in via memory-mode)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | prune-notes --keep <n>|--older-than <days> [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -53,6 +53,33 @@ async function resolveExistingInputPath(value: string): Promise<string> {
 }
 
 const BARE_LAUNCH_FLAGS = new Set(["--madmax", "--yolo"]);
+
+// Snapshot existing Copilot session dirs BEFORE launch, so after a headless run
+// we can identify the exact session it created (instead of guessing "latest").
+async function snapshotSessionsForReview(): Promise<string[]> {
+  try {
+    const { listSessionIds } = await import("./memory-review/transcript.js");
+    return listSessionIds();
+  } catch {
+    return [];
+  }
+}
+
+// Headless `copilot -p` skips hooks, so when omp launched copilot in headless
+// mode we detach the end-of-session memory review here. We review the session
+// that appeared since `before` — never a guessed "latest" — and skip if none
+// is identifiable. Best-effort: a failure here must never affect the launch.
+async function maybeTriggerHeadlessReview(argv: string[], cwd: string, before: string[]): Promise<void> {
+  try {
+    const { triggerHeadlessReview } = await import("./memory-review/trigger.js");
+    const { newestSessionSince } = await import("./memory-review/transcript.js");
+    const cliPath = join(packageRootFromImportMeta(import.meta.url), "dist", "src", "cli.js");
+    const sessionId = newestSessionSince(before) ?? "";
+    triggerHeadlessReview({ cwd, argv, cliPath, sessionId });
+  } catch {
+    // never fail a launch on the review trigger
+  }
+}
 
 export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   const [group, command, value] = argv;
@@ -88,11 +115,14 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   // case argv is empty, so normalizeCopilotLaunchArgs emits no --yolo.
   if (!group || BARE_LAUNCH_FLAGS.has(group)) {
     const { launchCopilot } = await import("./copilot/launch.js");
+    const launchCwd = flagValue(argv, "--root") ?? process.cwd();
+    const beforeSessions = await snapshotSessionsForReview();
     const result = await launchCopilot({
       args: argv,
       bin: flagValue(argv, "--bin"),
-      cwd: flagValue(argv, "--root") ?? process.cwd(),
+      cwd: launchCwd,
     });
+    await maybeTriggerHeadlessReview(argv, launchCwd, beforeSessions);
     return json
       ? { ok: result.ok, exitCode: result.exitCode, output: result }
       : {
@@ -148,11 +178,14 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     const dashIndex = argv.indexOf("--");
     const passthrough = dashIndex >= 0 ? argv.slice(dashIndex + 1) : argv.slice(1);
     const { launchCopilot } = await import("./copilot/launch.js");
+    const launchCwd = flagValue(argv, "--root") ?? process.cwd();
+    const beforeSessions = await snapshotSessionsForReview();
     const result = await launchCopilot({
       args: passthrough,
       bin: flagValue(argv, "--bin"),
-      cwd: flagValue(argv, "--root") ?? process.cwd(),
+      cwd: launchCwd,
     });
+    await maybeTriggerHeadlessReview(passthrough, launchCwd, beforeSessions);
     return json
       ? { ok: result.ok, exitCode: result.exitCode, output: result }
       : {
@@ -234,6 +267,76 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
         : { ok: r.wrote, message: r.wrote ? `memory synced to ${r.path}` : `could not write ${r.path}` };
     }
     return { ok: false, exitCode: 1, message: "Unknown memory subcommand. Try: memory sync" };
+  }
+
+  if (group === "config") {
+    const { readMemoryConfig, setMemoryConfigValue } = await import("./memory-review/config.js");
+    const cwd = flagValue(argv, "--root") ?? process.cwd();
+    if (command === "get" || command === undefined) {
+      const cfg = readMemoryConfig(cwd);
+      return json
+        ? { ok: true, output: cfg }
+        : {
+            ok: true,
+            message: `memory-mode=${cfg.memoryMode}\nmemory-review-model=${cfg.memoryReviewModel}\nmemory-review-min-messages=${cfg.memoryReviewMinMessages}`,
+          };
+    }
+    if (command === "set") {
+      const setVal = argv[3];
+      if (value === "memory-mode") {
+        if (setVal !== "on" && setVal !== "off") {
+          return { ok: false, exitCode: 1, message: "usage: omp config set memory-mode on|off" };
+        }
+        setMemoryConfigValue(cwd, "memoryMode", setVal);
+        return json ? { ok: true, output: { memoryMode: setVal } } : { ok: true, message: `memory-mode=${setVal}` };
+      }
+      if (value === "memory-review-model") {
+        if (!setVal || setVal.startsWith("-")) {
+          return { ok: false, exitCode: 1, message: "usage: omp config set memory-review-model <slug>" };
+        }
+        setMemoryConfigValue(cwd, "memoryReviewModel", setVal);
+        return json ? { ok: true, output: { memoryReviewModel: setVal } } : { ok: true, message: `memory-review-model=${setVal}` };
+      }
+      if (value === "memory-review-min-messages") {
+        const n = Number(setVal);
+        if (!Number.isFinite(n) || n < 0) {
+          return { ok: false, exitCode: 1, message: "usage: omp config set memory-review-min-messages <non-negative integer>" };
+        }
+        setMemoryConfigValue(cwd, "memoryReviewMinMessages", String(Math.floor(n)));
+        return json ? { ok: true, output: { memoryReviewMinMessages: Math.floor(n) } } : { ok: true, message: `memory-review-min-messages=${Math.floor(n)}` };
+      }
+      return { ok: false, exitCode: 1, message: "Unknown config key. Try: memory-mode | memory-review-model | memory-review-min-messages" };
+    }
+    return { ok: false, exitCode: 1, message: "Unknown config subcommand. Try: config get | config set <key> <value>" };
+  }
+
+  if (group === "memory-review") {
+    const { runMemoryReview } = await import("./memory-review/index.js");
+    const { createReviewSpawn } = await import("./memory-review/spawn.js");
+    const { isValidSessionId, latestSessionId } = await import("./memory-review/transcript.js");
+    const cwd = flagValue(argv, "--root") ?? process.cwd();
+    let sessionId = flagValue(argv, "--session") ?? "";
+    if (!sessionId || sessionId === "latest") {
+      sessionId = latestSessionId() ?? "";
+    }
+    if (!sessionId) {
+      return { ok: false, exitCode: 1, message: "usage: omp memory-review --session <uuid|latest>" };
+    }
+    if (!isValidSessionId(sessionId)) {
+      return { ok: false, exitCode: 1, message: "invalid --session id" };
+    }
+    const res = await runMemoryReview({
+      cwd,
+      sessionId,
+      spawn: createReviewSpawn(flagValue(argv, "--bin")),
+      model: flagValue(argv, "--model"),
+    });
+    return json
+      ? { ok: true, output: res }
+      : {
+          ok: true,
+          message: res.ran ? `memory-review ran: ${JSON.stringify(res.summary)}` : `memory-review skipped: ${res.reason}`,
+        };
   }
 
   if (group === "daily-log") {
@@ -350,6 +453,20 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     if (command === "index") {
       return { ok: true, output: { notes: pm.noteIndex(cwd) } };
     }
+    if (command === "prune-notes") {
+      const keepRaw = flagValue(argv, "--keep");
+      const olderRaw = flagValue(argv, "--older-than");
+      const keep = keepRaw !== undefined && Number.isFinite(Number(keepRaw)) ? Number(keepRaw) : undefined;
+      const olderThanDays = olderRaw !== undefined && Number.isFinite(Number(olderRaw)) ? Number(olderRaw) : undefined;
+      if (keep === undefined && olderThanDays === undefined) {
+        return { ok: false, exitCode: 1, message: "usage: omp project-memory prune-notes --keep <n> | --older-than <days>" };
+      }
+      const removed = pm.pruneNotes(cwd, { keep, olderThanDays });
+      syncInstructionsMemory(cwd); // refresh the managed block after pruning
+      return json
+        ? { ok: true, output: { removed } }
+        : { ok: true, message: `pruned ${removed.length} note${removed.length === 1 ? "" : "s"}` };
+    }
     if (command === "read" || command === undefined) {
       // `read <id>` loads one note's body on demand; bare `read` returns the
       // bounded summary (directives + note index — never note bodies).
@@ -363,7 +480,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     return {
       ok: false,
       exitCode: 1,
-      message: 'Unknown project-memory subcommand. Try: project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>"',
+      message: 'Unknown project-memory subcommand. Try: project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | prune-notes --keep <n>|--older-than <days>',
     };
   }
 

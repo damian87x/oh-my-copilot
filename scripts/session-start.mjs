@@ -7,6 +7,7 @@ import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
 import { scanScheduleResults } from "./lib/schedule-results.mjs";
 import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
 import { readDirectives } from "./lib/project-memory.mjs";
+import { pendingDirectivesNudge } from "./lib/pending-directives.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
 import { parseHookInput } from "./lib/hook-input.mjs";
 
@@ -78,6 +79,9 @@ function buildDailyLogBreadcrumb(directory) {
     }
     const repoGoal = readRepoGoal(directory);
     if (repoGoal) parts.push(`[REPO GOAL] ${repoGoal}`);
+    // Memory-review's gated directive queue is invisible without a nudge.
+    const pendingNudge = pendingDirectivesNudge(directory);
+    if (pendingNudge) parts.push(pendingNudge);
     const breadcrumb = buildDailyLogBreadcrumb(directory);
     if (breadcrumb) parts.push(breadcrumb);
     // Resets the per-session baseline and flushes a nudge when the prior session

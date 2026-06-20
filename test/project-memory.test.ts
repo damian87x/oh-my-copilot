@@ -51,3 +51,65 @@ describe("project memory: notes (progressive disclosure)", () => {
     expect(noteIndex(root).map((n) => n.id)).toEqual(["note", "note-2"]);
   });
 });
+
+describe("recentNotes (newest-first, capped)", () => {
+  it("returns notes ordered newest-first by mtime, capped to the limit", async () => {
+    const { recentNotes } = await import("../src/project-memory.js");
+    const { utimesSync } = await import("node:fs");
+    const root = cwd();
+    addNote(root, "Oldest");
+    addNote(root, "Middle");
+    addNote(root, "Newest");
+    const notesDir = path.join(root, ".omp", "memory", "notes");
+    utimesSync(path.join(notesDir, "oldest.md"), new Date(1000), new Date(1000));
+    utimesSync(path.join(notesDir, "middle.md"), new Date(2000), new Date(2000));
+    utimesSync(path.join(notesDir, "newest.md"), new Date(3000), new Date(3000));
+    expect(recentNotes(root, 2).map((n) => n.title)).toEqual(["Newest", "Middle"]);
+    expect(recentNotes(root).length).toBe(3); // no limit = all
+  });
+
+  it("returns empty when there are no notes", async () => {
+    const { recentNotes } = await import("../src/project-memory.js");
+    expect(recentNotes(cwd())).toEqual([]);
+  });
+});
+
+describe("pruneNotes", () => {
+  it("keeps the N newest notes and removes the rest", async () => {
+    const { pruneNotes, recentNotes } = await import("../src/project-memory.js");
+    const { utimesSync } = await import("node:fs");
+    const root = cwd();
+    addNote(root, "A");
+    addNote(root, "B");
+    addNote(root, "C");
+    const notesDir = path.join(root, ".omp", "memory", "notes");
+    utimesSync(path.join(notesDir, "a.md"), new Date(1000), new Date(1000));
+    utimesSync(path.join(notesDir, "b.md"), new Date(2000), new Date(2000));
+    utimesSync(path.join(notesDir, "c.md"), new Date(3000), new Date(3000));
+    const removed = pruneNotes(root, { keep: 2 });
+    expect(removed).toEqual(["a"]); // oldest removed
+    expect(recentNotes(root).map((n) => n.title)).toEqual(["C", "B"]);
+  });
+
+  it("removes notes older than N days", async () => {
+    const { pruneNotes, noteIndex } = await import("../src/project-memory.js");
+    const { utimesSync } = await import("node:fs");
+    const root = cwd();
+    addNote(root, "Old");
+    addNote(root, "Fresh");
+    const notesDir = path.join(root, ".omp", "memory", "notes");
+    const old = new Date(Date.now() - 40 * 86400_000);
+    utimesSync(path.join(notesDir, "old.md"), old, old);
+    const removed = pruneNotes(root, { olderThanDays: 30 });
+    expect(removed).toEqual(["old"]);
+    expect(noteIndex(root).map((n) => n.id)).toEqual(["fresh"]);
+  });
+
+  it("is a no-op with no options", async () => {
+    const { pruneNotes, noteIndex } = await import("../src/project-memory.js");
+    const root = cwd();
+    addNote(root, "Keep me");
+    expect(pruneNotes(root, {})).toEqual([]);
+    expect(noteIndex(root)).toHaveLength(1);
+  });
+});
