@@ -30,8 +30,25 @@ describe("transcript parsing (real Copilot events.jsonl format)", () => {
     ].join("\n");
     expect(parseTranscript(raw)).toEqual([
       { role: "user", text: "fix the bug" },
-      { role: "assistant", text: "on it" },
+      { role: "assistant", text: "on it\n(tools: bash)" },
     ]);
+  });
+
+  it("captures tool-only assistant turns (empty content) as substantive entries", () => {
+    // Real agentic sessions: most assistant turns have empty content and act via
+    // toolRequests. These MUST count (otherwise a working session looks 'too short').
+    const raw = [
+      JSON.stringify({ type: "user.message", data: { content: "build the cache" } }),
+      JSON.stringify({ type: "assistant.message", data: { content: "", toolRequests: [{ name: "apply_patch", intentionSummary: "write lru.py" }] } }),
+      JSON.stringify({ type: "assistant.message", data: { content: "", toolRequests: [{ name: "bash", arguments: { command: "pytest -q" } }] } }),
+      JSON.stringify({ type: "assistant.message", data: { content: "done", toolRequests: [] } }),
+    ].join("\n");
+    const msgs = parseTranscript(raw);
+    expect(msgs).toHaveLength(4); // user + 3 assistant — clears the min-messages threshold
+    expect(msgs[1].text).toContain("apply_patch");
+    expect(msgs[1].text).toContain("write lru.py");
+    expect(msgs[2].text).toContain("pytest -q"); // command surfaced when no intent
+    expect(msgs[3].text).toBe("done");
   });
 
   it("reads a real-shaped events.jsonl from a session-state fixture dir", () => {

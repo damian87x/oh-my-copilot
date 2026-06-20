@@ -104,6 +104,28 @@ function readTail(path: string, maxBytes: number): string {
   }
 }
 
+// Summarize an assistant turn's tool calls. In agentic sessions most turns
+// have empty `content` and do their work via `toolRequests`; without this they
+// would be dropped — making a substantive session look "too short" and starving
+// the reviewer of what the agent actually did. Format: "name: <intent|command>".
+function summarizeToolRequests(toolRequests: unknown): string {
+  if (!Array.isArray(toolRequests) || toolRequests.length === 0) return "";
+  const parts: string[] = [];
+  for (const t of toolRequests) {
+    if (!t || typeof t !== "object") continue;
+    const tr = t as { name?: unknown; intentionSummary?: unknown; arguments?: unknown };
+    const name = typeof tr.name === "string" ? tr.name : "tool";
+    const args = tr.arguments && typeof tr.arguments === "object" ? (tr.arguments as Record<string, unknown>) : {};
+    const detail =
+      (typeof tr.intentionSummary === "string" && tr.intentionSummary.trim()) ||
+      (typeof args.description === "string" && args.description.trim()) ||
+      (typeof args.command === "string" && args.command.trim()) ||
+      "";
+    parts.push(detail ? `${name}: ${detail}` : name);
+  }
+  return parts.length ? `(tools: ${parts.join(", ")})` : "";
+}
+
 function extractText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -144,9 +166,13 @@ export function parseTranscript(raw: string): TranscriptMessage[] {
 
     let role: string;
     let content: unknown;
+    let toolSummary = "";
     if (type.endsWith(".message")) {
       role = typeof data.role === "string" ? data.role : type.slice(0, -".message".length);
       content = data.content;
+      // Assistant turns that act via tools carry the work in toolRequests, not
+      // content — fold a summary in so the turn counts and the reviewer sees it.
+      if (role === "assistant") toolSummary = summarizeToolRequests(data.toolRequests);
     } else if (type) {
       continue; // a typed event that is not a message — no conversation text
     } else {
@@ -158,9 +184,10 @@ export function parseTranscript(raw: string): TranscriptMessage[] {
     // Skip the system prompt — it's boilerplate, huge, and not user knowledge.
     if (role === "system") continue;
 
-    const text = extractText(content);
-    if (text && text.trim()) {
-      messages.push({ role, text: text.trim() });
+    const base = extractText(content).trim();
+    const text = [base, toolSummary].filter(Boolean).join("\n");
+    if (text) {
+      messages.push({ role, text });
     }
   }
   return messages;
