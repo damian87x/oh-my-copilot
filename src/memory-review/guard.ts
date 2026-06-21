@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ompRoot } from "../omp-root.js";
 
@@ -26,10 +26,6 @@ export function claimSession(cwd: string, uuid: string): boolean {
   } catch {
     return false;
   }
-}
-
-export function hasClaim(cwd: string, uuid: string): boolean {
-  return existsSync(claimPath(cwd, uuid));
 }
 
 /** Release a claim so the session can be retried — used on no-write failure
