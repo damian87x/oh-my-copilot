@@ -43,6 +43,15 @@ describe("buildReviewPrompt", () => {
     const p = buildReviewPrompt([{ role: "user", text: "hi" }]);
     expect(p.toLowerCase()).toContain("do not over-generalize");
   });
+
+  it("requires each item in exactly one channel — no cross-channel duplication (audit round 2)", () => {
+    const p = buildReviewPrompt([{ role: "user", text: "hi" }]);
+    const low = p.toLowerCase();
+    expect(low).toContain("exactly one");
+    expect(low).toContain("do not repeat");
+    // a single rule belongs in directives, not also re-emitted as a skill
+    expect(low).toContain("not a restatement of a single rule");
+  });
 });
 
 describe("parseReviewOutput", () => {
