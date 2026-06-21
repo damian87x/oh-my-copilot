@@ -44,6 +44,14 @@ describe("buildReviewPrompt", () => {
     expect(p.toLowerCase()).toContain("do not over-generalize");
   });
 
+  it("bans transient session-state from notes; requires timeless present-tense facts (audit round 4)", () => {
+    const p = buildReviewPrompt([{ role: "user", text: "hi" }]);
+    const low = p.toLowerCase();
+    expect(low).toContain("timeless");
+    expect(low).toContain("temporarily disabled"); // example of banned transient state
+    expect(low).toContain("was added");            // example of banned session-change phrasing
+  });
+
   it("requires each item in exactly one channel — no cross-channel duplication (audit round 2)", () => {
     const p = buildReviewPrompt([{ role: "user", text: "hi" }]);
     const low = p.toLowerCase();
