@@ -11,3 +11,15 @@
  * unset this var.
  */
 process.env.OMP_SKIP_USER_ENV = "1";
+
+/**
+ * Point the global ~/.omp config dir at an isolated empty temp dir so the
+ * memory-mode config layer (readMemoryConfig reads <home>/.omp/config.json by
+ * default) can't pick up the developer's real ~/.omp/config.json during tests.
+ * Tests that exercise the global layer set OMP_HOME_OVERRIDE to their own temp
+ * dir explicitly. See src/memory-review/config.ts.
+ */
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+process.env.OMP_HOME_OVERRIDE = mkdtempSync(join(tmpdir(), "omc-test-home-"));

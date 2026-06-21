@@ -38,7 +38,10 @@ function projectConfigPath(cwd: string): string {
 }
 
 function globalConfigPath(homeDir?: string): string {
-  return join(homeDir ?? homedir(), ".omp", "config.json");
+  // OMP_HOME_OVERRIDE relocates the global ~/.omp dir (custom home; also the
+  // test-isolation seam set in test/setup.ts). Explicit homeDir wins over it.
+  const home = homeDir ?? (process.env.OMP_HOME_OVERRIDE || homedir());
+  return join(home, ".omp", "config.json");
 }
 
 function readRawAt(p: string): Record<string, unknown> {

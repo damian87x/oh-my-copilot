@@ -40,6 +40,7 @@ describe("omp config", () => {
   it("set --global writes to ~/.omp, not the project, and config get reads it", async () => {
     const home = root();
     const cwd = root();
+    const prev = process.env.OMP_HOME_OVERRIDE; // preserve setup.ts isolation
     process.env.OMP_HOME_OVERRIDE = home; // test seam honored by the cli
     try {
       const set = await runCli(["config", "set", "memory-review-model", "global-model", "--global", "--root", cwd]);
@@ -49,7 +50,7 @@ describe("omp config", () => {
       const get = await runCli(["config", "get", "--root", cwd]);
       expect(get.message).toContain("memory-review-model=global-model");
     } finally {
-      delete process.env.OMP_HOME_OVERRIDE;
+      process.env.OMP_HOME_OVERRIDE = prev; // restore, don't wipe isolation
     }
   });
 
