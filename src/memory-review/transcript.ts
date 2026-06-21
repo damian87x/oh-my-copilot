@@ -36,7 +36,12 @@ export const DEFAULT_MAX_MESSAGES = 200;
 // Validate before joining into a path so a crafted id can't traverse out of the
 // session-state root (e.g. "../../etc").
 export function isValidSessionId(uuid: string): boolean {
-  return typeof uuid === "string" && /^[A-Za-z0-9._-]+$/.test(uuid) && !uuid.includes("..");
+  return (
+    typeof uuid === "string" &&
+    /^[A-Za-z0-9._-]+$/.test(uuid) &&
+    !uuid.includes("..") &&
+    /[A-Za-z0-9]/.test(uuid) // reject dot/dash-only ids (e.g. ".") that resolve to the base dir
+  );
 }
 
 export function sessionEventsPath(uuid: string, base?: string): string {

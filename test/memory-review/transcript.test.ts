@@ -100,6 +100,9 @@ describe("isValidSessionId (path-traversal guard)", () => {
     expect(isValidSessionId("a/b")).toBe(false);
     expect(isValidSessionId("..")).toBe(false);
     expect(isValidSessionId("")).toBe(false);
+    // dot-only ids are not real sessions and resolve to the base dir itself
+    expect(isValidSessionId(".")).toBe(false);
+    expect(isValidSessionId("...")).toBe(false);
   });
 
   it("readSessionTranscript refuses a traversal id even if a matching file exists", () => {
