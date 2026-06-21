@@ -12,14 +12,19 @@ session.
 ## Enable
 
 ```bash
-omp config set memory-mode on                    # opt in
+omp config set memory-mode on                    # opt in (this project)
 omp config set memory-review-model gpt-5-mini     # optional; defaults to gpt-5-mini
 omp config set memory-review-min-messages 4       # optional; skip sessions shorter than this (default 4)
-omp config get                                    # show current settings
+omp config get                                    # show current (effective) settings
+
+# Set once for EVERY project (~/.omp/config.json):
+omp config set memory-mode on --global
+omp config set memory-review-model <slug> --global
 ```
 
-Config is stored in `.omp/config.json`. The env var `OMP_MEMORY_MODE=on|off`
-overrides the file.
+**Resolution precedence (high → low):** `OMP_MEMORY_MODE` env › project
+`.omp/config.json` › global `~/.omp/config.json` › defaults. So `--global` is the
+"set it once" default, and a project's `.omp/config.json` overrides it per key.
 
 ## How it triggers
 

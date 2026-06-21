@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runCli } from "../../src/cli.js";
@@ -35,6 +35,22 @@ describe("omp config", () => {
   it("rejects an invalid memory-mode value", async () => {
     const res = await runCli(["config", "set", "memory-mode", "maybe", "--root", root()]);
     expect(res.ok).toBe(false);
+  });
+
+  it("set --global writes to ~/.omp, not the project, and config get reads it", async () => {
+    const home = root();
+    const cwd = root();
+    process.env.OMP_HOME_OVERRIDE = home; // test seam honored by the cli
+    try {
+      const set = await runCli(["config", "set", "memory-review-model", "global-model", "--global", "--root", cwd]);
+      expect(set.ok).toBe(true);
+      expect(existsSync(path.join(home, ".omp", "config.json"))).toBe(true);
+      expect(existsSync(path.join(cwd, ".omp", "config.json"))).toBe(false); // project untouched
+      const get = await runCli(["config", "get", "--root", cwd]);
+      expect(get.message).toContain("memory-review-model=global-model");
+    } finally {
+      delete process.env.OMP_HOME_OVERRIDE;
+    }
   });
 
   it("sets and reports memory-review-min-messages", async () => {

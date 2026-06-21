@@ -44,4 +44,32 @@ describe("memory-review config", () => {
     process.env.OMP_MEMORY_MODE = "on";
     expect(readMemoryConfig(cwd).memoryMode).toBe("on");
   });
+
+  it("reads global (home ~/.omp) config when project has none", () => {
+    const cwd = root();
+    const home = root();
+    setMemoryConfigValue(cwd, "memoryReviewModel", "home-cheap", { scope: "global", homeDir: home });
+    // written to <home>/.omp/config.json, NOT the project
+    expect(JSON.parse(readFileSync(path.join(home, ".omp", "config.json"), "utf8")).memoryReviewModel).toBe("home-cheap");
+    expect(readMemoryConfig(cwd, { homeDir: home }).memoryReviewModel).toBe("home-cheap");
+  });
+
+  it("project config overrides global, per key", () => {
+    const cwd = root();
+    const home = root();
+    setMemoryConfigValue(cwd, "memoryReviewModel", "home-model", { scope: "global", homeDir: home });
+    setMemoryConfigValue(cwd, "memoryMode", "on", { scope: "global", homeDir: home });
+    setMemoryConfigValue(cwd, "memoryReviewModel", "project-model"); // project (default scope)
+    const cfg = readMemoryConfig(cwd, { homeDir: home });
+    expect(cfg.memoryReviewModel).toBe("project-model"); // project wins
+    expect(cfg.memoryMode).toBe("on"); // inherited from global
+  });
+
+  it("env still overrides both project and global", () => {
+    const cwd = root();
+    const home = root();
+    setMemoryConfigValue(cwd, "memoryMode", "off", { scope: "global", homeDir: home });
+    process.env.OMP_MEMORY_MODE = "on";
+    expect(readMemoryConfig(cwd, { homeDir: home }).memoryMode).toBe("on");
+  });
 });
