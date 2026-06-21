@@ -24,6 +24,25 @@ describe("buildReviewPrompt", () => {
     expect(p.toLowerCase()).toContain("one-off");
     expect(p.toLowerCase()).toContain("standing preference");
   });
+
+  it("routes established project conventions/rules to directives (audit fix #2)", () => {
+    const p = buildReviewPrompt([{ role: "user", text: "hi" }]);
+    expect(p.toLowerCase()).toContain("project convention");
+  });
+
+  it("requires skill drafts to be GENERALIZED and reusable, not session-specific plans (audit CRITICAL)", () => {
+    const p = buildReviewPrompt([{ role: "user", text: "hi" }]);
+    const low = p.toLowerCase();
+    expect(low).toContain("generalized");
+    expect(low).toContain("session-specific");
+    expect(low).toContain("execution plan");
+    expect(low).toContain("future tasks");
+  });
+
+  it("tells notes to anchor claims to observed evidence, not over-generalize (audit fix #3)", () => {
+    const p = buildReviewPrompt([{ role: "user", text: "hi" }]);
+    expect(p.toLowerCase()).toContain("do not over-generalize");
+  });
 });
 
 describe("parseReviewOutput", () => {
