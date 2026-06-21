@@ -66,6 +66,30 @@ describe("transcript parsing (real Copilot events.jsonl format)", () => {
   it("returns empty (never throws) for a missing session", () => {
     expect(readSessionTranscript("does-not-exist", { sessionStateDir: root() })).toEqual([]);
   });
+
+  it("reads the full conversation of a long session, then windows to the most recent maxMessages", () => {
+    const base = root();
+    const uuid = "long-session";
+    mkdirSync(path.join(base, uuid), { recursive: true });
+    // 200 user turns interleaved with bulky tool-output events (which we drop).
+    const lines: string[] = [];
+    for (let i = 0; i < 200; i++) {
+      lines.push(JSON.stringify({ type: "user.message", data: { content: `turn ${i}` } }));
+      lines.push(JSON.stringify({ type: "tool.execution_complete", data: { output: "x".repeat(2000) } }));
+    }
+    writeFileSync(path.join(base, uuid, "events.jsonl"), lines.join("\n") + "\n", "utf8");
+
+    // Default window keeps the most recent N (not a byte-tail sliver eaten by tool output).
+    const windowed = readSessionTranscript(uuid, { sessionStateDir: base, maxMessages: 50 });
+    expect(windowed).toHaveLength(50);
+    expect(windowed[0].text).toBe("turn 150"); // last 50 of 200
+    expect(windowed[49].text).toBe("turn 199");
+
+    // The reader can see the whole conversation when the window is large.
+    const all = readSessionTranscript(uuid, { sessionStateDir: base, maxMessages: 1000 });
+    expect(all).toHaveLength(200);
+    expect(all[0].text).toBe("turn 0"); // the real start is NOT lost
+  });
 });
 
 describe("isValidSessionId (path-traversal guard)", () => {

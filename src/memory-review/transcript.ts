@@ -16,8 +16,21 @@ export interface ReadTranscriptOptions {
   // Override the session-state base (defaults to ~/.copilot/session-state) so
   // tests point at a fixture without touching the real home dir.
   sessionStateDir?: string;
+  // Raw-bytes safety cap (OOM guard for pathological files). Generous by default
+  // so real sessions are read in full — events.jsonl is bloated by tool output,
+  // so a small byte cap would discard the actual conversation.
   maxBytes?: number;
+  // Keep only the most recent N parsed messages. Bounds the review prompt by
+  // CONVERSATION CONTENT (not raw bytes), so a long session contributes a
+  // representative window instead of a tail sliver eaten by tool-output events.
+  maxMessages?: number;
 }
+
+export const DEFAULT_MAX_BYTES = 8 * 1024 * 1024;
+// Parsed conversation is sparse (~10-15 tokens/msg; tool outputs dropped), so a
+// generous window captures realistic long sessions in full while still bounding
+// pathological ones. 200 covers observed real sessions (~178 msgs) end-to-end.
+export const DEFAULT_MAX_MESSAGES = 200;
 
 // Session ids are UUID-like (Copilot uses them as the session-state dir name).
 // Validate before joining into a path so a crafted id can't traverse out of the
@@ -198,7 +211,8 @@ export function readSessionTranscript(
   options: ReadTranscriptOptions = {},
 ): TranscriptMessage[] {
   if (!isValidSessionId(uuid)) return [];
-  const maxBytes = options.maxBytes ?? 256 * 1024;
+  const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+  const maxMessages = options.maxMessages ?? DEFAULT_MAX_MESSAGES;
   const path = sessionEventsPath(uuid, options.sessionStateDir);
   if (!existsSync(path)) return [];
   let raw = "";
@@ -207,5 +221,8 @@ export function readSessionTranscript(
   } catch {
     return [];
   }
-  return parseTranscript(raw);
+  const all = parseTranscript(raw);
+  // Window to the most recent maxMessages so the review prompt stays bounded by
+  // conversation length regardless of how long the session ran.
+  return all.length > maxMessages ? all.slice(all.length - maxMessages) : all;
 }
