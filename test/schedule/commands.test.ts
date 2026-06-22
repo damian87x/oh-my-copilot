@@ -65,6 +65,26 @@ describe("addScheduleJob", () => {
     expect(r.messages.join(" ")).toMatch(/without --allow-all-tools/);
   });
 
+  it("defaults notifyDesktop/notifyOpenOmp to false", () => {
+    addScheduleJob(root, { id: "pr", cron: "*/15 * * * *", prompt: "x" });
+    const job = readJob(jobFilePath(resolveSchedulePaths(root).jobsDir, "pr"));
+    expect(job?.notifyDesktop).toBe(false);
+    expect(job?.notifyOpenOmp).toBe(false);
+  });
+
+  it("persists notifyDesktop and notifyOpenOmp when opted in", () => {
+    addScheduleJob(root, {
+      id: "pr",
+      cron: "*/15 * * * *",
+      prompt: "x",
+      notifyDesktop: true,
+      notifyOpenOmp: true,
+    });
+    const job = readJob(jobFilePath(resolveSchedulePaths(root).jobsDir, "pr"));
+    expect(job?.notifyDesktop).toBe(true);
+    expect(job?.notifyOpenOmp).toBe(true);
+  });
+
   it("prints a WARNING when --allow-all-tools is set", () => {
     const r = addScheduleJob(root, { id: "pr", cron: "*/15 * * * *", prompt: "x", allowAllTools: true });
     expect(r.messages.join(" ")).toMatch(/WARNING.*full tool access/);

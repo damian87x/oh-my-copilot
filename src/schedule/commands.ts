@@ -87,6 +87,8 @@ export function addScheduleJob(stateCwd: string, opts: ScheduleAddOptions): AddR
     ompBinPath: resolveOmpBinPath(),
     active: true,
     notifyTarget: opts.notifyTarget,
+    notifyDesktop: opts.notifyDesktop ?? false,
+    notifyOpenOmp: opts.notifyOpenOmp ?? false,
   };
 
   if (opts.dryRun) {

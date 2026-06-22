@@ -187,4 +187,71 @@ describe("schedule runner", () => {
       expect(lockHeldDuringNotify).toBe(false);
     });
   });
+
+  describe("notifyDesktop integration", () => {
+    it("fires a desktop notification with title/message/open after a run", async () => {
+      const calls: Array<{ title: string; message: string; open?: string }> = [];
+      const job = makeJob({ notifyDesktop: true });
+      const result = await runScheduledJob(job, paths, {
+        notifyDesktop: async (o) => {
+          calls.push(o);
+          return { ok: true };
+        },
+      });
+      expect(result.status).toBe("ok");
+      expect(calls).toHaveLength(1);
+      expect(calls[0].title).toBe("schedule: t");
+      expect(calls[0].message).toMatch(/^ok — /);
+      // default (notifyOpenOmp off) → opens the raw run log
+      expect(calls[0].open).toBe(`file://${result.logPath}`);
+    });
+
+    it("does NOT fire a desktop notification when notifyDesktop is unset", async () => {
+      const calls: unknown[] = [];
+      const job = makeJob(); // no notifyDesktop
+      await runScheduledJob(job, paths, {
+        notifyDesktop: async () => {
+          calls.push(true);
+          return { ok: true };
+        },
+      });
+      expect(calls).toHaveLength(0);
+    });
+
+    it("fires BOTH Slack and desktop when both are configured (independent)", async () => {
+      const slack: unknown[] = [];
+      const desktop: unknown[] = [];
+      const job = makeJob({ notifyTarget: "slack:C0BOQV5434G", notifyDesktop: true });
+      await runScheduledJob(job, paths, {
+        notify: async () => {
+          slack.push(true);
+          return { ok: true };
+        },
+        notifyDesktop: async () => {
+          desktop.push(true);
+          return { ok: true };
+        },
+      });
+      expect(slack).toHaveLength(1);
+      expect(desktop).toHaveLength(1);
+    });
+
+    it("desktop notify failure does NOT change the job result", async () => {
+      const job = makeJob({ notifyDesktop: true });
+      const result = await runScheduledJob(job, paths, {
+        notifyDesktop: async () => ({ ok: false, reason: "no notifier" }),
+      });
+      expect(result.status).toBe("ok");
+    });
+
+    it("desktop notify crash does NOT break the run", async () => {
+      const job = makeJob({ notifyDesktop: true });
+      const result = await runScheduledJob(job, paths, {
+        notifyDesktop: async () => {
+          throw new Error("notifier exploded");
+        },
+      });
+      expect(result.status).toBe("ok");
+    });
+  });
 });

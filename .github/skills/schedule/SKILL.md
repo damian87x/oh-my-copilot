@@ -37,10 +37,23 @@ the `omp schedule …` commands on the user's behalf.
    ```bash
    omp schedule add --id <id> --cron "<expr>" --prompt "<text>" \
      [--allow-all-tools] [--cwd <dir>] [--model <m>] [--timeout <ms>] \
-     [--max-runs <n>] [--ttl-hours <h>] --json
+     [--max-runs <n>] [--ttl-hours <h>] \
+     [--notify-target slack:<ID>] [--notify-desktop] [--notify-open-omp] --json
    ```
    Jobs auto-expire after 72h by default (`--ttl-hours`) — set a longer TTL or a
    `--max-runs` cap as needed. Use `--dry-run` to preview the OS entry first.
+
+   **End-of-run notifications (all opt-in, default off; failures never affect the job):**
+   - `--notify-target slack:<C|G|D|U…>` — post the run summary to Slack (needs
+     `SLACK_BOT_TOKEN`; falls back to `SLACK_HOME_CHANNEL` when no target).
+   - `--notify-desktop` — fire a native desktop notification (job id + status +
+     one-line summary). Cross-platform; clicking it opens the full run log.
+   - `--notify-open-omp` — (macOS only, requires `--notify-desktop`) make the
+     notification's click open an interactive `omp` session in the job's `--cwd`
+     instead of the raw log; the SessionStart schedule banner then surfaces the
+     latest result. Disable all desktop notifications with `OMP_DISABLE_DESKTOP_NOTIFY=1`.
+
+   Slack and desktop are independent and can be combined on one job.
 4. **Confirm** by listing: `omp schedule list --json`.
 5. **Trigger now** to test it once: `omp schedule run-now --id <id>`.
 6. **Inspect** results: `omp schedule status --id <id> --json` (recent results
