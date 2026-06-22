@@ -84,9 +84,11 @@ export async function notifyDesktop(
         resolve(r);
       };
       // If the notifier backend never calls back, give up so `omp schedule run`
-      // can still exit instead of hanging the scheduled process forever.
+      // can still exit instead of hanging the scheduled process forever. The
+      // timer is intentionally NOT unref'd: in a standalone CLI it is the only
+      // live handle, so unref'ing it would let Node exit before it fires and
+      // leave this promise unsettled. The fast path clears it immediately.
       const timer = setTimeout(() => done({ ok: false, reason: `desktop notify timed out after ${timeoutMs}ms` }), timeoutMs);
-      timer.unref?.();
       try {
         notifier.notify(payload, (err) => done(err ? { ok: false, reason: err.message } : { ok: true }));
       } catch (err) {
