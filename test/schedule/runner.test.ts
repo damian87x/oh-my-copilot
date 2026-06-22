@@ -254,6 +254,21 @@ describe("schedule runner", () => {
       expect(result.status).toBe("ok");
     });
 
+    // The open-omp launcher must open the schedule STATE ROOT (where the
+    // [SCHEDULE RESULTS] banner reads from), not the agent's --cwd, which may
+    // differ. macOS-only because the launcher is only generated on darwin.
+    (process.platform === "darwin" ? it : it.skip)(
+      "open-omp launcher targets the state root, not a divergent job.cwd",
+      async () => {
+        const otherCwd = mkdtempSync(path.join(tmpdir(), "omp-job-cwd-"));
+        const job = makeJob({ notifyDesktop: true, notifyOpenOmp: true, cwd: otherCwd });
+        await runScheduledJob(job, paths, { notifyDesktop: async () => ({ ok: true }) });
+        const launcher = readFileSync(path.join(paths.logsDir, "t", "open-omp.command"), "utf8");
+        expect(launcher).toContain(`cd -- '${paths.cwd}'`);
+        expect(launcher).not.toContain(otherCwd);
+      },
+    );
+
     it("OMP_DISABLE_DESKTOP_NOTIFY skips the desktop dispatch entirely (no notify, no launcher write)", async () => {
       const saved = process.env.OMP_DISABLE_DESKTOP_NOTIFY;
       process.env.OMP_DISABLE_DESKTOP_NOTIFY = "1";

@@ -38,8 +38,17 @@ export interface DesktopNotifyDeps {
 
 export type DesktopNotifyResult = { ok: true; skipped?: boolean } | { ok: false; reason: string };
 
-/** Bound on how long we wait for the notifier callback (a hung backend must not stall cron). */
-const DEFAULT_TIMEOUT_MS = 8_000;
+/**
+ * Bound on how long we wait for the notifier callback (a hung backend must not
+ * stall cron). Kept comfortably above node-notifier's own ~10s display timeout
+ * so a slow-but-successful delivery is not misclassified as a timeout.
+ *
+ * Note: we do not set `wait`, so node-notifier's terminal-notifier child posts
+ * and exits immediately (the callback fires promptly in practice). This timeout
+ * is a backstop for a wedged backend; we cannot kill node-notifier's own child,
+ * but in non-wait mode it does not outlive the post.
+ */
+const DEFAULT_TIMEOUT_MS = 15_000;
 
 /**
  * Fire a desktop notification. Library entry point — never throws.

@@ -213,7 +213,9 @@ export async function runScheduledJob(
           notifyOpenOmp: job.notifyOpenOmp ?? false,
           logDir: runLogDir(paths.logsDir, job.id),
           logPath: result.logPath,
-          cwd: job.cwd,
+          // Open the schedule STATE ROOT (where the [SCHEDULE RESULTS] banner
+          // reads from), not job.cwd — they can differ when --cwd is set.
+          cwd: paths.cwd,
           ompBinPath: job.ompBinPath,
         });
         const notifyDesktop =
