@@ -60,6 +60,82 @@ That's it.
 
 ---
 
+## Architecture
+
+oh-my-copilot is two things working together: a **shell CLI** (`omp`) that wraps and scripts the GitHub Copilot CLI, and a **Copilot plugin** that ships in-session slash skills, custom agents, and native lifecycle hooks. Both feed the same orchestration modes, the same file-based memory, and the same `.omp` state — so whether you drive from the shell, an in-session `/skill`, Slack, or cron, you hit one coherent system.
+
+```mermaid
+flowchart TB
+  subgraph Surfaces["① Where you drive it"]
+    SH["Shell CLI<br/><code>omp</code> / <code>omp --madmax</code>"]
+    IDE["In-session <code>/skills</code><br/>(Copilot plugin)"]
+    GW["Gateway<br/>Slack / messaging"]
+    CRON["Cron<br/><code>omp schedule</code>"]
+  end
+
+  subgraph Copilot["② GitHub Copilot CLI (wrapped)"]
+    CP["copilot session"]
+    HK["Lifecycle hooks<br/>sessionStart · sessionEnd · agentStop<br/>pre/postToolUse · userPromptSubmitted"]
+    PS["Plugin skills + agents<br/>ralph · ralplan · team · council<br/>code-review · tdd · research · …"]
+  end
+
+  subgraph Orchestration["③ Orchestration modes"]
+    direction LR
+    RALPH["ralph<br/>PRD verify/fix loop"]
+    UW["ultrawork<br/>parallel fan-out"]
+    UQA["ultraqa<br/>QA cycles"]
+    AP["autopilot"]
+    TEAM["team<br/>tmux multi-agent"]
+    COUNCIL["council<br/>weighted consensus"]
+  end
+
+  subgraph Learning["④ Memory & learning loop"]
+    direction LR
+    MR["memory-review<br/>cheap model, end-of-session"]
+    PM["project-memory<br/>directives + notes"]
+    SE["self-evolve<br/>skill drafts"]
+    DL["daily-log"]
+    IM["instructions-memory<br/>→ copilot-instructions.md"]
+  end
+
+  subgraph Store["⑤ Config & state"]
+    direction LR
+    G["~/.omp<br/>global config + .env"]
+    P[".omp/<br/>project config · memory<br/>cost · trace · mode-state"]
+    SST["~/.copilot/session-state<br/>events.jsonl transcripts"]
+  end
+
+  SH --> CP
+  GW --> CP
+  CRON --> CP
+  IDE --> PS
+  CP --> HK
+  PS --> Orchestration
+  SH --> Orchestration
+  HK -- "agentStop drives the loop" --> Orchestration
+  Orchestration --> P
+
+  HK -- "sessionEnd (detached)" --> MR
+  SH -- "wrapper fallback (headless -p)" --> MR
+  MR -- reads transcript --> SST
+  MR -- "facts" --> PM
+  MR -- "procedures" --> SE
+  MR -- "rules (gated)" --> PM
+  PM --> IM
+  DL --> IM
+  IM -- "injected next session" --> CP
+
+  G -. config .-> MR
+  P -. config .-> MR
+  Orchestration -. cost/trace .-> P
+```
+
+**The flow:** you launch a Copilot session from any surface ①. It runs through the wrapped Copilot CLI ②, where plugin hooks and skills can spin up orchestration modes ③ (ralph/ultrawork/ultraqa/team/council). When the session ends, the **learning loop** ④ fires — a cheap model reviews the transcript and writes durable **notes**, gated **directives**, and **skill drafts**, which `instructions-memory` injects into the *next* session so it starts smarter. Everything persists in layered config/state ⑤: global `~/.omp`, per-project `.omp/`, and Copilot's own session transcripts.
+
+> The learning loop is **opt-in** (`omp config set memory-mode on`) and runs on a cheap model (`gpt-5-mini` by default) — the expensive reasoning already happened in your main session. See [docs/memory-mode.md](docs/memory-mode.md).
+
+---
+
 ## Features
 
 ### Orchestration Modes
