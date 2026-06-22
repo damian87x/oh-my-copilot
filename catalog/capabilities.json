@@ -908,6 +908,29 @@
           "notes": "Use /slack from .github/skills/slack/SKILL.md."
         }
       }
+    },
+    {
+      "id": "verify-byok",
+      "name": "verify-byok",
+      "title": "BYOK verification",
+      "category": "verification",
+      "summary": "Static + live BYOK verification of omp changes with evidence capture.",
+      "notes": "Maintainer verification skill: static gate plus a live Copilot/team run on a BYOK model.",
+      "defaultCommand": "verify-byok",
+      "phase1": true,
+      "sourceSkill": "verify-byok",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /verify-byok from .github/skills/verify-byok/SKILL.md."
+        }
+      }
     }
   ]
 }
