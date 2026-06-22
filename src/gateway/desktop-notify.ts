@@ -32,9 +32,14 @@ export interface DesktopNotifyDeps {
   platform?: NodeJS.Platform;
   /** Inject the notifier (tests). Defaults to a lazily-loaded node-notifier. */
   notifier?: Notifier;
+  /** Max wait for the notifier callback before giving up. Default 8s. */
+  timeoutMs?: number;
 }
 
 export type DesktopNotifyResult = { ok: true; skipped?: boolean } | { ok: false; reason: string };
+
+/** Bound on how long we wait for the notifier callback (a hung backend must not stall cron). */
+const DEFAULT_TIMEOUT_MS = 8_000;
 
 /**
  * Fire a desktop notification. Library entry point — never throws.
@@ -47,20 +52,19 @@ export async function notifyDesktop(
   const env = deps.env ?? process.env;
   const platform = deps.platform ?? process.platform;
 
+  // Skips win first — a disabled/headless host produces no artifact and no error.
+  if ((env.OMP_DISABLE_DESKTOP_NOTIFY ?? "").trim()) {
+    return { ok: true, skipped: true };
+  }
+  // Headless Linux has no notification surface — skip rather than error.
+  if (platform === "linux" && !env.DISPLAY && !env.WAYLAND_DISPLAY) {
+    return { ok: true, skipped: true };
+  }
+
   const title = (opts.title ?? "").trim();
   const message = (opts.message ?? "").trim();
   if (!title && !message) {
     return { ok: false, reason: "title and message are both empty" };
-  }
-
-  // Explicit kill-switch.
-  if ((env.OMP_DISABLE_DESKTOP_NOTIFY ?? "").trim()) {
-    return { ok: true, skipped: true };
-  }
-
-  // Headless Linux has no notification surface — skip rather than error.
-  if (platform === "linux" && !env.DISPLAY && !env.WAYLAND_DISPLAY) {
-    return { ok: true, skipped: true };
   }
 
   try {
@@ -70,13 +74,23 @@ export async function notifyDesktop(
     const payload: Record<string, unknown> = { title: title || message, message, sound: false };
     if (opts.open) payload.open = opts.open;
 
+    const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     return await new Promise<DesktopNotifyResult>((resolve) => {
+      let settled = false;
+      const done = (r: DesktopNotifyResult): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(r);
+      };
+      // If the notifier backend never calls back, give up so `omp schedule run`
+      // can still exit instead of hanging the scheduled process forever.
+      const timer = setTimeout(() => done({ ok: false, reason: `desktop notify timed out after ${timeoutMs}ms` }), timeoutMs);
+      timer.unref?.();
       try {
-        notifier.notify(payload, (err) => {
-          resolve(err ? { ok: false, reason: err.message } : { ok: true });
-        });
+        notifier.notify(payload, (err) => done(err ? { ok: false, reason: err.message } : { ok: true }));
       } catch (err) {
-        resolve({ ok: false, reason: err instanceof Error ? err.message : String(err) });
+        done({ ok: false, reason: err instanceof Error ? err.message : String(err) });
       }
     });
   } catch (err) {

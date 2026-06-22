@@ -19,7 +19,8 @@ function shellQuote(s: string): string {
 
 /** The launcher script body: cd into the job cwd and exec an interactive omp. */
 export function buildOpenOmpScript(cwd: string, ompBinPath: string): string {
-  return `#!/bin/sh\ncd ${shellQuote(cwd)} && exec ${shellQuote(ompBinPath)}\n`;
+  // `--` ends option parsing so a dash-leading cwd/bin can't be read as a flag.
+  return `#!/bin/sh\ncd -- ${shellQuote(cwd)} && exec -- ${shellQuote(ompBinPath)}\n`;
 }
 
 /** Write the executable launcher into the job's log dir; return its absolute path. */

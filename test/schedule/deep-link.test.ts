@@ -13,14 +13,18 @@ afterEach(() => {
 });
 
 describe("buildOpenOmpScript", () => {
-  it("cds into the (single-quoted) cwd and execs the omp bin", () => {
+  it("cds into the (single-quoted) cwd and execs the omp bin, guarding with --", () => {
     expect(buildOpenOmpScript("/home/me/proj", "/usr/local/bin/omp")).toBe(
-      "#!/bin/sh\ncd '/home/me/proj' && exec '/usr/local/bin/omp'\n",
+      "#!/bin/sh\ncd -- '/home/me/proj' && exec -- '/usr/local/bin/omp'\n",
     );
   });
 
   it("escapes embedded single quotes in the cwd (no shell injection)", () => {
-    expect(buildOpenOmpScript("/a'b/c", "omp")).toBe("#!/bin/sh\ncd '/a'\\''b/c' && exec 'omp'\n");
+    expect(buildOpenOmpScript("/a'b/c", "omp")).toBe("#!/bin/sh\ncd -- '/a'\\''b/c' && exec -- 'omp'\n");
+  });
+
+  it("guards dash-leading paths with -- so they are not parsed as options", () => {
+    expect(buildOpenOmpScript("-rf/proj", "-omp")).toBe("#!/bin/sh\ncd -- '-rf/proj' && exec -- '-omp'\n");
   });
 });
 
@@ -28,7 +32,7 @@ describe("writeOpenOmpLauncher", () => {
   it("writes an executable (0755) launcher and returns its path", () => {
     const p = writeOpenOmpLauncher(dir, "/proj", "/usr/local/bin/omp");
     expect(p).toBe(path.join(dir, "open-omp.command"));
-    expect(readFileSync(p, "utf8")).toContain("cd '/proj' && exec '/usr/local/bin/omp'");
+    expect(readFileSync(p, "utf8")).toContain("cd -- '/proj' && exec -- '/usr/local/bin/omp'");
     expect(statSync(p).mode & 0o777).toBe(0o755);
   });
 });
@@ -45,7 +49,7 @@ describe("resolveOpenTarget", () => {
     const real = mkdtempSync(path.join(tmpdir(), "omp-deeplink-real-"));
     const t = resolveOpenTarget({ ...base, logDir: real, platform: "darwin", notifyOpenOmp: true });
     expect(t).toBe(`file://${path.join(real, "open-omp.command")}`);
-    expect(readFileSync(path.join(real, "open-omp.command"), "utf8")).toContain("exec '/bin/omp'");
+    expect(readFileSync(path.join(real, "open-omp.command"), "utf8")).toContain("exec -- '/bin/omp'");
   });
 
   it("falls back to the raw log off macOS even when notifyOpenOmp is on", () => {

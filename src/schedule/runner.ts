@@ -204,8 +204,9 @@ export async function runScheduledJob(
     }
 
     // Best-effort end-of-run desktop notification. Independent of (and combinable
-    // with) the Slack post above; same failure-isolation contract.
-    if (job.notifyDesktop) {
+    // with) the Slack post above; same failure-isolation contract. The disable
+    // kill-switch is honored up front so a disabled run writes no launcher artifact.
+    if (job.notifyDesktop && !(process.env.OMP_DISABLE_DESKTOP_NOTIFY ?? "").trim()) {
       try {
         const open = resolveOpenTarget({
           platform: process.platform,

@@ -253,5 +253,24 @@ describe("schedule runner", () => {
       });
       expect(result.status).toBe("ok");
     });
+
+    it("OMP_DISABLE_DESKTOP_NOTIFY skips the desktop dispatch entirely (no notify, no launcher write)", async () => {
+      const saved = process.env.OMP_DISABLE_DESKTOP_NOTIFY;
+      process.env.OMP_DISABLE_DESKTOP_NOTIFY = "1";
+      try {
+        const calls: unknown[] = [];
+        const job = makeJob({ notifyDesktop: true, notifyOpenOmp: true });
+        await runScheduledJob(job, paths, {
+          notifyDesktop: async () => {
+            calls.push(true);
+            return { ok: true };
+          },
+        });
+        expect(calls).toHaveLength(0);
+      } finally {
+        if (saved === undefined) delete process.env.OMP_DISABLE_DESKTOP_NOTIFY;
+        else process.env.OMP_DISABLE_DESKTOP_NOTIFY = saved;
+      }
+    });
   });
 });

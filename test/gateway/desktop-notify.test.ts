@@ -77,4 +77,22 @@ describe("notifyDesktop", () => {
     expect(r.ok).toBe(false);
     expect(n.calls).toHaveLength(0);
   });
+
+  it("times out (never hangs) when the notifier never invokes its callback", async () => {
+    // A notifier that posts but never calls back — would otherwise hang omp schedule run forever.
+    const hung = { notify(_o: Record<string, unknown>, _cb?: (e: Error | null) => void): void {} };
+    const r = await notifyDesktop({ title: "t", message: "m" }, { notifier: hung, platform: "darwin", env: {}, timeoutMs: 20 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/tim(e|ed) out/i);
+  });
+
+  it("disable kill-switch wins over empty fields (silent skip, not failure)", async () => {
+    const n = fakeNotifier("ok");
+    const r = await notifyDesktop(
+      { title: "", message: "" },
+      { notifier: n, platform: "darwin", env: { OMP_DISABLE_DESKTOP_NOTIFY: "1" } },
+    );
+    expect(r.ok).toBe(true);
+    expect(n.calls).toHaveLength(0);
+  });
 });
