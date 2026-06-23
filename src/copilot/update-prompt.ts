@@ -95,6 +95,9 @@ export async function updateCopilotPlugin(
   const spawn = spawnFn ?? (await import("node:child_process")).spawn;
   const refreshed = await runCopilot(spawn, ["plugin", "marketplace", "update", PLUGIN_NAME]);
   if (refreshed === null) return "skipped";
+  // A failed catalog refresh means a later `plugin update` would run against a
+  // stale catalog — don't report success based on it.
+  if (refreshed !== 0) return "failed";
   const updated = await runCopilot(spawn, ["plugin", "update", PLUGIN_NAME]);
   if (updated === null) return "skipped";
   return updated === 0 ? "updated" : "failed";

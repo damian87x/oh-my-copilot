@@ -57,6 +57,7 @@ That's it.
 - **Chat bridge** — `omp gateway` runs long-lived chat connectors (Slack today, more next) so you can DM Copilot from anywhere
 - **Lifecycle hooks** — `sessionStart`, `userPromptSubmitted`, `preToolUse`, `postToolUse`, `postToolUseFailure`, `sessionEnd`, `errorOccurred`
 - **Doctor included** — `omp doctor` verifies plugin manifest, skills discovery, hooks, and the underlying `copilot` CLI in one shot
+- **Self-update** — when a newer release is published, `omp` (and `omp --version`) offers to update in a TTY; `omp update` self-updates the CLI and refreshes the Copilot plugin so both stay in lockstep. Never prompts in CI / `--json` / non-TTY; opt out with `OMP_NO_UPDATE_CHECK=1`
 
 ---
 
@@ -258,7 +259,8 @@ Notes:
 
 ```bash
 omp --help
-omp version
+omp version                                 # prints version; in a TTY, offers to self-update if one is available
+omp update                                  # self-update the CLI (npm) + refresh the Copilot plugin
 omp doctor                                  # verify install + copilot binary
 omp list                                    # show discovered skills and agents
 omp setup [--dry-run] [--scope project|user]

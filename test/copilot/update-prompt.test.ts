@@ -197,6 +197,10 @@ describe("updateCopilotPlugin", () => {
     expect(await updateCopilotPlugin(fakeSpawn([{ error: true }]))).toBe("skipped");
   });
 
+  it("returns 'failed' when the marketplace refresh exits non-zero", async () => {
+    expect(await updateCopilotPlugin(fakeSpawn([{ code: 1 }]))).toBe("failed");
+  });
+
   it("returns 'failed' when the plugin update exits non-zero", async () => {
     expect(await updateCopilotPlugin(fakeSpawn([{ code: 0 }, { code: 1 }]))).toBe("failed");
   });
