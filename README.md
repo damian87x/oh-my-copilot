@@ -281,9 +281,10 @@ omp gateway notify --text "<msg>" [--target slack:C…|G…|D…|U… [:thread_t
 omp slack serve                             # deprecated alias of `gateway serve --only slack`
 omp slack doctor [--json]                   # deprecated alias of `gateway status --only slack`
 omp env init [--force]                      # write ~/.omp/.env (interactive Slack token setup)
-omp schedule add --id <id> --cron "*/15 * * * *" --prompt "<text>" [--allow-all-tools] [--cwd <dir>] [--model <m>] [--timeout <ms>] [--max-runs N] [--ttl-hours H] [--notify-target slack:U0123ABCD] [--dry-run]
+omp schedule add --id <id> --cron "*/15 * * * *" --prompt "<text>" [--allow-all-tools] [--cwd <dir>] [--model <m>] [--timeout <ms>] [--max-runs N] [--ttl-hours H] [--notify-target slack:U0123ABCD] [--notify-desktop] [--notify-open-omp] [--dry-run]
 omp schedule list                           # registered jobs + OS-install status
 omp schedule status <id>                    # last run + result summary
+omp schedule open <id> [--tmux]             # print this id's latest status + full output (--tmux: open an omp session)
 omp schedule run-now <id>                   # trigger one run immediately
 omp schedule remove <id>                    # uninstall the OS entry + delete the job
 omp goal set "<objective>" | read [--json]
@@ -303,6 +304,8 @@ Environment overrides:
 - `OMP_COPILOT_BIN` — alternate `copilot` binary
 - `OMP_BIN` — absolute path to the `omp` wrapper written into OS-scheduler entries (overrides `which omp`)
 - `OMP_SKIP_USER_ENV` — when `1`, skip auto-loading `~/.omp/.env` (useful for hermetic CI runs)
+- `OMP_DISABLE_DESKTOP_NOTIFY` — when set, suppress all `--notify-desktop` notifications
+- `OMP_NOTIFY_USE_TERMINAL_NOTIFIER` — when set (+ a system `terminal-notifier` on PATH), use it for desktop notifications so the click can open omp; otherwise macOS uses `osascript` (display-only)
 
 **Scheduled jobs** register a durable per-job entry with the OS scheduler (macOS launchd,
 Linux systemd-user timers, or a managed `crontab` block as a cross-platform fallback) that
@@ -310,8 +313,13 @@ invokes `omp schedule run --id <id>` on the cron schedule. Each tick spawns a fr
 session; overlapping runs are locked out and every run is killed at its `--timeout`
 (default 5 min). Jobs default to **read-only** (`--allow-all-tools` is opt-in and prints a
 warning) and auto-expire after 72h unless `--ttl-hours`/`--max-runs` say otherwise. Recent
-run results are surfaced automatically at the start of new Copilot sessions. Always use
-`omp schedule remove`, never delete `.omp/state/schedule/` by hand, so the OS entry is
+run results are surfaced automatically at the start of new Copilot sessions, and
+`omp schedule open <id>` prints any job's latest status + full captured output on demand.
+Opt into end-of-run **notifications** (default off; failures never affect the job): `--notify-target slack:…`
+posts to Slack, and `--notify-desktop` fires a native notification (job id + status + one-line
+summary) — on macOS via `osascript` (display-only; for a clickable notification that opens omp,
+set `OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1` with a system `terminal-notifier` and add `--notify-open-omp`).
+Always use `omp schedule remove`, never delete `.omp/state/schedule/` by hand, so the OS entry is
 uninstalled cleanly.
 
 ### Chat bridge: drive Copilot from Slack
@@ -345,7 +353,7 @@ omp grows in vertical slices. Items aren't pinned to specific semver versions �
 
 ### Already shipped
 
-- **Scheduled tasks** (v0.6.0) — durable local cron: `omp schedule add --id pr-watch --cron "*/15 * * * *" --prompt "…"` plus `/schedule` in-session. Each job registers an OS-scheduler entry (launchd / systemd-user / crontab fallback) that fires a fresh agent session, survives reboot, locks out overlap, and surfaces results at the next session start.
+- **Scheduled tasks** (v0.6.0) — durable local cron: `omp schedule add --id pr-watch --cron "*/15 * * * *" --prompt "…"` plus `/schedule` in-session. Each job registers an OS-scheduler entry (launchd / systemd-user / crontab fallback) that fires a fresh agent session, survives reboot, locks out overlap, and surfaces results at the next session start. Opt-in end-of-run notifications (`--notify-target` Slack, `--notify-desktop` native) and `omp schedule open <id>` to pull up a run's full output by id.
 - **Chat bridge — Slack inbound** (v0.8.0) — `omp gateway` runs long-lived chat connectors that forward messages into a running Copilot tmux session and post replies back. Slack is the first connector (Socket Mode, no public URL). `omp env init` walks you through one-time token setup; tokens live in `~/.omp/.env` (auto-loaded on every invocation). See [`docs/slack-setup.md`](docs/slack-setup.md).
 - **Slack outbound — `omp gateway notify`** — stateless REST `chat.postMessage` from any process (cron `--notify-target`, in-session `/slack <message>`, ad-hoc `omp gateway notify --text "..."`). Default destination from `SLACK_HOME_CHANNEL`; explicit `--target slack:C…/G…/D…/U…` overrides; `U…` auto-resolves to a DM via `conversations.open`.
 - **Weighted-consensus council** — multi-model council with role weights + minority report. Via `omp council` or `/weighted-consensus`.
