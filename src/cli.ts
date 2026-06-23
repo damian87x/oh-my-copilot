@@ -19,6 +19,69 @@ function flagValue(args: string[], flag: string): string | undefined {
   return args[index + 1];
 }
 
+/**
+ * Interactive only when both streams are TTYs, we're not emitting JSON, and
+ * we're not in CI (which may allocate a pseudo-TTY but must never block on a
+ * prompt). Honors the same no-block contract as update-prompt.ts.
+ */
+function isInteractive(json: boolean): boolean {
+  if (process.env.CI?.trim()) return false;
+  return Boolean(process.stdout.isTTY && process.stdin.isTTY) && !json;
+}
+
+/**
+ * Provide an UpdatePromptIO backed by readline. The interface is created lazily
+ * on the first `ask` (so no-update launches never touch the TTY) and always
+ * closed before we return, freeing stdin for a subsequent copilot launch.
+ */
+async function withUpdateIO<T>(
+  fn: (io: import("./copilot/update-prompt.js").UpdatePromptIO) => Promise<T>,
+): Promise<T> {
+  let rl: import("node:readline/promises").Interface | undefined;
+  const io = {
+    print: (line: string) => console.log(line),
+    ask: async (prompt: string) => {
+      if (!rl) {
+        const readline = await import("node:readline/promises");
+        rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      }
+      return rl.question(prompt);
+    },
+  };
+  try {
+    return await fn(io);
+  } finally {
+    rl?.close();
+  }
+}
+
+/**
+ * Re-exec the freshly-installed omp after a self-update so the launch runs the
+ * new version. `npm i -g` overwrote the entrypoint at `process.argv[1]` in
+ * place, so re-running it with the same node executes the new code. The child
+ * inherits stdio (so copilot's TUI works) and gets `OMP_NO_UPDATE_CHECK=1` to
+ * guarantee it can't loop back into the update prompt. Returns null when the
+ * entrypoint can't be resolved, so the caller falls back to a normal launch.
+ */
+async function reexecAfterUpdate(argv: string[]): Promise<CliResult | undefined> {
+  const entry = process.argv[1];
+  if (!entry) return undefined;
+  const { spawn } = await import("node:child_process");
+  return await new Promise<CliResult>((resolve) => {
+    const child = spawn(process.execPath, [entry, ...argv], {
+      stdio: "inherit",
+      env: { ...process.env, OMP_NO_UPDATE_CHECK: "1" },
+    });
+    child.on("error", () => resolve({ ok: false, exitCode: 127, message: "re-exec failed" }));
+    child.on("close", (code) => {
+      // Match launchCopilot's convention: a signal-terminated child yields a
+      // null code — treat that as a non-zero exit, not success.
+      const exitCode = typeof code === "number" ? code : 1;
+      resolve({ ok: exitCode === 0, exitCode, message: `relaunched omp exit=${exitCode}` });
+    });
+  });
+}
+
 interface VersionCheckModule {
   checkForUpdate(options?: {
     stateDir?: string;
@@ -39,7 +102,7 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot] [--hooks]\n  cost [--json] [--session <id>] [--days <n>]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  gateway serve [--only <name>[,<name>]]        (run all configured connectors; today: slack)\n  gateway status [--json] [--only <name>[,...]] (per-connector readiness; no sockets opened)\n  gateway doctor [--json] [--only <name>[,...]] (alias for 'gateway status')\n  gateway notify --text "<msg>" [--target slack:C\\|D\\|G\\|U... [:thread_ts]] [--thread-ts <ts>] [--json]\n                                                (one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL)\n  slack serve                                   (deprecated alias for 'gateway serve --only slack')\n  slack doctor [--json]                         (deprecated alias for 'gateway status --only slack')\n  env init [--force]                            (interactive: write ~/.omp/.env with Slack tokens + optional SLACK_HOME_CHANNEL)\n                                                non-interactive: set OMP_INIT_BOT_TOKEN/OMP_INIT_APP_TOKEN/OMP_INIT_HOME_CHANNEL\n                                                (env vars preferred over --bot-token/--app-token/--home-channel flags)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n${registeredCommandHelpLines().join("\n")}\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--notify-target slack:<ID>] [--notify-desktop] [--notify-open-omp] [--dry-run] [--json]
+  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  update                                        (self-update: npm i -g @damian87/omp@latest)\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--json]\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot] [--hooks]\n  cost [--json] [--session <id>] [--days <n>]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  gateway serve [--only <name>[,<name>]]        (run all configured connectors; today: slack)\n  gateway status [--json] [--only <name>[,...]] (per-connector readiness; no sockets opened)\n  gateway doctor [--json] [--only <name>[,...]] (alias for 'gateway status')\n  gateway notify --text "<msg>" [--target slack:C\\|D\\|G\\|U... [:thread_ts]] [--thread-ts <ts>] [--json]\n                                                (one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL)\n  slack serve                                   (deprecated alias for 'gateway serve --only slack')\n  slack doctor [--json]                         (deprecated alias for 'gateway status --only slack')\n  env init [--force]                            (interactive: write ~/.omp/.env with Slack tokens + optional SLACK_HOME_CHANNEL)\n                                                non-interactive: set OMP_INIT_BOT_TOKEN/OMP_INIT_APP_TOKEN/OMP_INIT_HOME_CHANNEL\n                                                (env vars preferred over --bot-token/--app-token/--home-channel flags)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n${registeredCommandHelpLines().join("\n")}\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--notify-target slack:<ID>] [--notify-desktop] [--notify-open-omp] [--dry-run] [--json]
                                                 (--notify-desktop: native OS notification on completion [macOS uses osascript]; --notify-open-omp: click opens an omp session in the state root — needs OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1 + terminal-notifier on macOS)\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule open <id> [--tmux] [--json]          (show this id's latest status + full output; --tmux instead opens an interactive omp session in the project — recent runs show via the startup banner)\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (render goal+directives into copilot-instructions.md)\n  config get [--json] | config set memory-mode on|off | config set memory-review-model <slug> | config set memory-review-min-messages <n> [--global]\n                                                (--global writes ~/.omp/config.json; applies to every project. project .omp/config.json overrides it)\n  memory-review --session <uuid|latest> [--model <slug>] [--json]   (cheap-model end-of-session review; opt-in via memory-mode)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | prune-notes --keep <n>|--older-than <days> [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
@@ -96,14 +159,38 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     const versionCheckUrl = pathToFileURL(join(packageRootFromImportMeta(import.meta.url), "scripts", "lib", "version-check.mjs")).href;
     const { checkForUpdate, formatUpdateNotice } = (await import(versionCheckUrl)) as VersionCheckModule;
     const cwd = flagValue(argv, "--root") ?? process.cwd();
-    const update = await checkForUpdate({ stateDir: join(ompRoot(cwd), ".omp", "state") });
+    const stateDir = join(ompRoot(cwd), ".omp", "state");
+    const skipCheck = Boolean(process.env.OMP_NO_UPDATE_CHECK?.trim());
+
     if (json) {
+      const update = skipCheck ? null : await checkForUpdate({ stateDir });
       return { ok: true, output: { ...info, update } };
     }
+
+    // Interactive TTY: print the version, then offer to self-update.
+    if (isInteractive(json)) {
+      console.log(formatVersionInfo(info));
+      const { maybePromptUpdate } = await import("./copilot/update-prompt.js");
+      await withUpdateIO((io) =>
+        maybePromptUpdate({ cwd, io, interactive: true, importMetaUrl: import.meta.url }),
+      );
+      return { ok: true };
+    }
+
+    // Non-interactive: keep the passive notice behavior (honoring the opt-out).
+    const update = skipCheck ? null : await checkForUpdate({ stateDir });
     const message = update
       ? `${formatVersionInfo(info)}\n\n${formatUpdateNotice(update.current, update.latest)}`
       : formatVersionInfo(info);
     return { ok: true, message };
+  }
+
+  if (group === "update") {
+    const { runSelfUpdate } = await import("./copilot/update-prompt.js");
+    const ok = await runSelfUpdate();
+    return ok
+      ? { ok: true, message: "Update complete — re-run `omp`." }
+      : { ok: false, message: "Update failed; run manually: npm i -g @damian87/omp@latest" };
   }
 
   // Auto-load ~/.omp/.env so subcommands that read process.env (slack tokens,
@@ -117,6 +204,28 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   if (!group || BARE_LAUNCH_FLAGS.has(group)) {
     const { launchCopilot } = await import("./copilot/launch.js");
     const launchCwd = flagValue(argv, "--root") ?? process.cwd();
+    // Truly-bare `omp` in a TTY: offer to self-update, then show the
+    // first-run hint, before handing the terminal to copilot. `--madmax`/
+    // `--yolo` and any non-TTY launch are never blocked.
+    if (!group && isInteractive(json)) {
+      const { maybePromptUpdate, maybeWelcome } = await import("./copilot/update-prompt.js");
+      const outcome = await withUpdateIO((io) =>
+        maybePromptUpdate({ cwd: launchCwd, io, interactive: true, importMetaUrl: import.meta.url }),
+      );
+      // The running process still holds the OLD code in memory. After a
+      // successful self-update, re-exec the freshly-installed omp so this
+      // launch uses the new version instead of stale wrapper logic.
+      if (outcome.updated) {
+        const reexec = await reexecAfterUpdate(argv);
+        if (reexec) return reexec;
+        // Fall through to a normal launch if re-exec wasn't possible.
+      }
+      maybeWelcome({
+        cwd: launchCwd,
+        io: { print: (line) => console.log(line), ask: async () => undefined },
+        interactive: true,
+      });
+    }
     const beforeSessions = await snapshotSessionsForReview();
     const result = await launchCopilot({
       args: argv,
