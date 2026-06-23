@@ -6,6 +6,7 @@ import {
   gettingStartedHint,
   maybePromptUpdate,
   maybeWelcome,
+  updateCopilotPlugin,
 } from "../../src/copilot/update-prompt.js";
 
 function tempProject(): string {
@@ -53,6 +54,7 @@ describe("maybePromptUpdate", () => {
   it("runs the update when the user confirms", async () => {
     const { io, prints, asked } = fakeIO(["y"]);
     let ran = 0;
+    let pluginRan = 0;
     const outcome = await maybePromptUpdate({
       cwd: newProject(),
       io,
@@ -62,10 +64,16 @@ describe("maybePromptUpdate", () => {
         ran += 1;
         return true;
       },
+      updatePlugin: async () => {
+        pluginRan += 1;
+        return "updated";
+      },
     });
     expect(ran).toBe(1);
+    expect(pluginRan).toBe(1);
     expect(asked).toHaveLength(1);
     expect(prints.some((p) => p.includes("Updated to v9.9.9"))).toBe(true);
+    expect(prints.some((p) => p.includes("Copilot plugin updated"))).toBe(true);
     expect(outcome.updated).toBe(true);
   });
 
@@ -156,5 +164,40 @@ describe("maybeWelcome", () => {
     const { io, prints } = fakeIO();
     maybeWelcome({ cwd: newProject(), io, interactive: false });
     expect(prints).toHaveLength(0);
+  });
+});
+
+describe("updateCopilotPlugin", () => {
+  // Minimal child-process double: replays a scripted error/exit-code per spawn call.
+  function fakeSpawn(steps: Array<{ error?: boolean; code?: number }>) {
+    let i = 0;
+    return ((_cmd: string, _args: string[]) => {
+      const step = steps[i++] ?? { code: 0 };
+      const handlers: Record<string, (arg?: unknown) => void> = {};
+      const child = {
+        on(event: string, cb: (arg?: unknown) => void) {
+          handlers[event] = cb;
+          return child;
+        },
+      };
+      queueMicrotask(() => {
+        if (step.error) handlers.error?.(new Error("ENOENT"));
+        else handlers.close?.(step.code ?? 0);
+      });
+      return child;
+      // biome-ignore lint/suspicious/noExplicitAny: test double for node spawn
+    }) as any;
+  }
+
+  it("returns 'updated' when both steps succeed", async () => {
+    expect(await updateCopilotPlugin(fakeSpawn([{ code: 0 }, { code: 0 }]))).toBe("updated");
+  });
+
+  it("returns 'skipped' when the copilot CLI is missing", async () => {
+    expect(await updateCopilotPlugin(fakeSpawn([{ error: true }]))).toBe("skipped");
+  });
+
+  it("returns 'failed' when the plugin update exits non-zero", async () => {
+    expect(await updateCopilotPlugin(fakeSpawn([{ code: 0 }, { code: 1 }]))).toBe("failed");
   });
 });

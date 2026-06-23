@@ -15,6 +15,8 @@ import { packageRootFromImportMeta } from "../project.js";
 
 const PACKAGE_NAME = "@damian87/omp";
 const UPDATE_COMMAND = `npm i -g ${PACKAGE_NAME}@latest`;
+const PLUGIN_NAME = "oh-my-copilot";
+const PLUGIN_UPDATE_COMMAND = `copilot plugin update ${PLUGIN_NAME}`;
 
 /** Where update-prompt output is sent / input is read. */
 export interface UpdatePromptIO {
@@ -63,6 +65,52 @@ export async function runSelfUpdate(
   });
 }
 
+/** Result of refreshing the in-session Copilot plugin. */
+export type PluginUpdateStatus = "updated" | "skipped" | "failed";
+
+function runCopilot(
+  spawn: typeof import("node:child_process").spawn,
+  args: string[],
+): Promise<number | null> {
+  return new Promise<number | null>((resolve) => {
+    try {
+      const child = spawn("copilot", args, { stdio: "inherit" });
+      child.on("error", () => resolve(null)); // copilot CLI not installed
+      child.on("close", (code) => resolve(typeof code === "number" ? code : 1));
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * Best-effort refresh of the Copilot plugin so the in-session skills/agents/
+ * hooks track the same release as the CLI. Refreshes the marketplace catalog,
+ * then updates the installed plugin. Returns "skipped" when the copilot CLI
+ * isn't available, "failed" on a non-zero plugin update, "updated" otherwise.
+ */
+export async function updateCopilotPlugin(
+  spawnFn?: typeof import("node:child_process").spawn,
+): Promise<PluginUpdateStatus> {
+  const spawn = spawnFn ?? (await import("node:child_process")).spawn;
+  const refreshed = await runCopilot(spawn, ["plugin", "marketplace", "update", PLUGIN_NAME]);
+  if (refreshed === null) return "skipped";
+  const updated = await runCopilot(spawn, ["plugin", "update", PLUGIN_NAME]);
+  if (updated === null) return "skipped";
+  return updated === 0 ? "updated" : "failed";
+}
+
+function formatPluginStatus(status: PluginUpdateStatus): string {
+  switch (status) {
+    case "updated":
+      return "  Copilot plugin updated.";
+    case "failed":
+      return `  Copilot plugin update failed; run manually: ${PLUGIN_UPDATE_COMMAND}`;
+    case "skipped":
+      return "  Copilot plugin: skipped (copilot CLI not found).";
+  }
+}
+
 export interface MaybePromptUpdateOptions {
   cwd: string;
   io: UpdatePromptIO;
@@ -73,6 +121,7 @@ export interface MaybePromptUpdateOptions {
   checkForUpdate?: (options: { stateDir: string }) => Promise<UpdateInfo | null>;
   formatUpdateNotice?: (current: string, latest: string) => string;
   runUpdate?: () => Promise<boolean>;
+  updatePlugin?: () => Promise<PluginUpdateStatus>;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -111,13 +160,18 @@ export async function maybePromptUpdate(options: MaybePromptUpdateOptions): Prom
   const answer = (await options.io.ask("Update now? [y/N] "))?.trim().toLowerCase();
   if (answer === "y" || answer === "yes") {
     const runUpdate = options.runUpdate ?? runSelfUpdate;
+    const updatePlugin = options.updatePlugin ?? updateCopilotPlugin;
+    options.io.print("Updating omp CLI…");
     const ok = await runUpdate();
-    options.io.print(
-      ok
-        ? `Updated to v${update.latest} — re-run \`omp\`.`
-        : `Update failed; run manually: ${UPDATE_COMMAND}`,
-    );
-    return { updated: ok };
+    if (!ok) {
+      options.io.print(`Update failed; run manually: ${UPDATE_COMMAND}`);
+      return { updated: false };
+    }
+    // Keep the in-session Copilot plugin in lockstep with the CLI.
+    options.io.print("Refreshing Copilot plugin…");
+    options.io.print(formatPluginStatus(await updatePlugin()));
+    options.io.print(`Updated to v${update.latest} — re-run \`omp\`.`);
+    return { updated: true };
   }
 
   options.io.print(gettingStartedHint());

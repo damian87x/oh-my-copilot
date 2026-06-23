@@ -45,7 +45,12 @@ async function withUpdateIO<T>(
         const readline = await import("node:readline/promises");
         rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       }
-      return rl.question(prompt);
+      const answer = await rl.question(prompt);
+      // Release stdin immediately so the update/plugin child processes that
+      // follow (stdio: "inherit") never contend with an open readline.
+      rl.close();
+      rl = undefined;
+      return answer;
     },
   };
   try {
@@ -186,11 +191,19 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   }
 
   if (group === "update") {
-    const { runSelfUpdate } = await import("./copilot/update-prompt.js");
+    const { runSelfUpdate, updateCopilotPlugin } = await import("./copilot/update-prompt.js");
     const ok = await runSelfUpdate();
-    return ok
-      ? { ok: true, message: "Update complete — re-run `omp`." }
-      : { ok: false, message: "Update failed; run manually: npm i -g @damian87/omp@latest" };
+    if (!ok) {
+      return { ok: false, message: "Update failed; run manually: npm i -g @damian87/omp@latest" };
+    }
+    const plugin = await updateCopilotPlugin();
+    const pluginMsg =
+      plugin === "updated"
+        ? "Copilot plugin updated."
+        : plugin === "failed"
+          ? "Copilot plugin update failed; run: copilot plugin update oh-my-copilot"
+          : "Copilot plugin: skipped (copilot CLI not found).";
+    return { ok: true, message: `omp CLI updated.\n${pluginMsg}\nre-run \`omp\`.` };
   }
 
   // Auto-load ~/.omp/.env so subcommands that read process.env (slack tokens,
