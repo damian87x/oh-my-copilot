@@ -1,0 +1,16 @@
+{
+  "id": "p25-boundary-test",
+  "title": "p25-boundary-test",
+  "tags": [
+    "verify"
+  ],
+  "weight": 1,
+  "prompt": "Verify whether isEven.mjs correctly handles negatives and zero. Report PASS or FAIL with evidence. Do not edit.",
+  "checks": [
+    {
+      "type": "transcript_regex",
+      "value": "(PASS|FAIL)",
+      "label": "gave verdict"
+    }
+  ]
+}

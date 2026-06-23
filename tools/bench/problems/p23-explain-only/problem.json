@@ -1,0 +1,16 @@
+{
+  "id": "p23-explain-only",
+  "title": "p23-explain-only",
+  "tags": [
+    "research"
+  ],
+  "weight": 1,
+  "prompt": "Explain in 2 sentences what mystery.js does. Do not run or edit it.",
+  "checks": [
+    {
+      "type": "transcript_regex",
+      "value": "(fibonacci|recursi)",
+      "label": "identified fibonacci/recursion"
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "oh-my-copilot skill benchmark config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["modes", "problemsDir"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "description": { "type": "string" },
+    "copilotBin": { "type": "string", "description": "Copilot CLI binary. Overridable with OMP_COPILOT_BIN." },
+    "model": { "type": "string", "description": "Model passed to `copilot --model`." },
+    "runsPerCell": { "type": "integer", "minimum": 1, "description": "Repetitions per (problem,mode) cell. >1 surfaces variance." },
+    "timeoutMs": { "type": "integer", "minimum": 1000 },
+    "allowAllTools": { "type": "boolean", "description": "Pass --allow-all-tools (unattended full access). Only use on disposable fixtures." },
+    "concurrency": { "type": "integer", "minimum": 1, "description": "Parallel cells. Keep at 1 to avoid quota/rate noise unless you know your limits." },
+    "artifactDir": { "type": "string" },
+    "problemsDir": { "type": "string" },
+    "modes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "skills"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "skills": { "type": "boolean", "description": "true = skills dir visible to Copilot; false = temporarily hidden for a clean baseline." },
+          "env": { "type": "object", "description": "Extra env vars for this mode (e.g. {\"OMP_MINIFY\":\"0\"})." },
+          "extraArgs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "judge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "model": { "type": "string" },
+        "rubricHint": { "type": "string" }
+      }
+    },
+    "problems": {
+      "type": "array",
+      "description": "Inline problems. If empty, every problem.json under problemsDir is loaded.",
+      "items": { "$ref": "#/definitions/problem" }
+    }
+  },
+  "definitions": {
+    "problem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "prompt"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "prompt": { "type": "string", "description": "Exact prompt sent to `copilot -p`." },
+        "setup": { "type": "string", "description": "Shell run in the problem workdir before the agent starts (fixture reset)." },
+        "weight": { "type": "number", "minimum": 0, "default": 1 },
+        "checks": {
+          "type": "array",
+          "description": "Deterministic assertions scored after the run. All-or-nothing pass per check.",
+          "items": { "$ref": "#/definitions/check" }
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "enum": ["transcript_contains", "transcript_not_contains", "transcript_regex", "file_exists", "file_contains", "shell_exit_zero", "exit_zero", "max_tool_calls"] },
+        "value": { "type": "string", "description": "Needle / regex / file path / shell command depending on type." },
+        "path": { "type": "string", "description": "File path for file_* checks (relative to workdir)." },
+        "max": { "type": "integer", "description": "Threshold for max_tool_calls." },
+        "weight": { "type": "number", "minimum": 0, "default": 1 },
+        "label": { "type": "string" }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "p15-grep-count",
+  "title": "p15-grep-count",
+  "tags": [
+    "research"
+  ],
+  "weight": 1,
+  "prompt": "Report how many times the word 'TODO' appears across all .js files here. State the number. Do not edit files.",
+  "checks": [
+    {
+      "type": "transcript_regex",
+      "value": "\\b2\\b",
+      "label": "counted 2"
+    }
+  ]
+}

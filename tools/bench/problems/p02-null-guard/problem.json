@@ -1,0 +1,16 @@
+{
+  "id": "p02-null-guard",
+  "title": "Add null guard",
+  "tags": [
+    "debug"
+  ],
+  "weight": 1,
+  "prompt": "greet.js throws on null input. Make greet(null) return 'Hello, guest'. Keep greet('Ann') returning 'Hello, Ann'.",
+  "checks": [
+    {
+      "type": "shell_exit_zero",
+      "value": "node -e \"import('./greet.js').then(m=>{if(m.greet(null)!=='Hello, guest'||m.greet('Ann')!=='Hello, Ann')process.exit(1)})\"",
+      "label": "null + normal case"
+    }
+  ]
+}

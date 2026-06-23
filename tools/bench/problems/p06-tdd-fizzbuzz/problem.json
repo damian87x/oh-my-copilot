@@ -1,0 +1,21 @@
+{
+  "id": "p06-tdd-fizzbuzz",
+  "title": "TDD fizzbuzz",
+  "tags": [
+    "tdd"
+  ],
+  "weight": 1,
+  "prompt": "Create fizzbuzz.js exporting fizzbuzz(n): 'Fizz' for /3, 'Buzz' for /5, 'FizzBuzz' for /15, else the number as string. Then prove it works.",
+  "checks": [
+    {
+      "type": "file_exists",
+      "path": "fizzbuzz.js",
+      "label": "file created"
+    },
+    {
+      "type": "shell_exit_zero",
+      "value": "node -e \"import('./fizzbuzz.js').then(m=>{const f=m.fizzbuzz;if(f(3)!=='Fizz'||f(5)!=='Buzz'||f(15)!=='FizzBuzz'||f(2)!=='2')process.exit(1)})\"",
+      "label": "all cases pass"
+    }
+  ]
+}

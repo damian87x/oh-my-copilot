@@ -1,0 +1,16 @@
+{
+  "id": "p21-cli-arg",
+  "title": "p21-cli-arg",
+  "tags": [
+    "tdd"
+  ],
+  "weight": 1,
+  "prompt": "Make cli.mjs print 'hi <name>' for `node cli.mjs <name>`, default name 'world'. Verify both.",
+  "checks": [
+    {
+      "type": "shell_exit_zero",
+      "value": "test \"$(node cli.mjs Ann)\" = 'hi Ann' && test \"$(node cli.mjs)\" = 'hi world'",
+      "label": "arg + default"
+    }
+  ]
+}

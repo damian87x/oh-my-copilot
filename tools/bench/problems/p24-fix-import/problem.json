@@ -1,0 +1,16 @@
+{
+  "id": "p24-fix-import",
+  "title": "p24-fix-import",
+  "tags": [
+    "debug"
+  ],
+  "weight": 1,
+  "prompt": "main.mjs imports from './util.mjs' but the file is util2.mjs. Fix the import without renaming files.",
+  "checks": [
+    {
+      "type": "shell_exit_zero",
+      "value": "test \"$(node main.mjs)\" = '42'",
+      "label": "import fixed"
+    }
+  ]
+}

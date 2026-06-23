@@ -1,0 +1,16 @@
+{
+  "id": "p19-regex-extract",
+  "title": "p19-regex-extract",
+  "tags": [
+    "research"
+  ],
+  "weight": 1,
+  "prompt": "Report the version string found in pkg.txt (format x.y.z). State only the version. Do not edit.",
+  "checks": [
+    {
+      "type": "transcript_contains",
+      "value": "2.4.1",
+      "label": "found version"
+    }
+  ]
+}

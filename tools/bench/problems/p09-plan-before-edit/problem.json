@@ -1,0 +1,21 @@
+{
+  "id": "p09-plan-before-edit",
+  "title": "Produce a plan, then implement",
+  "tags": [
+    "ralplan"
+  ],
+  "weight": 1,
+  "prompt": "Implement isPalindrome(s) in pal.js (case-insensitive, ignore non-alphanumerics). First state a short plan, then implement, then verify.",
+  "checks": [
+    {
+      "type": "file_exists",
+      "path": "pal.js",
+      "label": "file created"
+    },
+    {
+      "type": "shell_exit_zero",
+      "value": "node -e \"import('./pal.js').then(m=>{if(!m.isPalindrome('A man, a plan, a canal: Panama')||m.isPalindrome('abc'))process.exit(1)})\"",
+      "label": "palindrome logic correct"
+    }
+  ]
+}

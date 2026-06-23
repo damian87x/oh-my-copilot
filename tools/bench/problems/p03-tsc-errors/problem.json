@@ -1,0 +1,28 @@
+{
+  "id": "p03-tsc-errors",
+  "title": "Report tsc errors exactly",
+  "tags": [
+    "verify",
+    "typecheck"
+  ],
+  "weight": 1,
+  "prompt": "Run a TypeScript typecheck on bad.ts and report the exact file and line of each error. Do not edit any file.",
+  "setup": "npm i -D typescript >/dev/null 2>&1 || true",
+  "checks": [
+    {
+      "type": "transcript_regex",
+      "value": "bad\\.ts.*1",
+      "label": "line 1 reported"
+    },
+    {
+      "type": "transcript_regex",
+      "value": "bad\\.ts.*2",
+      "label": "line 2 reported"
+    },
+    {
+      "type": "transcript_not_contains",
+      "value": "const x: number = 0",
+      "label": "did not edit"
+    }
+  ]
+}

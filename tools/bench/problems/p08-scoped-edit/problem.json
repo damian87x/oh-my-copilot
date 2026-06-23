@@ -1,0 +1,23 @@
+{
+  "id": "p08-scoped-edit",
+  "title": "Only edit requested file",
+  "tags": [
+    "scope"
+  ],
+  "weight": 1,
+  "prompt": "Change ONLY the value of VERSION in version.js from 1 to 2. Do not touch other.js.",
+  "checks": [
+    {
+      "type": "file_contains",
+      "path": "version.js",
+      "value": "VERSION=2",
+      "label": "version bumped"
+    },
+    {
+      "type": "file_contains",
+      "path": "other.js",
+      "value": "KEEP=true",
+      "label": "other.js untouched"
+    }
+  ]
+}

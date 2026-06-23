@@ -1,0 +1,17 @@
+{
+  "id": "p10-refactor-keep-behavior",
+  "title": "Refactor keeping behavior",
+  "tags": [
+    "code-review",
+    "scope"
+  ],
+  "weight": 1,
+  "prompt": "Refactor calc.js to remove duplication but keep add and mul behaving identically. Verify both still work.",
+  "checks": [
+    {
+      "type": "shell_exit_zero",
+      "value": "node -e \"import('./calc.js').then(m=>{if(m.add(2,3)!==5||m.mul(2,3)!==6)process.exit(1)})\"",
+      "label": "behavior preserved"
+    }
+  ]
+}

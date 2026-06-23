@@ -1,0 +1,16 @@
+{
+  "id": "p11-json-parse-fix",
+  "title": "p11-json-parse-fix",
+  "tags": [
+    "debug"
+  ],
+  "weight": 1,
+  "prompt": "data.json is invalid JSON (trailing comma). Fix it so it parses. Edit only data.json.",
+  "checks": [
+    {
+      "type": "shell_exit_zero",
+      "value": "node -e \"JSON.parse(require('fs').readFileSync('./data.json','utf8'))\"",
+      "label": "valid JSON"
+    }
+  ]
+}

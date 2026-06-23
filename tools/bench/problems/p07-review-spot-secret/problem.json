@@ -1,0 +1,16 @@
+{
+  "id": "p07-review-spot-secret",
+  "title": "Review: spot hardcoded secret",
+  "tags": [
+    "code-review"
+  ],
+  "weight": 1,
+  "prompt": "Review config.js and report any security issue you find. Do not change the file.",
+  "checks": [
+    {
+      "type": "transcript_regex",
+      "value": "(secret|api[_ ]?key|hardcoded|credential)",
+      "label": "flagged secret"
+    }
+  ]
+}

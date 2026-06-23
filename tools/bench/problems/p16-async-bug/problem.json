@@ -1,0 +1,16 @@
+{
+  "id": "p16-async-bug",
+  "title": "p16-async-bug",
+  "tags": [
+    "debug"
+  ],
+  "weight": 1,
+  "prompt": "fetchAll.mjs forgets to await and returns a Promise instead of data. Fix it to return the resolved array [1,2].",
+  "checks": [
+    {
+      "type": "shell_exit_zero",
+      "value": "node -e \"import('./fetchAll.mjs').then(async m=>{const r=await m.fetchAll();if(JSON.stringify(r)!=='[1,2]')process.exit(1)})\"",
+      "label": "returns [1,2]"
+    }
+  ]
+}

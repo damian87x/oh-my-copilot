@@ -1,0 +1,16 @@
+{
+  "id": "p14-env-default",
+  "title": "p14-env-default",
+  "tags": [
+    "debug"
+  ],
+  "weight": 1,
+  "prompt": "port.js reads process.env.PORT but crashes when unset. Default to 8080. Keep honoring PORT when set.",
+  "checks": [
+    {
+      "type": "shell_exit_zero",
+      "value": "node -e \"delete process.env.PORT; import('./port.js').then(m=>{if(m.port!==8080)process.exit(1)})\"",
+      "label": "defaults to 8080"
+    }
+  ]
+}

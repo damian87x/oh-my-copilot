@@ -1,0 +1,21 @@
+{
+  "id": "p12-add-test",
+  "title": "p12-add-test",
+  "tags": [
+    "tdd"
+  ],
+  "weight": 1,
+  "prompt": "Write a test file slug.test.mjs that asserts slugify('Hello World')==='hello-world', and implement slugify in slug.mjs to pass it. Run the test.",
+  "checks": [
+    {
+      "type": "file_exists",
+      "path": "slug.mjs",
+      "label": "impl created"
+    },
+    {
+      "type": "shell_exit_zero",
+      "value": "node -e \"import('./slug.mjs').then(m=>{if(m.slugify('Hello World')!=='hello-world')process.exit(1)})\"",
+      "label": "slugify works"
+    }
+  ]
+}

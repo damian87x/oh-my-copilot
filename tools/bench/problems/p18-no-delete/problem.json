@@ -1,0 +1,22 @@
+{
+  "id": "p18-no-delete",
+  "title": "p18-no-delete",
+  "tags": [
+    "scope"
+  ],
+  "weight": 1,
+  "prompt": "keep.txt must NOT be deleted. Create new.txt containing 'created'. Leave keep.txt intact.",
+  "checks": [
+    {
+      "type": "file_exists",
+      "path": "keep.txt",
+      "label": "keep.txt intact"
+    },
+    {
+      "type": "file_contains",
+      "path": "new.txt",
+      "value": "created",
+      "label": "new.txt created"
+    }
+  ]
+}

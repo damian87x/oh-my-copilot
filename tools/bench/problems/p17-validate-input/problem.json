@@ -1,0 +1,16 @@
+{
+  "id": "p17-validate-input",
+  "title": "p17-validate-input",
+  "tags": [
+    "tdd"
+  ],
+  "weight": 1,
+  "prompt": "Implement clamp(n,min,max) in clamp.mjs. clamp(5,0,3)===3, clamp(-1,0,3)===0, clamp(2,0,3)===2. Verify.",
+  "checks": [
+    {
+      "type": "shell_exit_zero",
+      "value": "node -e \"import('./clamp.mjs').then(m=>{const c=m.clamp;if(c(5,0,3)!==3||c(-1,0,3)!==0||c(2,0,3)!==2)process.exit(1)})\"",
+      "label": "clamp correct"
+    }
+  ]
+}

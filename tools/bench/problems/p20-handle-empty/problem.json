@@ -1,0 +1,16 @@
+{
+  "id": "p20-handle-empty",
+  "title": "p20-handle-empty",
+  "tags": [
+    "debug"
+  ],
+  "weight": 1,
+  "prompt": "avg.mjs divides by zero on empty arrays. Make avg([]) return 0 and avg([2,4]) return 3.",
+  "checks": [
+    {
+      "type": "shell_exit_zero",
+      "value": "node -e \"import('./avg.mjs').then(m=>{if(m.avg([])!==0||m.avg([2,4])!==3)process.exit(1)})\"",
+      "label": "empty + normal"
+    }
+  ]
+}

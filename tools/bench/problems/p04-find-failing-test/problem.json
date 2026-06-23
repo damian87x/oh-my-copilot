@@ -1,0 +1,22 @@
+{
+  "id": "p04-find-failing-test",
+  "title": "Find the failing test in noisy log",
+  "tags": [
+    "debug",
+    "minify"
+  ],
+  "weight": 1,
+  "prompt": "Run `node noisy.mjs` which prints a long log with one failing assertion in the middle. Name the failing test and the expected vs actual value. Do not edit files.",
+  "checks": [
+    {
+      "type": "transcript_contains",
+      "value": "math_add",
+      "label": "named failing test"
+    },
+    {
+      "type": "transcript_regex",
+      "value": "expected.*5|actual.*4",
+      "label": "reported expected/actual"
+    }
+  ]
+}

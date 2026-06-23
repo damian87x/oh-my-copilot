@@ -1,0 +1,30 @@
+{
+  "$schema": "./bench.schema.json",
+  "description": "Skill performance benchmark for oh-my-copilot. Runs each problem in one or more modes and scores the result deterministically (optionally with an LLM judge). Use to prove whether skills improve outcome quality, token cost, and latency vs a no-skills baseline.",
+  "copilotBin": "copilot",
+  "model": "claude-sonnet-4.5",
+  "runsPerCell": 1,
+  "timeoutMs": 600000,
+  "allowAllTools": true,
+  "concurrency": 1,
+  "artifactDir": ".omp/state/bench",
+  "modes": [
+    {
+      "id": "no-skills",
+      "label": "Baseline (skills hidden)",
+      "skills": false
+    },
+    {
+      "id": "with-skills",
+      "label": "Skills enabled",
+      "skills": true
+    }
+  ],
+  "judge": {
+    "enabled": false,
+    "model": "gpt-5",
+    "rubricHint": "Score 0-100 for correctness, completeness, and not doing more than asked."
+  },
+  "problemsDir": "problems",
+  "problems": []
+}

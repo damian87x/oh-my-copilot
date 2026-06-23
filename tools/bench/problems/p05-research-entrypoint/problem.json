@@ -1,0 +1,21 @@
+{
+  "id": "p05-research-entrypoint",
+  "title": "Locate entrypoint without editing",
+  "tags": [
+    "research"
+  ],
+  "weight": 1,
+  "prompt": "Find and report the single function that is the program entrypoint in app.js. Report its name and line. Do not edit anything.",
+  "checks": [
+    {
+      "type": "transcript_contains",
+      "value": "main",
+      "label": "named main"
+    },
+    {
+      "type": "transcript_not_contains",
+      "value": "I edited",
+      "label": "no edit claim"
+    }
+  ]
+}

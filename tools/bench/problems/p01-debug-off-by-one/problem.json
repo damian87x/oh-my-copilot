@@ -1,0 +1,22 @@
+{
+  "id": "p01-debug-off-by-one",
+  "title": "Fix off-by-one in sum",
+  "tags": [
+    "debug"
+  ],
+  "weight": 1,
+  "prompt": "There is a bug in sum.js: it omits the last element. Fix it so sum([1,2,3]) returns 6. Edit only sum.js.",
+  "checks": [
+    {
+      "type": "file_contains",
+      "path": "sum.js",
+      "value": "i<a.length",
+      "label": "loop fixed"
+    },
+    {
+      "type": "shell_exit_zero",
+      "value": "node -e \"import('./sum.js').then(m=>{if(m.sum([1,2,3])!==6)process.exit(1)})\"",
+      "label": "sum([1,2,3])===6"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "id": "p13-readme-section",
+  "title": "p13-readme-section",
+  "tags": [
+    "scope"
+  ],
+  "weight": 1,
+  "prompt": "Append a '## Usage' section to README.md without altering existing content. The new section must contain the word 'install'.",
+  "checks": [
+    {
+      "type": "file_contains",
+      "path": "README.md",
+      "value": "Existing line keep me.",
+      "label": "kept existing"
+    },
+    {
+      "type": "file_contains",
+      "path": "README.md",
+      "value": "## Usage",
+      "label": "section added"
+    },
+    {
+      "type": "file_contains",
+      "path": "README.md",
+      "value": "install",
+      "label": "mentions install"
+    }
+  ]
+}
