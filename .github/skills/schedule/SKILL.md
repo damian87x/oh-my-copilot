@@ -66,7 +66,9 @@ the `omp schedule …` commands on the user's behalf.
    are also surfaced automatically at the start of future sessions). To pull up
    the latest run with full context by id — e.g. after seeing a desktop
    notification titled `schedule: <id>` — run `omp schedule open <id>`, which
-   prints the latest status, summary, and the full captured output.
+   prints the latest status, summary, and the full captured output. Add `--tmux`
+   to instead drop into an interactive `omp` session (auto-wrapped in tmux) rooted
+   at the project, where the SessionStart banner surfaces that run — "ready to engage".
 7. **Remove** when done: `omp schedule remove --id <id>` (fully uninstalls the OS
    entry; do NOT delete `.omp/state/schedule/` by hand).
 
