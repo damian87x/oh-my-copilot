@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+.worktrees/
 *.log
 .DS_Store
 .omx

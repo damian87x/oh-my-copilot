@@ -46,6 +46,18 @@ export interface ScheduleJob {
    * Notify failures never fail the job — they're logged to stderr only.
    */
   notifyTarget?: string;
+  /**
+   * When true, fire a native desktop notification after each completed run
+   * (independent of, and combinable with, notifyTarget). Best-effort: a failed
+   * desktop notification is logged to stderr and never fails the job.
+   */
+  notifyDesktop?: boolean;
+  /**
+   * When true (and on macOS), the desktop notification's click action opens an
+   * interactive `omp` session in the job's cwd instead of the raw run log. Has
+   * no effect unless notifyDesktop is also set.
+   */
+  notifyOpenOmp?: boolean;
 }
 
 /** One line in `results/<id>.jsonl`. "Seen" state lives in the cursor, not here. */
@@ -72,4 +84,8 @@ export interface ScheduleAddOptions {
   dryRun?: boolean;
   /** See ScheduleJob.notifyTarget. */
   notifyTarget?: string;
+  /** See ScheduleJob.notifyDesktop. */
+  notifyDesktop?: boolean;
+  /** See ScheduleJob.notifyOpenOmp. */
+  notifyOpenOmp?: boolean;
 }

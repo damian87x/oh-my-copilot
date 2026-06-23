@@ -5,7 +5,9 @@ import { resolveCopilotBin } from "../copilot/launch.js";
 import { appendRunResult, readJob, writeJob } from "./job-store.js";
 import { acquireLock, forceReleaseStaleLock, isLockStale } from "./lock.js";
 import { jobFilePath, jobLockPath, resultsFilePath, runLogDir, type SchedulePaths } from "./paths.js";
+import { resolveOpenTarget } from "./deep-link.js";
 import { DEFAULT_TIMEOUT_MS, type ScheduleJob, type ScheduleRunResult, type ScheduleRunStatus } from "./types.js";
+import type { DesktopNotifyOptions } from "../gateway/desktop-notify.js";
 
 export interface RunOptions {
   /** Called when a job has expired (TTL passed or maxRuns reached) so the caller can uninstall the OS entry. */
@@ -16,6 +18,12 @@ export interface RunOptions {
    * logs it to stderr — notify failures never propagate into the job result.
    */
   notify?: (text: string, target: string) => Promise<{ ok: boolean; reason?: string }>;
+  /**
+   * Override the desktop-notify implementation (tests). Defaults to
+   * `gateway/desktop-notify.notifyDesktop`. Failures are logged to stderr only
+   * and never propagate into the job result.
+   */
+  notifyDesktop?: (opts: DesktopNotifyOptions) => Promise<{ ok: boolean; reason?: string }>;
 }
 
 function isExpired(job: ScheduleJob): boolean {
@@ -192,6 +200,42 @@ export async function runScheduledJob(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         process.stderr.write(`schedule: notify crashed for ${job.id}: ${msg}\n`);
+      }
+    }
+
+    // Best-effort end-of-run desktop notification. Independent of (and combinable
+    // with) the Slack post above; same failure-isolation contract. The disable
+    // kill-switch is honored up front so a disabled run writes no launcher artifact.
+    if (job.notifyDesktop && !(process.env.OMP_DISABLE_DESKTOP_NOTIFY ?? "").trim()) {
+      try {
+        const open = resolveOpenTarget({
+          platform: process.platform,
+          notifyOpenOmp: job.notifyOpenOmp ?? false,
+          logDir: runLogDir(paths.logsDir, job.id),
+          logPath: result.logPath,
+          // Open the schedule STATE ROOT (where the [SCHEDULE RESULTS] banner
+          // reads from), not job.cwd — they can differ when --cwd is set.
+          cwd: paths.cwd,
+          ompBinPath: job.ompBinPath,
+        });
+        const notifyDesktop =
+          opts.notifyDesktop ??
+          (async (o: DesktopNotifyOptions) => {
+            const { notifyDesktop: realNotify } = await import("../gateway/desktop-notify.js");
+            const r = await realNotify(o);
+            return r.ok ? { ok: true } : { ok: false, reason: r.reason };
+          });
+        const r = await notifyDesktop({
+          title: `schedule: ${job.id}`,
+          message: `${result.status} — ${result.summary}`,
+          open,
+        });
+        if (!r.ok) {
+          process.stderr.write(`schedule: desktop notify failed for ${job.id}: ${r.reason ?? "unknown"}\n`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`schedule: desktop notify crashed for ${job.id}: ${msg}\n`);
       }
     }
 

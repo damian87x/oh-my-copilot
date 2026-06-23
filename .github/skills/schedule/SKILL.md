@@ -37,14 +37,39 @@ the `omp schedule …` commands on the user's behalf.
    ```bash
    omp schedule add --id <id> --cron "<expr>" --prompt "<text>" \
      [--allow-all-tools] [--cwd <dir>] [--model <m>] [--timeout <ms>] \
-     [--max-runs <n>] [--ttl-hours <h>] --json
+     [--max-runs <n>] [--ttl-hours <h>] \
+     [--notify-target slack:<ID>] [--notify-desktop] [--notify-open-omp] --json
    ```
    Jobs auto-expire after 72h by default (`--ttl-hours`) — set a longer TTL or a
    `--max-runs` cap as needed. Use `--dry-run` to preview the OS entry first.
+
+   **End-of-run notifications (all opt-in, default off; failures never affect the job):**
+   - `--notify-target slack:<C|G|D|U…>` — post the run summary to Slack (needs
+     `SLACK_BOT_TOKEN`; falls back to `SLACK_HOME_CHANNEL` when no target).
+   - `--notify-desktop` — fire a native desktop notification (job id + status +
+     one-line summary). Transport per OS: **macOS → `osascript`** (the only path
+     that reliably displays on Sequoia; shown under "Script Editor", **not
+     clickable**); **Linux/Windows → node-notifier** (notify-send / SnoreToast).
+   - `--notify-open-omp` — make the notification's click open an interactive `omp`
+     session in the schedule state root (the SessionStart banner then surfaces the
+     latest result). **Requires a click-capable transport**, which on macOS means a
+     system `terminal-notifier` enabled via `OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1`
+     (`brew install terminal-notifier`). Note: terminal-notifier does **not**
+     display on some macOS Sequoia builds — if notifications stop appearing,
+     unset that env to fall back to osascript (display-only). Disable desktop
+     notifications entirely with `OMP_DISABLE_DESKTOP_NOTIFY=1`.
+
+   Slack and desktop are independent and can be combined on one job.
 4. **Confirm** by listing: `omp schedule list --json`.
 5. **Trigger now** to test it once: `omp schedule run-now --id <id>`.
 6. **Inspect** results: `omp schedule status --id <id> --json` (recent results
-   are also surfaced automatically at the start of future sessions).
+   are also surfaced automatically at the start of future sessions). To pull up
+   the latest run with full context by id — e.g. after seeing a desktop
+   notification titled `schedule: <id>` — run `omp schedule open <id>`, which
+   prints the latest status, summary, and the full captured output. Add `--tmux`
+   to instead drop into an interactive `omp` session (auto-wrapped in tmux) rooted
+   at the project; the SessionStart banner surfaces *recent* scheduled runs there
+   (not pinned to `<id>`) — for this id's exact output, use plain `omp schedule open <id>`.
 7. **Remove** when done: `omp schedule remove --id <id>` (fully uninstalls the OS
    entry; do NOT delete `.omp/state/schedule/` by hand).
 

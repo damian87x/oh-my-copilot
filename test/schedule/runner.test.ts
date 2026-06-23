@@ -187,4 +187,105 @@ describe("schedule runner", () => {
       expect(lockHeldDuringNotify).toBe(false);
     });
   });
+
+  describe("notifyDesktop integration", () => {
+    it("fires a desktop notification with title/message/open after a run", async () => {
+      const calls: Array<{ title: string; message: string; open?: string }> = [];
+      const job = makeJob({ notifyDesktop: true });
+      const result = await runScheduledJob(job, paths, {
+        notifyDesktop: async (o) => {
+          calls.push(o);
+          return { ok: true };
+        },
+      });
+      expect(result.status).toBe("ok");
+      expect(calls).toHaveLength(1);
+      expect(calls[0].title).toBe("schedule: t");
+      expect(calls[0].message).toMatch(/^ok — /);
+      // default (notifyOpenOmp off) → opens the raw run log
+      expect(calls[0].open).toBe(`file://${result.logPath}`);
+    });
+
+    it("does NOT fire a desktop notification when notifyDesktop is unset", async () => {
+      const calls: unknown[] = [];
+      const job = makeJob(); // no notifyDesktop
+      await runScheduledJob(job, paths, {
+        notifyDesktop: async () => {
+          calls.push(true);
+          return { ok: true };
+        },
+      });
+      expect(calls).toHaveLength(0);
+    });
+
+    it("fires BOTH Slack and desktop when both are configured (independent)", async () => {
+      const slack: unknown[] = [];
+      const desktop: unknown[] = [];
+      const job = makeJob({ notifyTarget: "slack:C0BOQV5434G", notifyDesktop: true });
+      await runScheduledJob(job, paths, {
+        notify: async () => {
+          slack.push(true);
+          return { ok: true };
+        },
+        notifyDesktop: async () => {
+          desktop.push(true);
+          return { ok: true };
+        },
+      });
+      expect(slack).toHaveLength(1);
+      expect(desktop).toHaveLength(1);
+    });
+
+    it("desktop notify failure does NOT change the job result", async () => {
+      const job = makeJob({ notifyDesktop: true });
+      const result = await runScheduledJob(job, paths, {
+        notifyDesktop: async () => ({ ok: false, reason: "no notifier" }),
+      });
+      expect(result.status).toBe("ok");
+    });
+
+    it("desktop notify crash does NOT break the run", async () => {
+      const job = makeJob({ notifyDesktop: true });
+      const result = await runScheduledJob(job, paths, {
+        notifyDesktop: async () => {
+          throw new Error("notifier exploded");
+        },
+      });
+      expect(result.status).toBe("ok");
+    });
+
+    // The open-omp launcher must open the schedule STATE ROOT (where the
+    // [SCHEDULE RESULTS] banner reads from), not the agent's --cwd, which may
+    // differ. macOS-only because the launcher is only generated on darwin.
+    (process.platform === "darwin" ? it : it.skip)(
+      "open-omp launcher targets the state root, not a divergent job.cwd",
+      async () => {
+        const otherCwd = mkdtempSync(path.join(tmpdir(), "omp-job-cwd-"));
+        const job = makeJob({ notifyDesktop: true, notifyOpenOmp: true, cwd: otherCwd });
+        await runScheduledJob(job, paths, { notifyDesktop: async () => ({ ok: true }) });
+        const launcher = readFileSync(path.join(paths.logsDir, "t", "open-omp.command"), "utf8");
+        expect(launcher).toContain(`cd -- '${paths.cwd}'`);
+        expect(launcher).not.toContain(otherCwd);
+      },
+    );
+
+    it("OMP_DISABLE_DESKTOP_NOTIFY skips the desktop dispatch entirely (no notify, no launcher write)", async () => {
+      const saved = process.env.OMP_DISABLE_DESKTOP_NOTIFY;
+      process.env.OMP_DISABLE_DESKTOP_NOTIFY = "1";
+      try {
+        const calls: unknown[] = [];
+        const job = makeJob({ notifyDesktop: true, notifyOpenOmp: true });
+        await runScheduledJob(job, paths, {
+          notifyDesktop: async () => {
+            calls.push(true);
+            return { ok: true };
+          },
+        });
+        expect(calls).toHaveLength(0);
+      } finally {
+        if (saved === undefined) delete process.env.OMP_DISABLE_DESKTOP_NOTIFY;
+        else process.env.OMP_DISABLE_DESKTOP_NOTIFY = saved;
+      }
+    });
+  });
 });
