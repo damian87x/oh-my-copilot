@@ -13,6 +13,13 @@ results back to the project so the next session sees them.
 This is the in-session front-end to the `omp schedule` CLI. You (the agent) run
 the `omp schedule …` commands on the user's behalf.
 
+**Listing & inspecting existing jobs** — if the user just wants to see, inspect, or
+remove jobs (not create one), route straight to the CLI; do NOT reach for
+`crontab`/`launchctl`:
+- List all jobs: `omp schedule list [--json]`
+- Inspect one job's status + recent results: `omp schedule status --id <id> [--json]`
+- Remove a job: `omp schedule remove --id <id>`
+
 ## When to use
 
 - The user wants something to run on a repeat: "check the PR every 15 minutes",

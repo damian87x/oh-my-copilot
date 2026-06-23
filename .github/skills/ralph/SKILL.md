@@ -25,7 +25,7 @@ Accept a plan from `/ralplan`, a ticket, or a concrete task description. If a `/
 
 ## Steps
 
-1. **Register the loop** — run `omp ralph start "<task>" --max-iterations 10`. This tracks the loop so `omp ralph status` and `/team` nudges can see it and the iteration cap is enforced. State what "done" looks like before writing code.
+1. **Register the loop FIRST** — before editing any file, run `omp ralph start "<task>" --max-iterations 10`. This is mandatory even for small tasks: it tracks the loop so `omp ralph status`/`cancel` and `/team` nudges can see it and the iteration cap is enforced. Skipping it leaves the loop invisible to the CLI. State what "done" looks like, then start writing code.
 2. **Implement** one slice at a time, in plan order.
 3. **Verify after each slice** — run tests, lint, type-check. Do not batch verification to the end.
 4. **Fix** any failures immediately before moving to the next slice.
