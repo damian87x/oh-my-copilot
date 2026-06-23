@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildOsascriptArgs, notifyDesktop } from "../../src/gateway/desktop-notify.js";
+import { buildOsascriptArgs, isSystemNotifierPath, notifyDesktop } from "../../src/gateway/desktop-notify.js";
 
 /** Records the payloads handed to an injected transport. */
 function spyTransport(result: { ok: true } | { ok: false; reason: string }) {
@@ -99,6 +99,26 @@ describe("buildOsascriptArgs", () => {
       'ok — "quote" & $(boom)',
       "schedule: t",
     ]);
+  });
+});
+
+describe("isSystemNotifierPath", () => {
+  it("accepts a real system path (brew Cellar)", () => {
+    expect(isSystemNotifierPath("/opt/homebrew/bin/terminal-notifier", "/opt/homebrew/Cellar/terminal-notifier/2.0.0/bin/terminal-notifier")).toBe(true);
+  });
+
+  it("rejects when the PATH entry itself is under node_modules", () => {
+    expect(isSystemNotifierPath("/x/node_modules/node-notifier/vendor/terminal-notifier", "/x/node_modules/node-notifier/vendor/terminal-notifier")).toBe(false);
+  });
+
+  it("rejects a symlink whose REAL target resolves into node_modules (the bundled binary)", () => {
+    expect(
+      isSystemNotifierPath("/usr/local/bin/terminal-notifier", "/Users/me/proj/node_modules/node-notifier/vendor/mac.noindex/terminal-notifier.app/Contents/MacOS/terminal-notifier"),
+    ).toBe(false);
+  });
+
+  it("rejects an empty resolution", () => {
+    expect(isSystemNotifierPath("", "")).toBe(false);
   });
 });
 

@@ -19,6 +19,7 @@
  * children are our own and are killed on timeout.
  */
 import { execFile, execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 
 export interface DesktopNotifyOptions {
   title: string;
@@ -137,17 +138,25 @@ function selectTransport(platform: NodeJS.Platform, deps: DesktopNotifyDeps): Tr
     // notifications. See OMP_NOTIFY_USE_TERMINAL_NOTIFIER.
     const env = deps.env ?? process.env;
     const optIn = Boolean((env.OMP_NOTIFY_USE_TERMINAL_NOTIFIER ?? "").trim());
-    const useTN = optIn && (deps.hasSystemTerminalNotifier ?? detectSystemTerminalNotifier());
-    return (payload, timeoutMs) => deliverMac(payload, exec, useTN, timeoutMs);
+    const tnCommand = optIn ? resolveTerminalNotifier(deps) : null;
+    return (payload, timeoutMs) => deliverMac(payload, exec, tnCommand, timeoutMs);
   }
   return (payload, timeoutMs) => deliverNodeNotifier(payload, deps, timeoutMs);
 }
 
+/** The terminal-notifier command to exec (validated absolute path), or null to use osascript. */
+function resolveTerminalNotifier(deps: DesktopNotifyDeps): string | null {
+  if (deps.hasSystemTerminalNotifier !== undefined) {
+    return deps.hasSystemTerminalNotifier ? "terminal-notifier" : null;
+  }
+  return detectSystemTerminalNotifier();
+}
+
 /** macOS: osascript displays reliably (no click); opt-in terminal-notifier adds the click `-open`. */
-function deliverMac(p: ResolvedPayload, exec: ExecFn, useTerminalNotifier: boolean, timeoutMs: number): Promise<DesktopNotifyResult> {
-  if (useTerminalNotifier) {
+function deliverMac(p: ResolvedPayload, exec: ExecFn, tnCommand: string | null, timeoutMs: number): Promise<DesktopNotifyResult> {
+  if (tnCommand) {
     const args = ["-title", p.title, "-message", p.message, ...(p.open ? ["-open", p.open] : [])];
-    return exec("terminal-notifier", args, timeoutMs);
+    return exec(tnCommand, args, timeoutMs);
   }
   return exec("osascript", buildOsascriptArgs(p.title, p.message), timeoutMs);
 }
@@ -191,13 +200,31 @@ const realExec: ExecFn = (file, args, timeoutMs) =>
     });
   });
 
-/** True only for a system (PATH) terminal-notifier — never node-notifier's bundled copy. */
-function detectSystemTerminalNotifier(): boolean {
+/** True only when neither the PATH entry nor its real (symlink-resolved) target is under node_modules. */
+export function isSystemNotifierPath(resolved: string, real: string): boolean {
+  if (!resolved) return false;
+  const hasNodeModules = (p: string): boolean => p.split(/[\\/]/).includes("node_modules");
+  return !hasNodeModules(resolved) && !hasNodeModules(real);
+}
+
+/**
+ * Resolve a SYSTEM terminal-notifier to its validated absolute path, or null.
+ * Resolves the symlink target too, so a PATH symlink pointing at node-notifier's
+ * bundled copy is rejected (it does not display on Sequoia and isn't "system").
+ */
+function detectSystemTerminalNotifier(): string | null {
   try {
     const resolved = execFileSync("which", ["terminal-notifier"], { encoding: "utf8" }).trim();
-    return Boolean(resolved) && !resolved.includes("node_modules");
+    if (!resolved) return null;
+    let real = resolved;
+    try {
+      real = realpathSync(resolved);
+    } catch {
+      // keep `resolved` if the realpath lookup fails
+    }
+    return isSystemNotifierPath(resolved, real) ? real : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
