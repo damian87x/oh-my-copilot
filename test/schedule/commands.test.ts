@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,11 +11,12 @@ vi.mock("../../src/schedule/installer.js", () => ({
 }));
 
 import { installJob, uninstallJob } from "../../src/schedule/installer.js";
-import { readJob } from "../../src/schedule/job-store.js";
+import { readJob, writeJob } from "../../src/schedule/job-store.js";
 import { jobFilePath, resolveSchedulePaths } from "../../src/schedule/paths.js";
 import {
   addScheduleJob,
   listScheduleJobs,
+  openScheduleResult,
   removeScheduleJob,
   resolveOmpBinPath,
 } from "../../src/schedule/commands.js";
@@ -111,6 +112,36 @@ describe("addScheduleJob", () => {
     addScheduleJob(root, { id: "pr", cron: "0 9,12 * * 1-5", prompt: "second" }); // would detect crontab
     // the re-add must uninstall the OLD entry by its recorded backend (launchd), not just crontab
     expect(uninstallJob).toHaveBeenCalledWith("pr", "launchd");
+  });
+});
+
+describe("openScheduleResult", () => {
+  it("returns an error for an unknown id", () => {
+    const r = openScheduleResult(root, "nope");
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/no schedule job "nope"/);
+  });
+
+  it("returns the job and the full captured log of the latest run", () => {
+    addScheduleJob(root, { id: "dep", cron: "0 9 * * *", prompt: "scan" });
+    const paths = resolveSchedulePaths(root);
+    const jobPath = jobFilePath(paths.jobsDir, "dep");
+    const logPath = path.join(root, "dep-latest.log");
+    writeFileSync(logPath, "FULL DEPENDABOT OUTPUT\nC:0 H:6 M:8 L:0", "utf8");
+    const job = readJob(jobPath)!;
+    writeJob(jobPath, { ...job, lastStatus: "ok", lastRunAt: "2026-06-23T09:00:00Z", lastSummary: "14 alerts", lastLogPath: logPath });
+
+    const r = openScheduleResult(root, "dep");
+    expect(r.ok).toBe(true);
+    expect(r.job?.lastSummary).toBe("14 alerts");
+    expect(r.logContent).toContain("FULL DEPENDABOT OUTPUT");
+  });
+
+  it("succeeds with no logContent when the job has not run yet", () => {
+    addScheduleJob(root, { id: "fresh", cron: "0 9 * * *", prompt: "scan" });
+    const r = openScheduleResult(root, "fresh");
+    expect(r.ok).toBe(true);
+    expect(r.logContent).toBeUndefined();
   });
 });
 

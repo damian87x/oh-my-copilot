@@ -63,7 +63,10 @@ the `omp schedule …` commands on the user's behalf.
 4. **Confirm** by listing: `omp schedule list --json`.
 5. **Trigger now** to test it once: `omp schedule run-now --id <id>`.
 6. **Inspect** results: `omp schedule status --id <id> --json` (recent results
-   are also surfaced automatically at the start of future sessions).
+   are also surfaced automatically at the start of future sessions). To pull up
+   the latest run with full context by id — e.g. after seeing a desktop
+   notification titled `schedule: <id>` — run `omp schedule open <id>`, which
+   prints the latest status, summary, and the full captured output.
 7. **Remove** when done: `omp schedule remove --id <id>` (fully uninstalls the OS
    entry; do NOT delete `.omp/state/schedule/` by hand).
 

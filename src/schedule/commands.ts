@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { basename } from "node:path";
 import { getInstalledStatus, installJob, uninstallJob } from "./installer.js";
 import { deleteJob, listJobs, readJob, writeJob } from "./job-store.js";
@@ -160,6 +160,34 @@ export function getScheduleStatus(stateCwd: string, id: string): StatusView {
   const paths = resolveSchedulePaths(stateCwd);
   const job = readJob(jobFilePath(paths.jobsDir, id));
   return { job, osInstalled: job ? getInstalledStatus(id, job.backend) : false };
+}
+
+export interface OpenResult {
+  ok: boolean;
+  job?: ScheduleJob;
+  /** Full captured output of the latest run (contents of job.lastLogPath), if present. */
+  logContent?: string;
+  error?: string;
+}
+
+/**
+ * Resolve a job's latest run for `omp schedule open <id>` — the by-id substitute
+ * for clicking a notification: returns the job plus the full captured log so the
+ * caller can surface the latest scan with full context. Read-only; never throws.
+ */
+export function openScheduleResult(stateCwd: string, id: string): OpenResult {
+  const paths = resolveSchedulePaths(stateCwd);
+  const job = readJob(jobFilePath(paths.jobsDir, id));
+  if (!job) return { ok: false, error: `no schedule job "${id}"` };
+  let logContent: string | undefined;
+  if (job.lastLogPath && existsSync(job.lastLogPath)) {
+    try {
+      logContent = readFileSync(job.lastLogPath, "utf8");
+    } catch {
+      // log unreadable — still return the job metadata
+    }
+  }
+  return { ok: true, job, logContent };
 }
 
 /** Run handler entry used by `omp schedule run|run-now`. Missing job → clean no-op (exit 0). */
