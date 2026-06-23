@@ -1,54 +1,94 @@
 /**
  * Native desktop notifier — Hermes-style sibling of gateway/notify.ts. No daemon.
- * Each call is a one-shot, best-effort native OS notification via node-notifier
- * (cross-platform; on macOS it shells out to a vendored terminal-notifier).
+ * Each call is a one-shot, best-effort native OS notification.
+ *
+ * Platform transports (the bundled node-notifier terminal-notifier does NOT
+ * display on modern macOS — it is an unsigned app run from node_modules — so we
+ * do not use it there):
+ *   - macOS: `osascript display notification` by default — the only path that
+ *     reliably DISPLAYS on macOS Sequoia. It cannot carry a click action. A
+ *     system `terminal-notifier` (which supports the click `-open` deep-link)
+ *     is used only when OMP_NOTIFY_USE_TERMINAL_NOTIFIER is set, since it does
+ *     not display on some Sequoia builds.
+ *   - Linux/Windows: node-notifier (notify-send / SnoreToast).
  *
  * Contract (mirrors notify.ts): NEVER throws. Returns a structured result so the
  * caller (the schedule runner) can log a dropped notification to stderr without
- * the failure ever propagating into the job result.
- *
- * Deep-link: the `open` field is handed to the OS notification itself (URL or
- * file path opened on click). It is handled by the notification daemon, so it
- * survives the fire-and-exit cron process — unlike node-notifier's `click`
- * event, which would require keeping the process alive (`wait: true`).
+ * the failure ever propagating into the job result. A bounded timeout means a
+ * wedged backend can never hang `omp schedule run`; the osascript/terminal-notifier
+ * children are our own and are killed on timeout.
  */
+import { execFile, execFileSync } from "node:child_process";
 
 export interface DesktopNotifyOptions {
   title: string;
   message: string;
-  /** URL or absolute file path to open when the notification is clicked. */
+  /** URL or absolute file path to open when the notification is clicked (click-capable transports only). */
   open?: string;
 }
 
-/** Minimal slice of node-notifier we depend on (also the test seam). */
+/** Resolved, non-empty payload handed to a transport. */
+export interface ResolvedPayload {
+  title: string;
+  message: string;
+  open?: string;
+}
+
+/** Minimal slice of node-notifier we depend on (also a test seam). */
 export interface Notifier {
   notify(opts: Record<string, unknown>, cb?: (err: Error | null) => void): void;
 }
+
+/** Low-level command runner (test seam). Never throws; returns the structured result. */
+export type ExecFn = (file: string, args: string[], timeoutMs: number) => Promise<DesktopNotifyResult>;
+
+/** A delivery transport (test seam — bypasses platform selection entirely). */
+export type Transport = (payload: ResolvedPayload, timeoutMs: number) => Promise<DesktopNotifyResult>;
 
 export interface DesktopNotifyDeps {
   /** Override env (tests). Defaults to process.env. */
   env?: NodeJS.ProcessEnv;
   /** Override platform (tests). Defaults to process.platform. */
   platform?: NodeJS.Platform;
-  /** Inject the notifier (tests). Defaults to a lazily-loaded node-notifier. */
-  notifier?: Notifier;
-  /** Max wait for the notifier callback before giving up. Default 8s. */
+  /** Max wait for delivery before giving up. Default 15s. */
   timeoutMs?: number;
+  /** Inject the full transport (tests) — bypasses platform selection. */
+  transport?: Transport;
+  /** Inject the command runner (tests) for the macOS transports. */
+  exec?: ExecFn;
+  /** Inject system-terminal-notifier availability (tests). Defaults to a PATH lookup. */
+  hasSystemTerminalNotifier?: boolean;
+  /** Inject node-notifier (tests) for the non-macOS transport. */
+  notifier?: Notifier;
 }
 
 export type DesktopNotifyResult = { ok: true; skipped?: boolean } | { ok: false; reason: string };
 
 /**
- * Bound on how long we wait for the notifier callback (a hung backend must not
- * stall cron). Kept comfortably above node-notifier's own ~10s display timeout
- * so a slow-but-successful delivery is not misclassified as a timeout.
- *
- * Note: we do not set `wait`, so node-notifier's terminal-notifier child posts
- * and exits immediately (the callback fires promptly in practice). This timeout
- * is a backstop for a wedged backend; we cannot kill node-notifier's own child,
- * but in non-wait mode it does not outlive the post.
+ * Bound on how long we wait for delivery (a hung backend must not stall cron).
+ * Kept comfortably above node-notifier's own ~10s display timeout so a slow but
+ * successful delivery is not misclassified as a timeout.
  */
 const DEFAULT_TIMEOUT_MS = 15_000;
+
+/**
+ * Build the argv for `osascript`. The message/title are passed as `argv` items
+ * (via `on run argv`), never interpolated into the AppleScript source, so an
+ * arbitrary run summary cannot inject AppleScript.
+ */
+export function buildOsascriptArgs(title: string, message: string): string[] {
+  return [
+    "-e",
+    "on run argv",
+    "-e",
+    "display notification (item 1 of argv) with title (item 2 of argv)",
+    "-e",
+    "end run",
+    "--",
+    message,
+    title,
+  ];
+}
 
 /**
  * Fire a desktop notification. Library entry point — never throws.
@@ -65,7 +105,6 @@ export async function notifyDesktop(
   if ((env.OMP_DISABLE_DESKTOP_NOTIFY ?? "").trim()) {
     return { ok: true, skipped: true };
   }
-  // Headless Linux has no notification surface — skip rather than error.
   if (platform === "linux" && !env.DISPLAY && !env.WAYLAND_DISPLAY) {
     return { ok: true, skipped: true };
   }
@@ -76,36 +115,89 @@ export async function notifyDesktop(
     return { ok: false, reason: "title and message are both empty" };
   }
 
-  try {
-    const notifier = deps.notifier ?? (await loadNotifier());
-    // Title/message are passed as data fields only (never as CLI args) — node-notifier
-    // (>=9, CVE-2020-7789 fixed) escapes them. `open` is the OS-handled click target.
-    const payload: Record<string, unknown> = { title: title || message, message, sound: false };
-    if (opts.open) payload.open = opts.open;
+  const payload: ResolvedPayload = { title: title || message, message, open: opts.open };
+  const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-    const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    return await new Promise<DesktopNotifyResult>((resolve) => {
-      let settled = false;
-      const done = (r: DesktopNotifyResult): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(r);
-      };
-      // If the notifier backend never calls back, give up so `omp schedule run`
-      // can still exit instead of hanging the scheduled process forever. The
-      // timer is intentionally NOT unref'd: in a standalone CLI it is the only
-      // live handle, so unref'ing it would let Node exit before it fires and
-      // leave this promise unsettled. The fast path clears it immediately.
-      const timer = setTimeout(() => done({ ok: false, reason: `desktop notify timed out after ${timeoutMs}ms` }), timeoutMs);
-      try {
-        notifier.notify(payload, (err) => done(err ? { ok: false, reason: err.message } : { ok: true }));
-      } catch (err) {
-        done({ ok: false, reason: err instanceof Error ? err.message : String(err) });
-      }
-    });
+  try {
+    const transport = deps.transport ?? selectTransport(platform, deps);
+    return await withTimeout(() => transport(payload, timeoutMs), timeoutMs);
   } catch (err) {
-    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    return { ok: false, reason: errMsg(err) };
+  }
+}
+
+/** Pick the delivery transport for this host. */
+function selectTransport(platform: NodeJS.Platform, deps: DesktopNotifyDeps): Transport {
+  const exec = deps.exec ?? realExec;
+  if (platform === "darwin") {
+    // Default to osascript: it is the one path that reliably displays on macOS
+    // Sequoia. A system terminal-notifier (which supports the click `-open`
+    // deep-link) is used ONLY when explicitly opted in, because it does not
+    // display on some Sequoia builds — preferring it would silently break
+    // notifications. See OMP_NOTIFY_USE_TERMINAL_NOTIFIER.
+    const env = deps.env ?? process.env;
+    const optIn = Boolean((env.OMP_NOTIFY_USE_TERMINAL_NOTIFIER ?? "").trim());
+    const useTN = optIn && (deps.hasSystemTerminalNotifier ?? detectSystemTerminalNotifier());
+    return (payload, timeoutMs) => deliverMac(payload, exec, useTN, timeoutMs);
+  }
+  return (payload, timeoutMs) => deliverNodeNotifier(payload, deps, timeoutMs);
+}
+
+/** macOS: osascript displays reliably (no click); opt-in terminal-notifier adds the click `-open`. */
+function deliverMac(p: ResolvedPayload, exec: ExecFn, useTerminalNotifier: boolean, timeoutMs: number): Promise<DesktopNotifyResult> {
+  if (useTerminalNotifier) {
+    const args = ["-title", p.title, "-message", p.message, ...(p.open ? ["-open", p.open] : [])];
+    return exec("terminal-notifier", args, timeoutMs);
+  }
+  return exec("osascript", buildOsascriptArgs(p.title, p.message), timeoutMs);
+}
+
+/** Non-macOS: node-notifier (notify-send / SnoreToast), bounded by the outer timeout. */
+async function deliverNodeNotifier(p: ResolvedPayload, deps: DesktopNotifyDeps, _timeoutMs: number): Promise<DesktopNotifyResult> {
+  const notifier = deps.notifier ?? (await loadNotifier());
+  const opts: Record<string, unknown> = { title: p.title, message: p.message, sound: false };
+  if (p.open) opts.open = p.open;
+  return new Promise<DesktopNotifyResult>((resolve) => {
+    try {
+      notifier.notify(opts, (err) => resolve(err ? { ok: false, reason: err.message } : { ok: true }));
+    } catch (err) {
+      resolve({ ok: false, reason: errMsg(err) });
+    }
+  });
+}
+
+/** Race a delivery against a bounded timeout. The timer stays referenced so it fires. */
+function withTimeout(fn: () => Promise<DesktopNotifyResult>, timeoutMs: number): Promise<DesktopNotifyResult> {
+  return new Promise<DesktopNotifyResult>((resolve) => {
+    let settled = false;
+    const done = (r: DesktopNotifyResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(r);
+    };
+    const timer = setTimeout(() => done({ ok: false, reason: `desktop notify timed out after ${timeoutMs}ms` }), timeoutMs);
+    Promise.resolve()
+      .then(fn)
+      .then(done, (err) => done({ ok: false, reason: errMsg(err) }));
+  });
+}
+
+/** Real command runner: execFile with its own kill-on-timeout (our child, we own it). */
+const realExec: ExecFn = (file, args, timeoutMs) =>
+  new Promise<DesktopNotifyResult>((resolve) => {
+    execFile(file, args, { timeout: Math.max(1_000, timeoutMs) }, (err) => {
+      resolve(err ? { ok: false, reason: (err.message || String(err)).slice(0, 200) } : { ok: true });
+    });
+  });
+
+/** True only for a system (PATH) terminal-notifier — never node-notifier's bundled copy. */
+function detectSystemTerminalNotifier(): boolean {
+  try {
+    const resolved = execFileSync("which", ["terminal-notifier"], { encoding: "utf8" }).trim();
+    return Boolean(resolved) && !resolved.includes("node_modules");
+  } catch {
+    return false;
   }
 }
 
@@ -113,4 +205,8 @@ export async function notifyDesktop(
 async function loadNotifier(): Promise<Notifier> {
   const mod = (await import("node-notifier")) as unknown as { default: Notifier } & Notifier;
   return mod.default ?? mod;
+}
+
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

@@ -47,11 +47,17 @@ the `omp schedule …` commands on the user's behalf.
    - `--notify-target slack:<C|G|D|U…>` — post the run summary to Slack (needs
      `SLACK_BOT_TOKEN`; falls back to `SLACK_HOME_CHANNEL` when no target).
    - `--notify-desktop` — fire a native desktop notification (job id + status +
-     one-line summary). Cross-platform; clicking it opens the full run log.
-   - `--notify-open-omp` — (macOS only, requires `--notify-desktop`) make the
-     notification's click open an interactive `omp` session in the job's `--cwd`
-     instead of the raw log; the SessionStart schedule banner then surfaces the
-     latest result. Disable all desktop notifications with `OMP_DISABLE_DESKTOP_NOTIFY=1`.
+     one-line summary). Transport per OS: **macOS → `osascript`** (the only path
+     that reliably displays on Sequoia; shown under "Script Editor", **not
+     clickable**); **Linux/Windows → node-notifier** (notify-send / SnoreToast).
+   - `--notify-open-omp` — make the notification's click open an interactive `omp`
+     session in the schedule state root (the SessionStart banner then surfaces the
+     latest result). **Requires a click-capable transport**, which on macOS means a
+     system `terminal-notifier` enabled via `OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1`
+     (`brew install terminal-notifier`). Note: terminal-notifier does **not**
+     display on some macOS Sequoia builds — if notifications stop appearing,
+     unset that env to fall back to osascript (display-only). Disable desktop
+     notifications entirely with `OMP_DISABLE_DESKTOP_NOTIFY=1`.
 
    Slack and desktop are independent and can be combined on one job.
 4. **Confirm** by listing: `omp schedule list --json`.
