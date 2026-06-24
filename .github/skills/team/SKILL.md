@@ -48,36 +48,35 @@ Write a temporary file at `/tmp/team-lanes-<timestamp>.json`:
 ### Step 2 — Launch
 
 Resolve the launcher (installed plugin if present, else a dev checkout) and run
-it **detached** — `nohup … &` so you (the lead) return immediately. The launcher
-splits panes and monitors agents for up to 5 minutes; running it in the
-foreground would block your shell tool (which times out ~120s). The user watches
-the live panes; the run summary lands in the log.
+it with `--no-monitor`. That mode splits the panes, launches the agents, sends
+each lane's prompt, then returns (~20–30s) — it does NOT block on the long
+completion-monitor loop. Run it in the **foreground** (no `&`/`nohup`): a
+backgrounded launcher gets killed by your shell-tool cleanup before it sends the
+prompts, leaving the agents idle.
 
 ```bash
 if [ -f ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh ]; then
-  nohup bash ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh \
-    --session "team-<name>" --lanes <lanes-file> > /tmp/team-<name>.log 2>&1 &
+  bash ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh \
+    --session "team-<name>" --lanes <lanes-file> --no-monitor
 else
-  nohup bash .github/skills/team/scripts/team-launch.sh \
-    --session "team-<name>" --lanes <lanes-file> > /tmp/team-<name>.log 2>&1 &
+  bash .github/skills/team/scripts/team-launch.sh \
+    --session "team-<name>" --lanes <lanes-file> --no-monitor
 fi
 ```
 
-After launching, tell the user the team is running in the split panes (don't
-block waiting); read `/tmp/team-<name>.log` later for the completion summary.
-
-The script:
+The script (with `--no-monitor`):
 1. Splits the **current window** into panes
 2. Launches `omp --madmax` in each
 3. Auto-accepts folder trust prompts
-4. Waits for readiness, sends prompts
-5. Monitors completion and prints a results summary
+4. Waits for readiness, sends each lane's prompt
+5. Returns — the agents keep working in the panes for the user to watch
+   (omit `--no-monitor` to instead block and print a completion summary)
 
 ### Step 3 — Report
 
-The launcher runs detached, so don't block waiting on it — the agents work in
-the split panes for the user to watch live. When they finish, read the summary
-from `/tmp/team-<name>.log` and relay it to the user.
+`--no-monitor` returns once the prompts are sent, so the agents are now working
+live in the split panes for the user to watch. Tell the user the team launched
+and which lane is in which pane; they can send follow-up prompts to any pane.
 
 ## Optional mode — Runtime (`omp team`)
 

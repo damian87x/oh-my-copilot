@@ -15,11 +15,13 @@ set -euo pipefail
 
 SESSION=""
 LANES_FILE=""
+NO_MONITOR=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --session) SESSION="$2"; shift 2 ;;
-    --lanes)   LANES_FILE="$2"; shift 2 ;;
+    --session)    SESSION="$2"; shift 2 ;;
+    --lanes)      LANES_FILE="$2"; shift 2 ;;
+    --no-monitor) NO_MONITOR=1; shift ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -160,6 +162,16 @@ for i in $(seq 0 $((LANE_COUNT - 1))); do
 done
 
 tmux select-pane -t '{left}'
+
+# Prompts are sent — in --no-monitor mode return now so the caller (a Copilot
+# lead) doesn't block on the long monitor loop and doesn't get killed mid-run
+# by its shell-tool cleanup. The agents keep working in the panes for the user
+# to watch; this is the default for the in-session visual flow.
+if [[ -n "$NO_MONITOR" ]]; then
+  echo ""
+  echo "✅ $LANE_COUNT agents launched and prompted — watch the panes ($SESSION)."
+  exit 0
+fi
 
 # ── step 4: monitor completion ───────────────────────────────────────
 
