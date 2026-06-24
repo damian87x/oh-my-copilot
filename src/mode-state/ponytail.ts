@@ -32,16 +32,3 @@ export function readPonytail(cwd: string = process.cwd()): PonytailState | undef
 export function cancelPonytail(cwd: string = process.cwd()): void {
   clearModeState(cwd, "ponytail");
 }
-
-export function buildPonytailContext(state: PonytailState): string {
-  const ladder =
-    "1 needed at all? (YAGNI) 2 already here? reuse 3 stdlib? use it " +
-    "4 native platform? use it 5 installed dep? use it 6 one line? one line " +
-    "7 only then the minimum that works";
-  return [
-    `[PONYTAIL ACTIVE: ${state.level}]`,
-    "Lazy senior dev mode. Stop at the first rung that holds, after understanding the problem:",
-    ladder + ".",
-    "Never lazy about: validation at trust boundaries, data-loss handling, security, accessibility, anything requested. Non-trivial logic leaves one runnable check behind.",
-  ].join("\n");
-}

@@ -76,3 +76,8 @@ open a timezone discussion.
 ## Deactivate
 
 Say "normal mode", "/ponytail off", or "stop ponytail" to return to standard behaviour.
+
+If the mode was persisted with `omp ponytail start`, a chat-only "off" is not
+enough — the prompt-submit hook keeps re-injecting `[PONYTAIL ACTIVE]` until the
+state file is cleared. So on any deactivation request, **run `omp ponytail off`**
+to clear persisted state, then confirm it's off.

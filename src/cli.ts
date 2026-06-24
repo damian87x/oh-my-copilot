@@ -361,7 +361,10 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     const { startPonytail, readPonytail, cancelPonytail } = await import("./mode-state/ponytail.js");
     const cwd = flagValue(argv, "--root") ?? process.cwd();
     if (command === "start" || command === undefined) {
-      const state = startPonytail(cwd, value && !value.startsWith("-") ? value : undefined);
+      const level = value && !value.startsWith("-") ? value : undefined;
+      if (level && !["lite", "full", "ultra"].includes(level.toLowerCase()))
+        return { ok: false, exitCode: 1, message: `Unknown ponytail level "${level}". Use: lite | full | ultra` };
+      const state = startPonytail(cwd, level);
       return json
         ? { ok: true, output: state }
         : { ok: true, message: `ponytail active: ${state.level}` };
