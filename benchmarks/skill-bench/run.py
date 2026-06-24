@@ -108,27 +108,61 @@ def seed_workspace(task, workdir, ref_kind=None, for_selftest=False):
                 (workdir / fn).write_text(content, encoding="utf-8")
 
 
-def read_claude_meta(workdir):
-    """Pull cost/turns/duration/tokens from a host CLI JSON dump if present."""
-    for name in ("_cli.json", "_claude.json"):
-        p = workdir / name
-        if not p.exists():
+def _meta_claude(raw):
+    """claude -p --output-format json emits ONE JSON object."""
+    j = json.loads(raw)
+    u = j.get("usage") or {}
+    return ({"cost": j.get("total_cost_usd"), "duration_ms": j.get("duration_ms"),
+             "turns": j.get("num_turns"),
+             "out_tokens": u.get("output_tokens"), "in_tokens": u.get("input_tokens")},
+            j.get("result", ""))
+
+
+def _meta_copilot(raw):
+    """copilot -p --output-format json emits an NDJSON EVENT STREAM. The final answer is the
+    last `assistant.message`.data.content; usage/duration come from the `result` event
+    (premiumRequests / sessionDurationMs -- copilot reports no USD cost or token counts)."""
+    result_text, meta = "", {}
+    for ln in raw.splitlines():
+        ln = ln.strip()
+        if not ln:
             continue
         try:
-            j = json.loads(p.read_text(encoding="utf-8"))
+            o = json.loads(ln)
         except Exception:
+            continue
+        t, d = o.get("type"), (o.get("data") or {})
+        if t == "assistant.message" and isinstance(d.get("content"), str):
+            result_text = d["content"]
+        elif t == "result":
+            u = o.get("usage") or {}
+            meta = {"cost": None, "premium_requests": u.get("premiumRequests"),
+                    "duration_ms": u.get("sessionDurationMs") or u.get("totalApiDurationMs"),
+                    "exit_code": o.get("exitCode")}
+    return meta, result_text
+
+
+def read_meta(workdir, engine):
+    """Pull result text + cost/duration/usage from the host CLI dump, parsed per engine
+    (the two CLIs use completely different JSON shapes)."""
+    p = workdir / "_cli.json"
+    if not p.exists():
+        p = workdir / "_claude.json"          # legacy name
+        if not p.exists():
             return {}, ""
-        u = j.get("usage") or {}
-        meta = {"cost": j.get("total_cost_usd"), "duration_ms": j.get("duration_ms"),
-                "turns": j.get("num_turns"),
-                "out_tokens": u.get("output_tokens"), "in_tokens": u.get("input_tokens")}
-        return meta, j.get("result", "")
-    return {}, ""
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except Exception:
+        return {}, ""
+    try:
+        return _meta_claude(raw) if engine == "claude" else _meta_copilot(raw)
+    except Exception:
+        return {}, ""
 
 
 def score_workspace(task_id, arm, engine, workdir):
     task = TASKS[task_id]
-    meta, result_text = read_claude_meta(workdir)
+    meta, result_text = read_meta(workdir, engine)
     # if the skill answers in chat (no file), fall back to the captured result text
     if task.get("reads") == "chat" or not (workdir / task["file"]).exists():
         if result_text:
@@ -142,12 +176,14 @@ def run_cell(task_id, arm, engine, workdir):
     seed_workspace(task, workdir)
     cmd = build_cmd(engine, task, arm, workdir)
     out_path, err_path = workdir / "_cli.json", workdir / "_cli.stderr.txt"
+    timed_out, returncode, spawn_error = False, None, None
     try:
         with open(out_path, "wb") as so, open(err_path, "wb") as se:
             proc = subprocess.Popen(cmd, cwd=str(workdir), stdout=so, stderr=se)
             try:
-                proc.wait(timeout=CELL_TIMEOUT)
+                returncode = proc.wait(timeout=CELL_TIMEOUT)
             except subprocess.TimeoutExpired:
+                timed_out = True
                 _killtree(proc.pid)
                 try:
                     proc.wait(timeout=15)
@@ -155,8 +191,18 @@ def run_cell(task_id, arm, engine, workdir):
                     pass
                 se.write(f"\n[KILLED after {CELL_TIMEOUT}s timeout]".encode())
     except Exception as e:
-        out_path.write_text(json.dumps({"error": str(e)[:300]}), encoding="utf-8")
-    return score_workspace(task_id, arm, engine, workdir)
+        spawn_error = str(e)[:300]
+        out_path.write_text(json.dumps({"error": spawn_error}), encoding="utf-8")
+    sc = score_workspace(task_id, arm, engine, workdir)
+    sc["returncode"], sc["timed_out"] = returncode, int(timed_out)
+    if spawn_error:
+        sc["error"] = spawn_error
+    # Honesty gate: a timed-out or failed-to-spawn cell cannot count as a success even if it
+    # left a plausible-looking artifact behind (a half-finished file, or the seed itself).
+    if timed_out or spawn_error:
+        sc["applied"], sc["correct"] = 0, 0
+        sc["reason"] = ("timed out" if timed_out else "spawn error") + "; forced applied=correct=0"
+    return sc
 
 
 def _killtree(pid):
@@ -172,7 +218,9 @@ def _killtree(pid):
             pass
 
 
-# --- selftest: good ref must score applied+correct; bad ref must be caught on its axis ---
+# --- selftest: good ref scores applied+correct; bad ref is caught on its axis; every
+#     adversarial (gameable-but-wrong) fixture is rejected (applied=0). Proves the scorer
+#     discriminates real skill behaviour from keyword mimicry before any API spend. ---
 def selftest():
     failures = 0
     for tid, task in TASKS.items():
@@ -188,6 +236,17 @@ def selftest():
             print(f"{'ok ' if ok else 'XX '} {tid:18} {kind:4} applied={r['applied']} "
                   f"correct={r['correct']} axis={axis}  {r['reason']}")
             failures += 0 if ok else 1
+        for adv in task.get("adversarial", []):
+            with tempfile.TemporaryDirectory() as d:
+                seed_workspace(task, Path(d))            # real seeds...
+                (Path(d) / task["file"]).write_text(adv["file"], encoding="utf-8")  # ...then the trap artifact
+                for fn, content in adv.get("extra", {}).items():
+                    (Path(d) / fn).write_text(content, encoding="utf-8")
+                r = task["score"](Path(d))
+            ok = r["applied"] == 0                       # a gameable fake must NOT count as applied
+            print(f"{'ok ' if ok else 'XX '} {tid:18} adv  applied={r['applied']} "
+                  f"correct={r['correct']} [{adv['name']}]  {r['reason']}")
+            failures += 0 if ok else 1
     print(f"\nselftest: {'all instruments valid' if not failures else str(failures) + ' BROKEN'}")
     return failures
 
@@ -202,8 +261,9 @@ def aggregate(results):
         costs = [c["cost"] for c in cells if c.get("cost") is not None]
         rows.append({
             "task": t, "skill": cells[0].get("skill"), "arm": a, "n": n,
-            "applied_rate": round(sum(c["applied"] for c in cells) / n, 3),
-            "correct_rate": round(sum(c["correct"] for c in cells) / n, 3),
+            # error/timed-out cells may lack these keys -- treat a missing score as a 0.
+            "applied_rate": round(sum((c.get("applied") or 0) for c in cells) / n, 3),
+            "correct_rate": round(sum((c.get("correct") or 0) for c in cells) / n, 3),
             "cost_mean": round(statistics.mean(costs), 4) if costs else None,
             "time_s_mean": (round(statistics.mean([c["duration_ms"] / 1000 for c in cells
                             if c.get("duration_ms") is not None]), 1)
@@ -275,28 +335,45 @@ def main():
     total = len(cells)
     results, done = [], 0
 
+    # Cells execute in a temp root OUTSIDE the repo so a tool-enabled agent cannot read the
+    # scorer / reference answer keys (tasks.py) and optimize to the metric. Only the seed
+    # files live in the cell's cwd. Artifacts are copied back to runs/<stamp> for inspection.
+    # (Filesystem-level isolation only; a stronger sandbox would containerize the cell.)
+    exec_root = Path(tempfile.mkdtemp(prefix="skillbench-exec-"))
+
     def _one(spec):
         tid, arm, r = spec
-        ws = out_dir / f"{tid}__{arm}__{args.engine}__{r}"
+        name = f"{tid}__{arm}__{args.engine}__{r}"
+        ws = exec_root / name
         ws.mkdir(parents=True, exist_ok=True)
-        return run_cell(tid, arm, args.engine, ws)
+        res = run_cell(tid, arm, args.engine, ws)
+        try:
+            shutil.copytree(ws, out_dir / name, dirs_exist_ok=True)
+        except Exception:
+            pass
+        return res
 
-    print(f"running {total} cells via '{args.engine}', {args.workers} at a time", flush=True)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = {ex.submit(_one, s): s for s in cells}
-        for fut in concurrent.futures.as_completed(futs):
-            tid, arm, r = futs[fut]
-            try:
-                res = fut.result()
-            except Exception as e:
-                res = {"task": tid, "arm": arm, "error": str(e)[:200]}
-            results.append(res)
-            done += 1
-            print(f"  [{done}/{total}] {tid} / {arm} #{r}  "
-                  f"applied={res.get('applied')} correct={res.get('correct')} "
-                  f"cost=${res.get('cost')}", flush=True)
-            (out_dir / "results.json").write_text(json.dumps(
-                {"date": stamp, "engine": args.engine, "results": results}, indent=2), encoding="utf-8")
+    print(f"running {total} cells via '{args.engine}', {args.workers} at a time "
+          f"(exec root: {exec_root})", flush=True)
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
+            futs = {ex.submit(_one, s): s for s in cells}
+            for fut in concurrent.futures.as_completed(futs):
+                tid, arm, r = futs[fut]
+                try:
+                    res = fut.result()
+                except Exception as e:
+                    res = {"task": tid, "arm": arm, "applied": 0, "correct": 0, "error": str(e)[:200]}
+                results.append(res)
+                done += 1
+                print(f"  [{done}/{total}] {tid} / {arm} #{r}  "
+                      f"applied={res.get('applied')} correct={res.get('correct')} "
+                      f"cost=${res.get('cost')}", flush=True)
+                (out_dir / "results.json").write_text(json.dumps(
+                    {"date": stamp, "engine": args.engine, "results": results}, indent=2),
+                    encoding="utf-8")
+    finally:
+        shutil.rmtree(exec_root, ignore_errors=True)
 
     rows = aggregate(results)
     (out_dir / "summary.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
