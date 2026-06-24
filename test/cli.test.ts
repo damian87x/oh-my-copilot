@@ -131,14 +131,21 @@ describe("runCli: bare-flag launch routing", () => {
 
 describe("runCli: version", () => {
   let dir: string;
+  let savedNoUpdate: string | undefined;
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "omp-cli-version-"));
+    // The update notice is exercised here, so don't inherit an ambient
+    // OMP_NO_UPDATE_CHECK (CI sets it globally for hermetic runs).
+    savedNoUpdate = process.env.OMP_NO_UPDATE_CHECK;
+    delete process.env.OMP_NO_UPDATE_CHECK;
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     rmSync(dir, { recursive: true, force: true });
+    if (savedNoUpdate === undefined) delete process.env.OMP_NO_UPDATE_CHECK;
+    else process.env.OMP_NO_UPDATE_CHECK = savedNoUpdate;
   });
 
   it("includes the update notice when npm has a newer version", async () => {

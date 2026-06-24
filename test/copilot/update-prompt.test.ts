@@ -48,6 +48,9 @@ const update = { current: "0.0.1", latest: "9.9.9" };
 const baseOpts = {
   checkForUpdate: async () => update,
   formatUpdateNotice: (c: string, l: string) => `notice ${c}->${l}`,
+  // Hermetic env so these cases never inherit an ambient OMP_NO_UPDATE_CHECK
+  // (CI sets it globally); the dedicated no-op case below passes its own env.
+  env: {} as NodeJS.ProcessEnv,
 };
 
 describe("maybePromptUpdate", () => {
