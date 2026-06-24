@@ -75,7 +75,9 @@ The script:
 
 ### Step 3 — Report
 
-The script blocks and prints all results. Relay the output to the user.
+The launcher runs detached, so don't block waiting on it — the agents work in
+the split panes for the user to watch live. When they finish, read the summary
+from `/tmp/team-<name>.log` and relay it to the user.
 
 ## Optional mode — Runtime (`omp team`)
 
