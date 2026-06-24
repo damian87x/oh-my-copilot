@@ -1330,23 +1330,17 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
   }
 
   if (command === "collect") {
-    const workerPaneIds = argv
-      .flatMap((arg, index) => (arg === "--worker-pane" ? [argv[index + 1]] : []))
-      .filter((v): v is string => Boolean(v));
-    if (workerPaneIds.length === 0) {
-      return { ok: false, exitCode: 1, message: "team collect requires at least one --worker-pane" };
+    const dir = flagValue(argv, "--dir");
+    if (!dir) {
+      return { ok: false, exitCode: 1, message: "team collect requires --dir <delivery-dir>" };
     }
-    let lines: number | undefined;
-    try {
-      lines = parsePositiveIntFlag(flagValue(argv, "--lines"), "--lines");
-    } catch (err) {
-      return { ok: false, exitCode: 1, message: String(err instanceof Error ? err.message : err) };
+    const { collectDeliveries, formatCollect, readManifest } = await import("./team/collect.js");
+    const lanes = readManifest(dir);
+    if (lanes.length === 0) {
+      return { ok: false, exitCode: 1, message: `no manifest.json (or empty) in ${dir} — was the team launched?` };
     }
-    const { collectPanes, formatCollect } = await import("./team/collect.js");
-    const result = collectPanes(workerPaneIds, { lines });
-    return json
-      ? { ok: true, output: result }
-      : { ok: true, message: formatCollect(result) };
+    const result = collectDeliveries(dir, lanes);
+    return json ? { ok: true, output: result } : { ok: true, message: formatCollect(result) };
   }
 
   if (command === "monitor-panes") {

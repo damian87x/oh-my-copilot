@@ -63,6 +63,10 @@ if [[ "$LANE_COUNT" -lt 1 ]]; then
 fi
 
 CWD=$(pwd)
+# Each worker writes its final result here so the lead can collect deterministically
+# (`omp team collect --dir`), rather than scraping live panes.
+DELIVERY_DIR="/tmp/team-$SESSION"
+mkdir -p "$DELIVERY_DIR"
 POLL="${TEAM_POLL_INTERVAL:-2}"
 MAX_READY="${TEAM_MAX_READY_WAIT:-60}"
 MAX_DONE="${TEAM_MAX_COMPLETION_WAIT:-300}"
@@ -149,7 +153,13 @@ echo "📨 Sending prompts..."
 for i in $(seq 0 $((LANE_COUNT - 1))); do
   LANE_PROMPT=$(jq -r ".[$i].prompt" "$LANES_FILE")
   LANE_NAME=$(jq -r ".[$i].name" "$LANES_FILE")
+  LANE_ID=$(jq -r ".[$i].id" "$LANES_FILE")
   PANE_ID="${PANE_IDS[$i]}"
+
+  # Append a deterministic delivery instruction: the worker writes its final
+  # result to a file so the lead's `omp team collect` knows it's done (vs
+  # guessing from the pane). Kept on one line so send-keys submits cleanly.
+  LANE_PROMPT="$LANE_PROMPT  IMPORTANT: when fully finished, write your complete final result to the file $DELIVERY_DIR/$LANE_ID.result.md (e.g. with a heredoc), then stop."
 
   # -l = literal (no key interpretation), then submit. Use the `Enter` key NAME,
   # not C-m: Copilot CLI >=1.0.61 ignores a literal carriage return, so C-m left
@@ -168,19 +178,27 @@ tmux select-pane -t '{left}'
 # by its shell-tool cleanup. The agents keep working in the panes for the user
 # to watch; this is the default for the in-session visual flow.
 if [[ -n "$NO_MONITOR" ]]; then
+  # Write a manifest (lane id/name → pane) so `omp team collect --dir` can map
+  # delivery files to lanes and flag a crashed pane as dead.
+  MANIFEST="[]"
+  for i in $(seq 0 $((LANE_COUNT - 1))); do
+    MANIFEST=$(echo "$MANIFEST" | jq \
+      --arg id "$(jq -r ".[$i].id" "$LANES_FILE")" \
+      --arg name "$(jq -r ".[$i].name" "$LANES_FILE")" \
+      --arg pane "${PANE_IDS[$i]}" \
+      '. + [{id:$id,name:$name,paneId:$pane}]')
+  done
+  echo "$MANIFEST" > "$DELIVERY_DIR/manifest.json"
+
   echo ""
   echo "✅ $LANE_COUNT agents launched and prompted ($SESSION)."
-  # The lead DRIVES collection (oh-my-codex poll model) — print the exact
-  # command + lane→pane map so it can poll until done, then synthesize.
-  COLLECT_PANES=""
-  for pid in "${PANE_IDS[@]}"; do COLLECT_PANES="$COLLECT_PANES --worker-pane $pid"; done
   echo "📋 Lane → pane:"
   for i in $(seq 0 $((LANE_COUNT - 1))); do
     echo "   $(jq -r ".[$i].name" "$LANES_FILE") → ${PANE_IDS[$i]}"
   done
   echo ""
-  echo "➡️  Collect (poll this until all lanes are done, then synthesize):"
-  echo "   omp team collect$COLLECT_PANES --json"
+  echo "➡️  Collect — poll this until allDone, then read each lane's result and synthesize:"
+  echo "   omp team collect --dir $DELIVERY_DIR --json"
   exit 0
 fi
 

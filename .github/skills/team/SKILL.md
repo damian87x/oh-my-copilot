@@ -74,27 +74,27 @@ The script (with `--no-monitor`):
 
 ### Step 3 — Collect (you drive the loop — do NOT go idle)
 
-`--no-monitor` prints the lane→pane map and the exact collect command. Nothing
-pushes results to you — **you must actively poll** until every lane is done, then
-synthesize (the leader-driven model). Do not stop after launching and wait.
-
-Run the collect command the launcher printed, in a loop:
+Each worker was told to write its final result to a file; the launcher prints the
+exact collect command (`omp team collect --dir <dir> --json`). Completion is a
+real file write — not a guess from the live pane — so it's reliable. **You must
+actively poll** until every lane has delivered, then synthesize. Do not stop
+after launching and wait.
 
 ```bash
-omp team collect --worker-pane <id1> --worker-pane <id2> ... --json
+omp team collect --dir /tmp/team-<name> --json
 ```
 
-Each call returns `{ doneCount, total, allDone, lanes: [{ paneId, status, output }] }`
+Returns `{ dir, total, doneCount, allDone, lanes: [{ id, name, status, output }] }`
 where `status` is `working` | `done` | `dead`. Procedure:
 
-1. Call collect. If `allDone` is false, wait ~20–30s (do a short `sleep 25`) and
-   call it again. Keep looping — the workers are running live in the panes.
-2. As lanes turn `done`, their `output` holds that worker's final pane text; a
-   `dead` lane means its pane exited (note it as failed/needs review).
-3. When `allDone` is true, read every lane's `output`, then **synthesize the
-   combined results back to the user** (per lane: what it found / produced).
+1. Call collect. If `allDone` is false, `sleep 25` and call it again. Keep
+   looping — the workers run live in the panes.
+2. A `done` lane's `output` is the worker's delivered result; a `dead` lane's
+   pane exited without delivering (note it as failed/needs review).
+3. When `allDone` is true, read every lane's `output` and **synthesize the
+   combined results back to the user** (per lane: what it produced).
 
-Keep the loop bounded (e.g. stop after ~15 min and report whatever is done).
+Keep the loop bounded (e.g. stop after ~15 min and report whatever delivered).
 
 ## Optional mode — Runtime (`omp team`)
 
