@@ -53,9 +53,14 @@ These complement the workflows and live in **Settings → Code security**:
 
 ## The skills safety scanner
 
-`scripts/skills-safety-scan.mjs` statically audits `.github/skills/**/SKILL.md`,
-`.github/agents/**`, and `catalog/**` for the risk classes those external
-audits care about:
+`scripts/skills-safety-scan.mjs` statically audits `.github/skills/**`,
+`.github/agents/**`, and `catalog/**` — including SKILL.md docs and bundled
+helper scripts (`*.sh`, `*.py`, `*.mjs`, …) — for the risk classes those
+external audits care about. To avoid false positives on documentation, the
+command-style rules (S001–S003, S005–S007) only match inside fenced code blocks
+in markdown (and the full body of script files); only the prompt-injection rule
+(S004) scans prose. Multi-line commands joined with `\` are merged before
+matching so a wrapped `curl … | sh` can't slip through.
 
 | Rule | Severity | Detects |
 | --- | --- | --- |
@@ -71,9 +76,10 @@ audits care about:
 Run locally:
 
 ```bash
-npm run scan:skills              # human-readable, fails on HIGH
-node scripts/skills-safety-scan.mjs --json    # machine-readable
-node scripts/skills-safety-scan.mjs --strict  # also fail on MEDIUM
+npm run scan:skills                              # human-readable, fails on HIGH
+node scripts/skills-safety-scan.mjs --json       # machine-readable
+node scripts/skills-safety-scan.mjs --strict     # also fail on MEDIUM
+node scripts/skills-safety-scan.mjs --allow-empty # don't fail when no skills exist
 ```
 
 ## Local commands

@@ -15,10 +15,11 @@
  *
  * Exit codes:
  *   0 = no HIGH findings (warnings allowed)
- *   1 = at least one HIGH finding, or with --strict any MEDIUM finding
+ *   1 = at least one HIGH finding, with --strict any MEDIUM finding, or no files
+ *       scanned (target moved) unless --allow-empty is passed
  *
  * Usage:
- *   node scripts/skills-safety-scan.mjs [--root .] [--strict] [--json]
+ *   node scripts/skills-safety-scan.mjs [--root .] [--strict] [--json] [--allow-empty]
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -31,10 +32,13 @@ const opt = (flag, def = null) => {
 const ROOT = typeof opt("--root") === "string" ? opt("--root") : ".";
 const STRICT = !!opt("--strict", false);
 const JSON_OUT = !!opt("--json", false);
+const ALLOW_EMPTY = !!opt("--allow-empty", false);
 
 // Where skills/agents live in this repo.
 const SCAN_DIRS = [".github/skills", ".github/agents", "catalog"];
-const SCAN_EXT = [".md", ".json"];
+// Markdown/JSON docs plus bundled executable helpers — dangerous shell often
+// lives in a skill's `scripts/*.sh`, not just its prose.
+const SCAN_EXT = [".md", ".json", ".sh", ".bash", ".zsh", ".py", ".ps1", ".mjs", ".cjs", ".js"];
 
 /** @type {{severity:'HIGH'|'MEDIUM'|'LOW',rule:string,file:string,line:number,match:string,why:string}[]} */
 const findings = [];
@@ -61,13 +65,17 @@ const RULES = [
   {
     rule: "S004 prompt-injection-surface",
     severity: "MEDIUM",
+    // Natural-language instruction, not a shell command — scan prose, not just code.
+    context: "prose",
     re: /\b(fetch|read|download|ingest|browse)\b[^\n]*\b(untrusted|third-?party|user-generated|external (registry|source|content|repos?))\b/i,
     why: "Fetches and may act on third-party/untrusted content — indirect prompt-injection risk (cf. Snyk W011).",
   },
   {
     rule: "S005 credential-exfiltration",
     severity: "HIGH",
-    re: /\b(env|printenv|cat)\b[^\n]*\b(\.env|secret|token|api[_-]?key|password|credential)\b[^\n]*\|\s*(curl|wget|nc)\b|\b(curl|wget)\b[^\n]*\$\{?\s*(SECRET|TOKEN|API_KEY|PASSWORD)/i,
+    // The token keyword may be a suffix/component of the var name
+    // (`$GITHUB_TOKEN`, `$NPM_TOKEN`, `$AWS_SECRET_ACCESS_KEY`), not just a prefix.
+    re: /\b(env|printenv|cat)\b[^\n]*\b(\.env|secret|token|api[_-]?key|password|credential)\b[^\n]*\|\s*(curl|wget|nc)\b|\b(curl|wget)\b[^\n]*\$\{?\s*[A-Z0-9_]*(SECRET|TOKEN|API[_-]?KEY|PASSWORD)/i,
     why: "Reads secrets/credentials and sends them off the machine.",
   },
   {
@@ -79,7 +87,8 @@ const RULES = [
   {
     rule: "S007 destructive-shell",
     severity: "HIGH",
-    re: /\brm\s+-rf\s+[/~]|\bdd\s+if=|\bmkfs\b|\bchmod\s+-R?\s*777\b|>\s*\/dev\/sd/i,
+    // `chmod 777` and `chmod -R 777` (and `0777`) are all world-writable.
+    re: /\brm\s+-rf\s+[/~]|\bdd\s+if=|\bmkfs\b|\bchmod\s+(-R\s+)?0?777\b|>\s*\/dev\/sd/i,
     why: "Destructive or overly-permissive filesystem operation.",
   },
 ];
@@ -106,35 +115,81 @@ function walk(dir) {
   return out;
 }
 
+// Logical "code" lines for command-style rules:
+//   - Markdown (.md): only lines inside fenced code blocks (``` or ~~~), so
+//     documentation that merely *mentions* a dangerous command in prose can't
+//     trip a HIGH rule and block every PR.
+//   - Scripts/JSON: the whole file is code.
+// Backslash line-continuations are merged into one logical line so a command
+// wrapped across multiple lines can't slip past single-line regexes.
+function codeLines(text, file) {
+  const isMarkdown = file.endsWith(".md");
+  const raw = text.split(/\r?\n/);
+  const out = [];
+  let inFence = false;
+  let fenceChar = "";
+  for (let i = 0; i < raw.length; i++) {
+    let line = raw[i];
+    if (isMarkdown) {
+      const fence = line.match(/^\s*(`{3,}|~{3,})/);
+      if (fence) {
+        const ch = fence[1][0];
+        if (!inFence) {
+          inFence = true;
+          fenceChar = ch;
+        } else if (ch === fenceChar) {
+          inFence = false;
+        }
+        continue; // never scan the fence marker line itself
+      }
+      if (!inFence) continue; // skip prose
+    }
+    const startLine = i + 1;
+    while (/\\[ \t]*$/.test(line) && i + 1 < raw.length) {
+      i += 1;
+      line = line.replace(/\\[ \t]*$/, " ") + raw[i];
+    }
+    out.push({ line: startLine, text: line });
+  }
+  return out;
+}
+
 function scanFile(file) {
   const rel = relative(ROOT, file).split(sep).join("/");
   const text = readFileSync(file, "utf8");
-  const lines = text.split(/\r?\n/);
 
   // Frontmatter hygiene for SKILL.md
   if (file.endsWith("SKILL.md")) {
-    const fm = text.startsWith("---") ? text.slice(3, text.indexOf("\n---", 3)) : "";
+    const fmEnd = text.indexOf("\n---", 3);
+    const fm = text.startsWith("---") && fmEnd !== -1 ? text.slice(3, fmEnd) : "";
     if (!/\bname\s*:/.test(fm))
       findings.push({ severity: "MEDIUM", rule: "S100 missing-name", file: rel, line: 1, match: "frontmatter", why: "SKILL.md is missing a `name` in frontmatter." });
     if (!/\bdescription\s*:/.test(fm))
       findings.push({ severity: "MEDIUM", rule: "S101 missing-description", file: rel, line: 1, match: "frontmatter", why: "SKILL.md is missing a `description` in frontmatter." });
   }
 
-  lines.forEach((line, i) => {
-    for (const r of RULES) {
-      const m = r.re.exec(line);
-      if (m) {
-        findings.push({
-          severity: r.severity,
-          rule: r.rule,
-          file: rel,
-          line: i + 1,
-          match: m[0].slice(0, 120),
-          why: r.why,
-        });
-      }
+  const push = (r, line, m) =>
+    findings.push({ severity: r.severity, rule: r.rule, file: rel, line, match: m[0].slice(0, 120), why: r.why });
+
+  // Command-style rules over code context (fenced blocks / whole scripts).
+  const cmdRules = RULES.filter((r) => r.context !== "prose");
+  for (const { line, text: lt } of codeLines(text, file)) {
+    for (const r of cmdRules) {
+      const m = r.re.exec(lt);
+      if (m) push(r, line, m);
     }
-  });
+  }
+
+  // Prose rules (e.g. prompt-injection) scan the full natural-language text.
+  const proseRules = RULES.filter((r) => r.context === "prose");
+  if (proseRules.length) {
+    text.split(/\r?\n/).forEach((line, i) => {
+      for (const r of proseRules) {
+        const m = r.re.exec(line);
+        if (m) push(r, i + 1, m);
+      }
+    });
+  }
 }
 
 // Run
@@ -162,5 +217,15 @@ if (JSON_OUT) {
   console.log(`Summary: ${counts.HIGH} high, ${counts.MEDIUM} medium, ${counts.LOW} low\n`);
 }
 
-const fail = counts.HIGH > 0 || (STRICT && counts.MEDIUM > 0);
+// Scanning zero files almost always means the target moved (renamed skill dir,
+// wrong --root) rather than a clean repo — fail loudly instead of passing green.
+const emptyScan = files.length === 0 && !ALLOW_EMPTY;
+if (emptyScan) {
+  console.error(
+    `skills-safety-scan: ERROR — scanned 0 files under ${SCAN_DIRS.join(", ")}. ` +
+      `The scan target may have moved. Pass --allow-empty if this is intentional.`,
+  );
+}
+
+const fail = counts.HIGH > 0 || (STRICT && counts.MEDIUM > 0) || emptyScan;
 process.exit(fail ? 1 : 0);
