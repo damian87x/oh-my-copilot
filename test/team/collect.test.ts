@@ -36,6 +36,25 @@ describe("collectPanes", () => {
     expect(r.doneCount).toBe(2);
   });
 
+  it("classifies done when Copilot draws its input box with block-border chars", () => {
+    // Regression: newer Copilot renders the input box with block chars
+    // (╻▄ ┃ ╹▀), not ─━═ dashes, so a bottom-up prompt scan bails. The idle
+    // footer "/ commands · ? help" must still classify the pane as done.
+    const boxRendered = [
+      "  Effort to fix: ~30 min (draft template + rewrite process).",
+      "",
+      " ~/workspace/MoltCore-workspace [⎇ feature/x*%]                Session: 4.32 AIC used",
+      "╻▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄",
+      "┃",
+      "╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+      " / commands · ? help · tab next tab                                Claude Haiku 4.5",
+    ].join("\n");
+    const tmux = fakeTmux({ "%9": { capture: boxRendered } });
+    const r = collectPanes(["%9"], { tmux });
+    expect(r.lanes[0]?.status).toBe("done");
+    expect(r.allDone).toBe(true);
+  });
+
   it("formatCollect summarises done/total and shows done output", () => {
     const tmux = fakeTmux({ "%2": { capture: "● Paris\n❯ " } });
     const text = formatCollect(collectPanes(["%2"], { tmux }));

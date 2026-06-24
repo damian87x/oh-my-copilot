@@ -32,8 +32,16 @@ const ACTIVE_HINTS = [
 // scanning backwards for the real prompt character.
 const STATUS_BAR_RE = /^\s*[\/ ]?\s*commands\b|^\s*[─━═]{3,}/;
 
+// Copilot's TUI shows this idle footer ("/ commands · ? help") ONLY when it is
+// waiting for input; while a task runs it shows a spinner / "esc to interrupt"
+// instead (caught by ACTIVE_HINTS). Detecting the footer is robust to the
+// input-box border rendering (block chars ╻▄┃╹▀) that breaks a bottom-up prompt
+// scan — newer Copilot draws the box with blocks, not the ─━═ dashes above.
+const READY_FOOTER_RE = /\bcommands\b.{0,24}\?\s*help/i;
+
 export function paneLooksReady(captured: string): boolean {
   if (!captured.trim()) return false;
+  if (READY_FOOTER_RE.test(captured)) return true;
   const lines = captured.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!;
