@@ -48,11 +48,14 @@ Write a temporary file at `/tmp/team-lanes-<timestamp>.json`:
 ### Step 2 — Launch
 
 ```bash
-# Resolve the launcher wherever this skill lives — the installed plugin (the
-# version/symlink segment varies, so glob it) or a dev checkout — instead of
-# assuming one absolute path:
-bash "$(ls ~/.copilot/installed-plugins/oh-my-copilot/*/.github/skills/team/scripts/team-launch.sh 2>/dev/null | head -1 || echo .github/skills/team/scripts/team-launch.sh)" \
-  --session "team-<name>" --lanes <lanes-file>
+# Resolve the launcher: the installed plugin if present, else a dev checkout —
+# instead of assuming one absolute path.
+if [ -f ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh ]; then
+  bash ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh \
+    --session "team-<name>" --lanes <lanes-file>
+else
+  bash .github/skills/team/scripts/team-launch.sh --session "team-<name>" --lanes <lanes-file>
+fi
 ```
 
 The script:
