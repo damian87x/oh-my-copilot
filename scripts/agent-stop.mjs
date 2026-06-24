@@ -55,6 +55,18 @@ function readTranscriptTail(path) {
     const raw = await readStdin();
     const data = raw ? JSON.parse(raw) : {};
     const directory = hookCwd(data);
+
+    // Team workers run inside the parent project and share its `.omp/state`.
+    // Without this guard they'd inherit the parent's active ralph/ultrawork/
+    // ultraqa loop and the hook would inject "[RALPH ITERATION N]" into a worker
+    // that has no loop context (it hijacks the worker's assigned lane task). The
+    // team launcher tags workers with OMP_TEAM_WORKER so they always stop normally.
+    if (process.env.OMP_TEAM_WORKER) {
+      appendHookLog(directory, HOOK_NAME, { decision: "allow", reason: "team worker — loop injection skipped" });
+      printStopDecision("allow");
+      return;
+    }
+
     const root = resolve(directory);
 
     const states = {};

@@ -42,12 +42,15 @@ if [[ -z "${TMUX:-}" ]]; then
   echo "Not inside a tmux session. Run this from within tmux." >&2; exit 1
 fi
 
+# OMP_TEAM_WORKER tags worker sessions so the agentStop hook skips loop
+# injection — otherwise a worker spawned inside a project with an active
+# ralph/ultrawork/ultraqa loop gets hijacked by "[RALPH ITERATION N]" prompts.
 if command -v omp &>/dev/null; then
-  AGENT_CMD="omp --madmax"
+  AGENT_CMD="OMP_TEAM_WORKER=1 omp --madmax"
 elif command -v copilot &>/dev/null; then
   # --yolo = all permissions (tools+paths+urls) so worker panes never block on a
   # trust/permission dialog. Matches the bypass `omp --madmax` grants.
-  AGENT_CMD="copilot --yolo"
+  AGENT_CMD="OMP_TEAM_WORKER=1 copilot --yolo"
 else
   echo "Neither omp nor copilot CLI found" >&2; exit 1
 fi

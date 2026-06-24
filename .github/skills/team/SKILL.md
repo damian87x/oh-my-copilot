@@ -47,16 +47,24 @@ Write a temporary file at `/tmp/team-lanes-<timestamp>.json`:
 
 ### Step 2 — Launch
 
+Resolve the launcher (installed plugin if present, else a dev checkout) and run
+it **detached** — `nohup … &` so you (the lead) return immediately. The launcher
+splits panes and monitors agents for up to 5 minutes; running it in the
+foreground would block your shell tool (which times out ~120s). The user watches
+the live panes; the run summary lands in the log.
+
 ```bash
-# Resolve the launcher: the installed plugin if present, else a dev checkout —
-# instead of assuming one absolute path.
 if [ -f ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh ]; then
-  bash ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh \
-    --session "team-<name>" --lanes <lanes-file>
+  nohup bash ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh \
+    --session "team-<name>" --lanes <lanes-file> > /tmp/team-<name>.log 2>&1 &
 else
-  bash .github/skills/team/scripts/team-launch.sh --session "team-<name>" --lanes <lanes-file>
+  nohup bash .github/skills/team/scripts/team-launch.sh \
+    --session "team-<name>" --lanes <lanes-file> > /tmp/team-<name>.log 2>&1 &
 fi
 ```
+
+After launching, tell the user the team is running in the split panes (don't
+block waiting); read `/tmp/team-<name>.log` later for the completion summary.
 
 The script:
 1. Splits the **current window** into panes
