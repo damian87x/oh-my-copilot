@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Avoid piling up redundant runs on the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Hermetic runs — never auto-load a developer's ~/.omp/.env, never self-update.
+  OMP_SKIP_USER_ENV: "1"
+  OMP_NO_UPDATE_CHECK: "1"
+
+jobs:
+  build-test:
+    name: Build · Test · Lint (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (tsc)
+        run: npm run build
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Unit tests (vitest)
+        run: npm test
+
+  skills:
+    name: Validate skills & catalog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      # Project's own validators.
+      - name: Lint skills (omp lint:skills)
+        run: npm run lint:skills
+
+      - name: Validate catalog
+        run: npm run check:catalog

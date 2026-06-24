@@ -30,7 +30,11 @@
     "catalog:list": "npm run build && node dist/src/cli.js catalog list",
     "project:inspect": "npm run build && node dist/src/cli.js project inspect",
     "test": "vitest run",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "lint:skills": "npm run build && node dist/src/cli.js lint:skills --root .",
+    "scan:skills": "node scripts/skills-safety-scan.mjs --root .",
+    "audit:ci": "npm audit --audit-level=high --omit=dev",
     "sync:dry-run": "npm run build && node dist/src/cli.js sync:dry-run --root .",
     "jira:dry-run": "npm run build && node dist/src/cli.js jira:dry-run --root .",
     "omp:version": "npm run build && node dist/src/cli.js version",
@@ -57,6 +61,9 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "eslint": "^9.13.0",
+    "typescript-eslint": "^8.11.0",
     "@types/node": "^22.15.29",
     "@types/node-notifier": "^8.0.5",
     "@vitest/coverage-v8": "^3.2.4",
