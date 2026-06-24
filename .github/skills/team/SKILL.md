@@ -72,11 +72,21 @@ The script (with `--no-monitor`):
 5. Returns — the agents keep working in the panes for the user to watch
    (omit `--no-monitor` to instead block and print a completion summary)
 
-### Step 3 — Report
+### Step 3 — Report-back
 
-`--no-monitor` returns once the prompts are sent, so the agents are now working
-live in the split panes for the user to watch. Tell the user the team launched
-and which lane is in which pane; they can send follow-up prompts to any pane.
+`--no-monitor` returns once prompts are sent, and it also starts a **watch
+service** in its own tmux session (`team-watch-<name>`) that survives your
+shell-tool cleanup. That service polls each worker and, as one becomes
+ready/done (or its pane dies), sends a message **into your (the lead's) pane**:
+
+- `team <name> <pane-id> is ready for review` — that worker finished
+- `team <name> <pane-id> exited; review that pane` — that worker's pane died
+
+When you receive one of these, read that pane's final output
+(`tmux capture-pane -t <pane-id> -p`), collect the result, and once all lanes
+have reported, synthesize the combined results back to the user. You don't block
+waiting — the messages arrive on their own as agents finish. The watch session
+closes itself when every worker is terminal.
 
 ## Optional mode — Runtime (`omp team`)
 

@@ -44,6 +44,11 @@ if [[ -z "${TMUX:-}" ]]; then
   echo "Not inside a tmux session. Run this from within tmux." >&2; exit 1
 fi
 
+# The pane this script runs in IS the leader (the Copilot lead invoked us from
+# its own pane). Capture it so the detached watch service can message it when
+# workers finish.
+LEADER_PANE="${TMUX_PANE:-}"
+
 # OMP_TEAM_WORKER tags worker sessions so the agentStop hook skips loop
 # injection — otherwise a worker spawned inside a project with an active
 # ralph/ultrawork/ultraqa loop gets hijacked by "[RALPH ITERATION N]" prompts.
@@ -170,6 +175,17 @@ tmux select-pane -t '{left}'
 if [[ -n "$NO_MONITOR" ]]; then
   echo ""
   echo "✅ $LANE_COUNT agents launched and prompted — watch the panes ($SESSION)."
+  # Start the report-back watch service in its OWN tmux session so it survives
+  # the leader's shell-tool cleanup (a backgrounded child would be killed). It
+  # watches each worker and sends a message into the leader's pane when a worker
+  # becomes ready/done or dies — so results flow back to the lead automatically.
+  if [[ -n "$LEADER_PANE" ]] && command -v omp &>/dev/null; then
+    WATCH_ARGS="--leader-pane $LEADER_PANE --session-label $SESSION"
+    for pid in "${PANE_IDS[@]}"; do WATCH_ARGS="$WATCH_ARGS --worker-pane $pid"; done
+    tmux new-session -d -s "team-watch-$SESSION" "omp team monitor-panes $WATCH_ARGS" 2>/dev/null \
+      && echo "🛰  watch service running (team-watch-$SESSION) — reports back to the lead on completion." \
+      || echo "⚠️  could not start watch service; the agents still run in the panes."
+  fi
   exit 0
 fi
 
