@@ -35,6 +35,16 @@ function buildContinuationContext(directory) {
     parts.push(
       `[ULTRAQA ACTIVE: cycle ${ultraqa.cycleCount}/${ultraqa.maxCycles}]\nGoal: ${ultraqa.goal}\nRun tests → verify → fix. Iterate.`,
     );
+  const ponytail = readModeState(directory, "ponytail");
+  if (ponytail?.active)
+    parts.push(
+      `[PONYTAIL ACTIVE: ${ponytail.level}]\n` +
+        "Lazy senior dev mode. After understanding the problem, stop at the first rung that holds: " +
+        "1 needed at all? (YAGNI) 2 already here? reuse 3 stdlib? use it 4 native platform? use it " +
+        "5 installed dep? use it 6 one line? one line 7 only then the minimum that works. " +
+        "Never lazy about validation at trust boundaries, data-loss handling, security, accessibility, " +
+        "or anything requested; non-trivial logic leaves one runnable check behind.",
+    );
   return parts.join("\n\n---\n\n");
 }
 

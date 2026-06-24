@@ -588,6 +588,52 @@
       }
     },
     {
+      "id": "ponytail",
+      "name": "ponytail",
+      "title": "Ponytail",
+      "category": "code",
+      "summary": "Lazy senior dev mode \u2014 simplest solution that works (YAGNI, stdlib first).",
+      "notes": "Lite slash project skill plus a persisted mode re-injected by the prompt-submit hook (omp ponytail start|status|off).",
+      "defaultCommand": "ponytail",
+      "phase1": true,
+      "sourceSkill": "ponytail",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /ponytail from .github/skills/ponytail/SKILL.md."
+        }
+      }
+    },
+    {
+      "id": "code.minimal",
+      "name": "code.minimal",
+      "title": "Ponytail",
+      "category": "code",
+      "summary": "Lazy senior dev mode \u2014 simplest solution that works (YAGNI, stdlib first).",
+      "notes": "Alias for ponytail capability.",
+      "defaultCommand": "ponytail",
+      "phase1": true,
+      "sourceSkill": "ponytail",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /ponytail from .github/skills/ponytail/SKILL.md."
+        }
+      }
+    },
+    {
       "id": "debug",
       "name": "debug",
       "title": "Debug",

@@ -348,6 +348,32 @@
       "phase1": true
     },
     {
+      "name": "ponytail",
+      "capabilityId": "ponytail",
+      "capabilityIds": [
+        "ponytail",
+        "code.minimal"
+      ],
+      "source": ".github/skills/ponytail/SKILL.md",
+      "sourcePath": ".github/skills/ponytail/SKILL.md",
+      "canonicalPath": ".github/skills/ponytail/SKILL.md",
+      "description": "Lazy senior dev mode \u2014 simplest solution that works (YAGNI, stdlib first).",
+      "summary": "Lazy senior dev mode \u2014 simplest solution that works (YAGNI, stdlib first).",
+      "support": "project-skill",
+      "aliases": [],
+      "slashCommands": [
+        "ponytail"
+      ],
+      "projections": {
+        "copilot": {
+          "command": "/ponytail",
+          "state": "supported"
+        }
+      },
+      "projection": "project-skill",
+      "phase1": true
+    },
+    {
       "name": "debug",
       "capabilityId": "debug",
       "capabilityIds": [

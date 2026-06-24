@@ -2,12 +2,16 @@ import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileS
 import { dirname, join, resolve } from "node:path";
 
 export type LoopMode = "ralph" | "ultrawork" | "ultraqa";
+// State-file keys reusable by the typed path helpers. "ponytail" is a style
+// mode (not a loop), so it is a state key but intentionally not a LoopMode and
+// not counted by isLoopModeActive below.
+export type ModeStateKey = LoopMode | "ponytail";
 
-export function modeStatePath(cwd: string, mode: LoopMode): string {
+export function modeStatePath(cwd: string, mode: ModeStateKey): string {
   return join(resolve(cwd), ".omp", "state", `${mode}.json`);
 }
 
-export function readModeStateJson<T>(cwd: string, mode: LoopMode): T | undefined {
+export function readModeStateJson<T>(cwd: string, mode: ModeStateKey): T | undefined {
   const p = modeStatePath(cwd, mode);
   if (!existsSync(p)) return undefined;
   try {
@@ -17,7 +21,7 @@ export function readModeStateJson<T>(cwd: string, mode: LoopMode): T | undefined
   }
 }
 
-export function writeModeStateJson<T>(cwd: string, mode: LoopMode, value: T): void {
+export function writeModeStateJson<T>(cwd: string, mode: ModeStateKey, value: T): void {
   const p = modeStatePath(cwd, mode);
   mkdirSync(dirname(p), { recursive: true });
   const tmp = `${p}.tmp.${process.pid}.${Date.now()}`;
@@ -25,7 +29,7 @@ export function writeModeStateJson<T>(cwd: string, mode: LoopMode, value: T): vo
   renameSync(tmp, p);
 }
 
-export function clearModeState(cwd: string, mode: LoopMode): void {
+export function clearModeState(cwd: string, mode: ModeStateKey): void {
   const p = modeStatePath(cwd, mode);
   if (existsSync(p)) unlinkSync(p);
 }
