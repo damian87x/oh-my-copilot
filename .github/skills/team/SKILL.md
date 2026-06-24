@@ -72,21 +72,29 @@ The script (with `--no-monitor`):
 5. Returns — the agents keep working in the panes for the user to watch
    (omit `--no-monitor` to instead block and print a completion summary)
 
-### Step 3 — Report-back
+### Step 3 — Collect (you drive the loop — do NOT go idle)
 
-`--no-monitor` returns once prompts are sent, and it also starts a **watch
-service** in its own tmux session (`team-watch-<name>`) that survives your
-shell-tool cleanup. That service polls each worker and, as one becomes
-ready/done (or its pane dies), sends a message **into your (the lead's) pane**:
+`--no-monitor` prints the lane→pane map and the exact collect command. Nothing
+pushes results to you — **you must actively poll** until every lane is done, then
+synthesize (the leader-driven model). Do not stop after launching and wait.
 
-- `team <name> <pane-id> is ready for review` — that worker finished
-- `team <name> <pane-id> exited; review that pane` — that worker's pane died
+Run the collect command the launcher printed, in a loop:
 
-When you receive one of these, read that pane's final output
-(`tmux capture-pane -t <pane-id> -p`), collect the result, and once all lanes
-have reported, synthesize the combined results back to the user. You don't block
-waiting — the messages arrive on their own as agents finish. The watch session
-closes itself when every worker is terminal.
+```bash
+omp team collect --worker-pane <id1> --worker-pane <id2> ... --json
+```
+
+Each call returns `{ doneCount, total, allDone, lanes: [{ paneId, status, output }] }`
+where `status` is `working` | `done` | `dead`. Procedure:
+
+1. Call collect. If `allDone` is false, wait ~20–30s (do a short `sleep 25`) and
+   call it again. Keep looping — the workers are running live in the panes.
+2. As lanes turn `done`, their `output` holds that worker's final pane text; a
+   `dead` lane means its pane exited (note it as failed/needs review).
+3. When `allDone` is true, read every lane's `output`, then **synthesize the
+   combined results back to the user** (per lane: what it found / produced).
+
+Keep the loop bounded (e.g. stop after ~15 min and report whatever is done).
 
 ## Optional mode — Runtime (`omp team`)
 
