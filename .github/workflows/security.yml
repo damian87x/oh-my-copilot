@@ -1,0 +1,157 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly full scan (Mondays 06:17 UTC) to catch newly disclosed CVEs.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  OMP_SKIP_USER_ENV: "1"
+  OMP_NO_UPDATE_CHECK: "1"
+
+jobs:
+  # ── 1. Native, free, zero-secret baseline ─────────────────────────────
+  npm-audit:
+    name: npm audit (prod deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Fail only on HIGH/critical in production dependencies.
+      - name: npm audit (high+, prod only)
+        run: npm run audit:ci
+
+  skills-safety:
+    name: Skills safety scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # No install needed — pure Node script over SKILL.md / agents / catalog.
+      - name: Static safety audit of skills & agents
+        run: node scripts/skills-safety-scan.mjs --root .
+
+  codeql:
+    name: CodeQL (JS/TS)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"
+
+  dependency-review:
+    name: Dependency review (PR only)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  # ── 2. Socket — supply-chain / malicious package detection ────────────
+  # Requires repo secret SOCKET_SECURITY_API_KEY (free at socket.dev).
+  socket:
+    name: Socket supply-chain scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for Socket token
+        id: gate
+        run: |
+          if [ -n "${{ secrets.SOCKET_SECURITY_API_KEY }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Socket skipped::Set the SOCKET_SECURITY_API_KEY repo secret to enable Socket scanning."
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          node-version: 20
+      - name: Socket CLI scan
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+        run: npx -y @socketsecurity/cli@latest scan create . --view --no-interactive
+
+  # ── 3. Snyk — dependency + code vulnerability scanning ────────────────
+  # Requires repo secret SNYK_TOKEN (free at snyk.io). Uploads SARIF to the
+  # GitHub Security tab.
+  snyk:
+    name: Snyk (deps + code)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for Snyk token
+        id: gate
+        run: |
+          if [ -n "${{ secrets.SNYK_TOKEN }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Snyk skipped::Set the SNYK_TOKEN repo secret to enable Snyk scanning."
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+        if: steps.gate.outputs.enabled == 'true'
+
+      - name: Snyk Open Source (dependencies)
+        if: steps.gate.outputs.enabled == 'true'
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: npx -y snyk@latest test --severity-threshold=high --sarif-file-output=snyk-deps.sarif
+
+      - name: Snyk Code (SAST)
+        if: steps.gate.outputs.enabled == 'true'
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: npx -y snyk@latest code test --severity-threshold=high --sarif-file-output=snyk-code.sarif
+
+      - name: Upload Snyk results to GitHub Security
+        if: steps.gate.outputs.enabled == 'true'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .
+          category: snyk
+        continue-on-error: true
