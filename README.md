@@ -385,6 +385,7 @@ omp grows in vertical slices. Items aren't pinned to specific semver versions �
 - [Jira adapter](docs/jira.md) — configuration discovery, safe operations, dry-runs, fallback payloads
 - [Self-evolve](docs/self-evolve.md) — extracting reusable skills from session transcripts
 - [Slack setup](docs/slack-setup.md) — Slack app manifest, scopes, Socket-Mode token, `omp gateway serve`
+- [Skill benchmark](benchmarks/skill-bench/README.md) — agentic benchmark that measures whether a skill actually beats *just telling the model* (baseline / one-line prompt / skill arms), with live Haiku 4.5 findings
 
 ## Layout
 
@@ -394,6 +395,7 @@ omp grows in vertical slices. Items aren't pinned to specific semver versions �
 hooks/hooks.json                  # lifecycle hook manifest
 scripts/*.mjs                     # hook implementations
 src/                              # omp CLI, team runtime, gateway/comms, schedule, mode-state loops
+benchmarks/skill-bench/           # agentic benchmark: does a skill beat just telling the model?
 ```
 
 Skills follow the [Copilot agent-skills docs](https://docs.github.com/en/copilot) — project skills live in `.github/skills/` and are invoked with `/skill-name`.
