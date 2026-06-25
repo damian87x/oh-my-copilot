@@ -43,6 +43,17 @@ describe("omp config", () => {
     });
   });
 
+  it("global memory-mode off is authoritative over a stale project key", async () => {
+    await withHome(async () => {
+      const { setMemoryConfigValue } = await import("../../src/memory-review/config.js");
+      const cwd = root();
+      setMemoryConfigValue(cwd, "memoryMode", "on", { scope: "project" }); // stale project on
+      await runCli(["config", "set", "memory-mode", "off", "--root", cwd]);
+      const res = await runCli(["config", "get", "--root", cwd]);
+      expect(res.message).toContain("memory-mode=off");
+    });
+  });
+
   it("set memory-review-model persists", async () => {
     const cwd = root();
     await runCli(["config", "set", "memory-review-model", "haiku-x", "--root", cwd]);

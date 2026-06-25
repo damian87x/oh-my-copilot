@@ -92,6 +92,24 @@ export function setMemoryConfigValue(
   renameSync(tmp, p);
 }
 
+/** Remove a key from one scope's config file (atomic; no-op if absent). Used so
+ *  a global `memory-mode` write isn't silently shadowed by a stale PROJECT key —
+ *  readMemoryConfig merges project OVER global, so the project copy must go. */
+export function unsetMemoryConfigValue(
+  cwd: string,
+  key: MemoryConfigKey,
+  opts: SetConfigOptions = {},
+): void {
+  const p = opts.scope === "global" ? globalConfigPath(opts.homeDir) : projectConfigPath(cwd);
+  if (!existsSync(p)) return;
+  const raw = readRawAt(p);
+  if (!(key in raw)) return;
+  delete raw[key];
+  const tmp = `${p}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+  renameSync(tmp, p);
+}
+
 /** Persist several memory keys in ONE atomic read-modify-write, so enabling
  *  memory never leaves `memoryMode=on` paired with a stale model. */
 export function setMemoryConfigValues(

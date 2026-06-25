@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { enableMemoryMode, type EnableIO } from "../../src/memory-review/enable.js";
+import { readMemoryConfig, setMemoryConfigValue } from "../../src/memory-review/config.js";
 import type { CouncilSpawn, SpawnResponse } from "../../src/council/types.js";
 
 const root = () => mkdtempSync(join(tmpdir(), "omc-enable-"));
@@ -119,6 +120,40 @@ describe("enableMemoryMode", () => {
     });
     expect(res.ok).toBe(true);
     expect(res.model).toBe("gpt-4.1");
+  });
+
+  it("clears a stale project memoryMode so the global enable is authoritative", async () => {
+    const home = root();
+    const cwd = root();
+    // A leftover project memoryMode=off would otherwise shadow the global on
+    // (readMemoryConfig merges project OVER global).
+    setMemoryConfigValue(cwd, "memoryMode", "off", { scope: "project" });
+    const res = await enableMemoryMode({
+      cwd,
+      homeDir: home,
+      interactive: false,
+      validate: false,
+      spawn: spawnFromMap({}),
+      io: makeIO(),
+    });
+    expect(res.ok).toBe(true);
+    expect(readMemoryConfig(cwd, { homeDir: home }).memoryMode).toBe("on");
+  });
+
+  it("does not save a model on an out-of-range numeric pick", async () => {
+    const home = root();
+    const io = makeIO(["9"]); // only a couple available → 9 is invalid
+    const res = await enableMemoryMode({
+      cwd: root(),
+      homeDir: home,
+      interactive: true,
+      validate: true,
+      spawn: spawnFromMap({ "gpt-5-mini": { exitCode: 0 } }),
+      io,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.message).toContain("invalid selection");
+    expect(readGlobal(home)).toEqual({});
   });
 
   it("offline (unknown probe) warns but still saves", async () => {

@@ -20,7 +20,11 @@ import {
 } from "../copilot/models.js";
 import { DEFAULT_MEMBERS } from "../council/config.js";
 import type { CouncilSpawn } from "../council/types.js";
-import { DEFAULT_REVIEW_MODEL, readMemoryConfig, setMemoryConfigValues } from "./config.js";
+import {
+  readMemoryConfig,
+  setMemoryConfigValues,
+  unsetMemoryConfigValue,
+} from "./config.js";
 
 export interface EnableIO {
   print(line: string): void;
@@ -61,7 +65,11 @@ export async function enableMemoryMode(opts: EnableMemoryOptions): Promise<Enabl
   const configured = readMemoryConfig(cwd, { homeDir }).memoryReviewModel; // gpt-5-mini by default
   const candidates = candidateSlugs(configured);
 
-  let chosen = opts.explicitModel ?? configured;
+  // Default applied on an empty answer: an explicit --model, else the currently
+  // configured model (which itself defaults to gpt-5-mini). Pressing Enter must
+  // never silently switch the user off their configured model.
+  const def = opts.explicitModel ?? configured;
+  let chosen = def;
   let probed: ProbeResult[] | undefined;
 
   if (interactive) {
@@ -86,11 +94,18 @@ export async function enableMemoryMode(opts: EnableMemoryOptions): Promise<Enabl
       candidates.forEach((m, i) => io.print(`  ${i + 1}) ${m}`));
     }
 
-    const answer = ((await io.ask(`Review model [${DEFAULT_REVIEW_MODEL}]: `)) ?? "").trim();
+    const answer = ((await io.ask(`Review model [${def}]: `)) ?? "").trim();
     if (!answer) {
-      chosen = DEFAULT_REVIEW_MODEL;
+      chosen = def;
     } else if (/^\d+$/.test(answer)) {
-      chosen = offered[Number(answer) - 1] ?? DEFAULT_REVIEW_MODEL;
+      const idx = Number(answer) - 1;
+      if (idx < 0 || idx >= offered.length) {
+        return {
+          ok: false,
+          message: `invalid selection '${answer}' — choose 1-${offered.length} or type a model slug`,
+        };
+      }
+      chosen = offered[idx];
     } else {
       chosen = answer;
     }
@@ -117,6 +132,9 @@ export async function enableMemoryMode(opts: EnableMemoryOptions): Promise<Enabl
     { memoryMode: "on", memoryReviewModel: chosen },
     { scope: "global", homeDir },
   );
+  // A stale PROJECT memoryMode would shadow the global write (project wins in the
+  // merge), silently defeating enable — drop it so global is authoritative.
+  unsetMemoryConfigValue(cwd, "memoryMode", { scope: "project" });
   return {
     ok: true,
     model: chosen,
