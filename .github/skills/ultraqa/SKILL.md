@@ -54,7 +54,7 @@ Number every cycle explicitly: "Cycle 1", "Cycle 2", etc.
 
 ## Rules
 
-- Prefer runnable checks over inspection — run tests, don't just read code
+- Prefer runnable checks over inspection — run tests, don't just read code. For web UI flows, exercise the real page with `/qa-browse` rather than inspecting markup.
 - If tests don't exist, write minimal ones that cover the change
 - Route fixes back to `/ralph` or `/ultrawork` if they're substantial
 

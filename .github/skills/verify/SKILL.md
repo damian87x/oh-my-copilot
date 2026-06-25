@@ -20,7 +20,7 @@ Use `/verify` before saying done.
    - Tests: `npm test`, `pytest`, etc.
    - Build: does it compile/build without errors?
    - Lint: any new warnings?
-   - Behaviour: does the feature work as described?
+   - Behaviour: does the feature work as described? For web UI flows, use `/qa-browse` to drive the live page and capture snapshot/screenshot evidence.
 3. **Read outputs** — don't assume green means pass; read the actual results
 4. **Report honestly** — if there are gaps, say so
 
