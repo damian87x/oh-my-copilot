@@ -12,6 +12,14 @@ guarantees something scorable, and (c) makes an agent that narrates "done" witho
 fail honestly. The scorer is DETERMINISTIC and stdlib-only wherever possible; an LLM judge
 (judge.py) handles only the axes that resist a deterministic check (e.g. plan quality).
 
+Two axes are scored:
+  applied = did the skill's prescribed PROCESS show up (a real test written / the bug caught
+            with a verdict / a real plan, stopped before implementing)?
+  correct = is the OUTCOME sound? Deliberately demanding so it does not saturate at 1.0 --
+            the impl must handle the easy-to-miss edge cases (accents), the review must catch
+            BOTH planted defects, the plan must cover the security specifics. A skill earns
+            its keep when it lifts these over the baseline AND over a one-line prompt.
+
 Task fields:
   skill   : which omp skill this exercises (tdd | code-review | ralplan)
   prompt  : instruction handed to the agent
@@ -20,13 +28,10 @@ Task fields:
   reads   : "files" (scorer reads produced files) or "chat" (scorer reads the agent's reply)
   axis    : dimension good/bad differ on for --selftest -- "applied" (default) or "correct"
   score   : (workdir) -> {applied, correct, reason, **extra}
-            applied = did the skill's prescribed behaviour show up (tests written / bug
-                      caught / plan emitted)? correct = is the produced artifact sound?
   good/bad : reference artifacts for the selftest. good must score applied+correct;
              bad must be CAUGHT on `axis` (the lazy-but-plausible output a no-skill arm ships).
   adversarial : [{name, file, extra}] -- gameable-but-wrong artifacts the scorer MUST reject
-                (applied=0). These are the false positives a keyword-only scorer would pass;
-                --selftest fails if any of them sneaks through.
+                (applied=0). The false positives a keyword-only scorer would pass.
 
 run.py --selftest proves good passes / bad is caught / adversarial is rejected before any
 API spend.
@@ -121,20 +126,26 @@ def _digest(text):
 
 
 # ======================================================================================
-# tdd -- the skill prescribes red-green-refactor: there MUST be a test, and the
-#        implementation MUST be correct. We seed a stub + a known bug spec.
+# tdd -- prescribes red-green-refactor: there MUST be a test, and the implementation MUST
+#        be correct. Hardened: the spec now requires transliterating accented Latin letters
+#        to ASCII (cafe, not caf), which a naive `[^a-z0-9]`-strip impl gets wrong -- so
+#        `correct` no longer saturates and a test-first agent (which probes the accent case)
+#        has room to beat a blind one.
 # ======================================================================================
 TDD_SEED = (
     "def slugify(text):\n"
     '    """Turn a title into a URL slug: lowercase, spaces->hyphens, strip punctuation,\n'
-    '    collapse repeated hyphens, trim leading/trailing hyphens. Empty -> empty string."""\n'
+    '    transliterate accented Latin letters to ASCII, collapse repeated hyphens, trim\n'
+    '    leading/trailing hyphens. Empty -> empty string."""\n'
     "    raise NotImplementedError\n"
 )
 TDD_PROMPT = (
     "The file slugify.py has an unimplemented slugify(text) function. Implement it to match its "
-    "docstring exactly: lowercase, spaces and underscores become single hyphens, drop any character "
-    "that is not a letter, digit or hyphen, collapse runs of hyphens into one, and strip leading/"
-    "trailing hyphens. An empty or all-punctuation input returns an empty string. Do this properly."
+    "docstring exactly: lowercase; spaces and underscores become single hyphens; transliterate "
+    "accented Latin letters to their ASCII base (cafe from cafe-with-accent, naive, zurich, "
+    "facade); drop any remaining character that is not a letter, digit or hyphen; collapse runs of "
+    "hyphens into one; strip leading/trailing hyphens. Empty or all-punctuation input returns an "
+    "empty string. Do this properly."
 )
 
 _SLUG_CASES = [
@@ -146,6 +157,10 @@ _SLUG_CASES = [
     ("---trim---", "trim"),
     ("!!!", ""),
     ("", ""),
+    # the de-saturating edge cases: accented Latin must transliterate, not vanish.
+    ("Café René", "cafe-rene"),
+    ("Naïve Façade", "naive-facade"),
+    ("Zürich", "zurich"),
 ]
 
 # Run the model-produced slugify in a FRESH, SANDBOXED subprocess with a hard timeout.
@@ -189,8 +204,8 @@ def _run_slug_cases(workdir, cases, timeout=10):
         return False, f"no parseable result (rc={r.returncode})"
     if "error" in data:
         return False, data["error"]
-    ok = all(got == exp for _inp, got, exp in data.get("results", []))
-    return ok, "all cases pass" if ok else "wrong output on >=1 case"
+    fails = [inp for inp, got, exp in data.get("results", []) if got != exp]
+    return (not fails), ("all cases pass" if not fails else f"wrong on {len(fails)} case(s) e.g. {fails[:1]}")
 
 
 def score_tdd(workdir):
@@ -207,11 +222,12 @@ def score_tdd(workdir):
                wrote_test=int(wrote_test), asserts=asserts)
 
 
-# good ref: correct impl + a real test file sibling (selftest seeds both)
+# good ref: correct (accent-aware) impl + a real test file sibling (selftest seeds both)
 TDD_GOOD = (
-    "import re\n"
+    "import re, unicodedata\n"
     "def slugify(text):\n"
-    "    s = text.lower()\n"
+    "    s = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('ascii')\n"
+    "    s = s.lower()\n"
     "    s = re.sub(r'[\\s_]+', '-', s)\n"
     "    s = re.sub(r'[^a-z0-9-]', '', s)\n"
     "    s = re.sub(r'-+', '-', s)\n"
@@ -221,10 +237,13 @@ TDD_GOOD_TEST = (
     "from slugify import slugify\n"
     "def test_basic():\n"
     "    assert slugify('Hello World') == 'hello-world'\n"
+    "def test_accents():\n"
+    "    assert slugify('Café René') == 'cafe-rene'\n"
     "def test_empty():\n"
     "    assert slugify('!!!') == ''\n"
 )
-# bad ref: a "works on the happy path" one-liner with NO test -> tdd skill NOT applied.
+# bad ref: a "works on the happy path" one-liner with NO test -> tdd skill NOT applied, and it
+# also fails the accent cases so correct=0.
 TDD_BAD = (
     "def slugify(text):\n"
     "    return text.lower().replace(' ', '-')\n"
@@ -240,23 +259,26 @@ TDD_ADV_TEST = (
 
 
 # ======================================================================================
-# code-review -- the skill prescribes catching blockers/security/regressions and emitting
-#                a structured verdict. We seed a diff containing a real SQL-injection bug
-#                and ask for a review. "applied" = it flagged the injection (with a real
-#                remediation, not a negated mention) AND used the verdict structure.
+# code-review -- prescribes catching blockers/security/regressions and emitting a structured
+#                verdict. Hardened: the seed now has TWO defects -- (1) a SQL injection and
+#                (2) `SELECT *` returning password_hash to the caller. `applied` = it flagged
+#                the injection (with a real fix) AND used a verdict; `correct` = a THOROUGH
+#                review that also catches the data-exposure, so it does not saturate.
 # ======================================================================================
 CR_VULN_FILE = (
     "import sqlite3\n"
+    "# users table columns: id, name, email, password_hash, is_admin\n"
     "def get_user(db_path, username):\n"
     "    conn = sqlite3.connect(db_path)\n"
     "    cur = conn.cursor()\n"
     "    # builds SQL by string concatenation -- injectable\n"
     "    cur.execute(\"SELECT * FROM users WHERE name = '\" + username + \"'\")\n"
-    "    return cur.fetchall()\n"
+    "    return cur.fetchall()  # returns every column, incl. password_hash, to the caller\n"
 )
 CR_PROMPT = (
     "Review the change in users.py before we merge it. Produce a review verdict. Be specific about "
-    "anything that must be fixed before merge. Write your review to a file named review.md."
+    "everything that must be fixed before merge -- look for security and data-exposure problems, "
+    "not just the first bug. Write your review to a file named review.md."
 )
 
 # Phrases that mean "I did NOT find the injection" -- a review containing these (and no
@@ -271,6 +293,11 @@ _CR_REMEDIATION = re.compile(
     r"|execute\([^)]*\?|where name = \?",
 )
 _CR_NAMES_DEFECT = re.compile(r"sql injection|sqli|string concatenation|concatenat")
+# The SECOND defect: SELECT * leaks password_hash to the caller. A thorough review names it.
+_CR_SECOND = re.compile(
+    r"password_hash|select \*|select\*|every column|all columns|sensitive (column|data|field)"
+    r"|over[- ]?broad|leak|data exposure|exposes",
+)
 # Standard review verdicts (any one is fine) -- including the previously false-failed ones.
 _CR_VERDICT = re.compile(
     r"\b(pass|fail|blocker|reject|approve)\b|needs[ _]changes|request[ _]changes|must[ -]fix",
@@ -285,31 +312,35 @@ def score_code_review(workdir):
     names_defect = bool(_CR_NAMES_DEFECT.search(txt))
     remediation = bool(_CR_REMEDIATION.search(txt))
     negated = bool(_CR_NEGATED.search(txt))
-    # caught the REAL defect = names the injection AND proposes the parameterized fix AND is
-    # not a negated "no injection here" review. Requiring the fix is what kills the
-    # "Verdict: PASS. No SQL injection found." false positive.
+    second = bool(_CR_SECOND.search(txt))
+    # caught the PRIMARY defect = names the injection AND proposes the parameterized fix AND is
+    # not a negated "no injection here" review. (Kills "Verdict: PASS. No SQL injection found.")
     caught = names_defect and remediation and not negated
     has_verdict = bool(_CR_VERDICT.search(txt))
     structured = has_verdict and bool(re.search(r"blocking|verdict|non-blocking|evidence", txt))
     applied = caught and has_verdict
-    return _ok(applied, caught,
-               reason=f"caught={caught} (names={names_defect} fix={remediation} negated={negated}) "
-                      f"verdict={has_verdict} structured={structured}",
-               caught_injection=int(caught), structured=int(structured))
+    # "correct" = a THOROUGH review: caught the injection AND the data-exposure second defect.
+    correct = caught and second
+    return _ok(applied, correct,
+               reason=f"caught={caught} (names={names_defect} fix={remediation} neg={negated}) "
+                      f"second={second} verdict={has_verdict} structured={structured}",
+               caught_injection=int(caught), caught_second=int(second), structured=int(structured))
 
 
-# good ref: a review that names the injection and uses the verdict structure
+# good ref: names BOTH defects, with fixes and a verdict structure
 CR_GOOD = (
     "# Code Review\n\n"
     "Verdict: BLOCKER\n\n"
     "## Blocking\n"
     "- SQL injection in get_user: the query is built by string concatenation of `username`. "
     "An input like `' OR '1'='1` leaks every row. Use a parameterized query "
-    "(`cur.execute('SELECT * FROM users WHERE name = ?', (username,))`).\n\n"
+    "(`cur.execute('SELECT * FROM users WHERE name = ?', (username,))`).\n"
+    "- Data exposure: `SELECT *` returns every column including `password_hash` to the caller. "
+    "Select only the needed columns (id, name, email).\n\n"
     "## Non-blocking\n- Connection is never closed.\n\n"
     "## Evidence reviewed\n- users.py diff\n"
 )
-# bad ref: the lazy "looks fine" review that misses the injection -> skill NOT applied
+# bad ref: the lazy "looks fine" review that misses everything -> skill NOT applied
 CR_BAD = (
     "# Review\n\nLooks good to me, the function reads a user by name and returns the rows. "
     "Ship it.\n"
@@ -324,24 +355,31 @@ CR_ADV = (
 
 
 # ======================================================================================
-# ralplan -- the skill prescribes an implementation-ready PLAN (slices, acceptance criteria,
-#            test shape, risks) and to STOP at the plan (not implement). We ask for a plan
-#            for a multi-file change. "applied" = the plan has the prescribed sections, is
-#            anchored to THIS task, AND the agent did not start editing code.
+# ralplan -- prescribes an implementation-ready PLAN (slices, acceptance criteria, test shape,
+#            risks) and to STOP at the plan. Hardened: `correct` now also requires the plan to
+#            cover the SECURITY specifics this feature actually needs (token expiry, single-use/
+#            replay protection, and email-enumeration / rate-limiting), so a generic
+#            plan-shaped answer is `applied` but not `correct`.
 # ======================================================================================
 RALPLAN_SEED_A = "# app.py\n# existing flask app (stub for planning)\n"
 RALPLAN_SEED_B = "# auth.py\n# existing auth helpers (stub for planning)\n"
 RALPLAN_PROMPT = (
     "We need to add password-reset-by-email to this Flask app (touches app.py routes, auth.py "
     "token logic, and a new email sender). Produce an implementation-ready plan first -- do not "
-    "write the implementation yet. Write the plan to a file named plan.md."
+    "write the implementation yet. The plan must address the security specifics this feature "
+    "needs: token expiry, single-use / replay protection, and email-enumeration / rate-limiting. "
+    "Write the plan to a file named plan.md."
 )
 
 _RALPLAN_SEEDS = {"app.py": RALPLAN_SEED_A, "auth.py": RALPLAN_SEED_B}
-# The plan must be anchored to THIS task, not generic plan-shaped boilerplate. At least two
-# of these domain anchors must appear, which a "step / acceptance / test / risk" word-salad
-# cannot satisfy.
+# The plan must be anchored to THIS task, not generic plan-shaped boilerplate.
 _RALPLAN_ANCHORS = re.compile(r"token|reset|email|expir|password|/forgot|/reset|route")
+# The security specifics a THOROUGH plan covers (>=2 needed for `correct`).
+_RALPLAN_SECURITY = (
+    re.compile(r"expir|ttl|time[- ]?to[- ]?live"),
+    re.compile(r"single[- ]?use|one[- ]?time|replay|invalidat|nonce|consumed"),
+    re.compile(r"enumerat|rate[- ]?limit|throttle|timing"),
+)
 
 
 def _wrote_implementation(workdir, seeds):
@@ -372,14 +410,15 @@ def score_ralplan(workdir):
     has_risks = bool(re.search(r"risk|tradeoff|trade-off|alternativ|could go wrong", txt))
     sections = sum([has_slices, has_accept, has_tests, has_risks])
     anchors = len(set(_RALPLAN_ANCHORS.findall(txt)))
+    security = sum(bool(rx.search(txt)) for rx in _RALPLAN_SECURITY)
     implemented = _wrote_implementation(workdir, _RALPLAN_SEEDS)
     # applied = the 4 plan sections (>=3), anchored to the actual task, AND stopped at the plan.
     applied = sections >= 3 and anchors >= 2 and not implemented
-    # "correct" = a usable, task-specific plan (sections present AND anchored).
-    correct = sections >= 3 and anchors >= 2
+    # "correct" = a THOROUGH, task-specific plan: also covers >=2 of the security specifics.
+    correct = sections >= 3 and anchors >= 2 and security >= 2
     return _ok(applied, correct,
-               reason=f"sections={sections}/4 anchors={anchors} implemented={implemented}",
-               sections=sections, anchors=anchors, stopped_at_plan=int(not implemented))
+               reason=f"sections={sections}/4 anchors={anchors} security={security}/3 implemented={implemented}",
+               sections=sections, anchors=anchors, security=security, stopped_at_plan=int(not implemented))
 
 
 RALPLAN_GOOD = (
@@ -388,9 +427,13 @@ RALPLAN_GOOD = (
     "1. auth.py: add `make_reset_token(user)` / `verify_reset_token(token)` (signed, expiring).\n"
     "2. email sender module: `send_reset_email(user, token)`.\n"
     "3. app.py: POST /forgot route issues token+email; POST /reset route verifies and sets password.\n\n"
-    "## Acceptance criteria\n- A valid token within TTL resets the password; an expired/tampered token is rejected.\n\n"
-    "## Test shape\n- unit: token round-trip, expiry, tamper. integration: /forgot then /reset happy path.\n\n"
-    "## Risks\n- Token leakage in logs; email enumeration. Tradeoff: stateless signed token vs DB-stored token (chose signed).\n"
+    "## Acceptance criteria\n- A valid token within its TTL resets the password; an expired or "
+    "tampered token is rejected; a token is single-use (invalidated after a successful reset).\n\n"
+    "## Test shape\n- unit: token round-trip, expiry, tamper, replay (second use rejected). "
+    "integration: /forgot then /reset happy path.\n\n"
+    "## Risks\n- Email enumeration via /forgot timing/response -- return a generic response and "
+    "rate-limit the route. Token leakage in logs. Tradeoff: stateless signed token vs DB-stored "
+    "single-use token (chose DB-stored so it can be invalidated/consumed).\n"
 )
 # bad ref: it skipped planning and just narrated that it implemented it -> skill NOT applied
 RALPLAN_BAD = (
