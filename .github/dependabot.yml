@@ -11,6 +11,14 @@ updates:
     open-pull-requests-limit: 10
     labels: ["dependencies"]
     groups:
+      # Coupled peer pairs must upgrade together or npm hits ERESOLVE.
+      # Listed first so they take precedence over the type-based groups
+      # below, and intentionally unrestricted on update-types so majors
+      # (e.g. eslint 9->10) bump alongside their peers in one PR.
+      eslint:
+        patterns: ["eslint", "@eslint/*"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
       dev-dependencies:
         dependency-type: development
         update-types: ["minor", "patch"]
