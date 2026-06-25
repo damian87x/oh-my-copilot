@@ -144,6 +144,26 @@ describe("runMemoryReview (integration)", () => {
     expect(noteIndex(cwd)).toHaveLength(1);
   });
 
+  it("surfaces an actionable error when the review model is unavailable", async () => {
+    const cwd = root();
+    setMemoryConfigValue(cwd, "memoryMode", "on");
+    setMemoryConfigValue(cwd, "memoryReviewModel", "bad-model");
+    const unavailable: CouncilSpawn = async () => ({
+      stdout: "",
+      stderr: 'Error: Model "bad-model" from --model flag is not available.',
+      exitCode: 1,
+      timedOut: false,
+    });
+    const res = await runMemoryReview({ cwd, sessionId: "unavail", spawn: unavailable, readTranscript: messages });
+    expect(res.ran).toBe(false);
+    expect(res.reason).toContain("bad-model");
+    expect(res.reason).toContain("omp config set memory-review-model");
+    expect(noteIndex(cwd)).toEqual([]);
+    // claim released → retry with a good model succeeds
+    const retry = await runMemoryReview({ cwd, sessionId: "unavail", spawn: fakeSpawn(REVIEW_JSON), readTranscript: messages });
+    expect(retry.ran).toBe(true);
+  });
+
   it("does not consume a claim for an empty transcript (retryable later)", async () => {
     const cwd = root();
     setMemoryConfigValue(cwd, "memoryMode", "on");

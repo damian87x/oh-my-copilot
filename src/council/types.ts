@@ -110,6 +110,18 @@ export interface SpawnResponse {
 /** Real impl spawns `copilot --model <model> -p <prompt>`; tests inject a fake. */
 export type CouncilSpawn = (req: SpawnRequest) => Promise<SpawnResponse>;
 
+/** stderr signature copilot emits when a --model slug is not entitled to the plan. */
+export const UNAVAILABLE_SIGNATURE = /is not available/i;
+
+/**
+ * True only for an entitlement failure (model not available to this plan), not a
+ * transient crash/timeout. Lives here (a leaf module) so both the council and
+ * the copilot model-probing utilities share one detector without a cycle.
+ */
+export function isModelUnavailable(res: SpawnResponse): boolean {
+  return res.exitCode !== 0 && !res.timedOut && UNAVAILABLE_SIGNATURE.test(res.stderr);
+}
+
 export interface CouncilDeps {
   spawn: CouncilSpawn; // injectable model invoker
   now?: () => number; // injectable clock (timestamps / temp dir)

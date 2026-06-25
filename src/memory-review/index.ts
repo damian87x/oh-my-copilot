@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ompRoot } from "../omp-root.js";
 import { appendCostRecord } from "../cost/ledger.js";
+import { isModelUnavailable } from "../council/types.js";
 import type { CouncilSpawn } from "../council/types.js";
 import { readMemoryConfig } from "./config.js";
 import { claimSession, releaseClaim } from "./guard.js";
@@ -73,6 +74,15 @@ export async function runMemoryReview(
   const timeoutMs = options.timeoutMs ?? 90_000;
 
   const res = await options.spawn({ model, prompt, timeoutMs });
+  // An unavailable model is a permanent config error, not a transient failure:
+  // surface an actionable fix instead of the generic message below. Detached
+  // sessionEnd reviews would otherwise fail this way silently every session.
+  if (isModelUnavailable(res)) {
+    releaseClaim(cwd, sessionId);
+    const reason = `review model '${model}' not available — run: omp config set memory-review-model <slug>`;
+    logLine(cwd, { sessionId, ran: false, reason, model });
+    return { ran: false, reason };
+  }
   if (res.exitCode !== 0 || res.timedOut) {
     // Nothing was written — release the claim so the session can be retried.
     releaseClaim(cwd, sessionId);

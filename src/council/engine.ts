@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { loadCouncilConfig, type LoadCouncilConfigOptions } from "./config.js";
 import { buildMemberPrompt, parseMemberOutput } from "./prompts.js";
 import { synthesize } from "./synth.js";
+import { isModelUnavailable as isUnavailable } from "./types.js";
 import type {
   CouncilDeps,
   CouncilMemberResult,
@@ -15,13 +16,6 @@ import type {
 } from "./types.js";
 
 export type ProgressCallback = (message: string) => void;
-
-/** stderr signature emitted by copilot when a --model slug is not entitled. */
-const UNAVAILABLE_SIGNATURE = /is not available/i;
-
-function isUnavailable(res: SpawnResponse): boolean {
-  return res.exitCode !== 0 && !res.timedOut && UNAVAILABLE_SIGNATURE.test(res.stderr);
-}
 
 /**
  * Run `worker` over `items` with at most `limit` in flight. The slot is released

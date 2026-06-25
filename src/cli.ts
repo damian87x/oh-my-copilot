@@ -60,6 +60,27 @@ async function withUpdateIO<T>(
   }
 }
 
+interface PromptIO {
+  print: (line: string) => void;
+  ask: (prompt: string) => Promise<string | undefined>;
+}
+
+/** Run `fn` with a readline-backed {print, ask} IO, closing readline after.
+ *  Used by the interactive `config set memory-mode on` flow. `print` routes to
+ *  stderr under --json so it never corrupts the JSON on stdout. */
+async function withReadlineIO<T>(json: boolean, fn: (io: PromptIO) => Promise<T>): Promise<T> {
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await fn({
+      print: (line) => (json ? console.error(line) : console.log(line)),
+      ask: (prompt) => rl.question(prompt),
+    });
+  } finally {
+    rl.close();
+  }
+}
+
 /**
  * Re-exec the freshly-installed omp after a self-update so the launch runs the
  * new version. `npm i -g` overwrote the entrypoint at `process.argv[1]` in
@@ -107,8 +128,8 @@ function printResult(result: CliResult, json: boolean): void {
 }
 
 function help(): string {
-  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  update                                        (self-update: npm i -g @damian87/omp@latest)\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--force] [--json]\n                                                (--force overrides locally-changed bundled skills/agents; otherwise setup prompts. Always installs/refreshes ~/.copilot/hooks/omp.json)\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot] [--hooks]\n  cost [--json] [--session <id>] [--days <n>]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  gateway serve [--only <name>[,<name>]]        (run all configured connectors; today: slack)\n  gateway status [--json] [--only <name>[,...]] (per-connector readiness; no sockets opened)\n  gateway doctor [--json] [--only <name>[,...]] (alias for 'gateway status')\n  gateway notify --text "<msg>" [--target slack:C\\|D\\|G\\|U... [:thread_ts]] [--thread-ts <ts>] [--json]\n                                                (one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL)\n  slack serve                                   (deprecated alias for 'gateway serve --only slack')\n  slack doctor [--json]                         (deprecated alias for 'gateway status --only slack')\n  env init [--force]                            (interactive: write ~/.omp/.env with Slack tokens + optional SLACK_HOME_CHANNEL)\n                                                non-interactive: set OMP_INIT_BOT_TOKEN/OMP_INIT_APP_TOKEN/OMP_INIT_HOME_CHANNEL\n                                                (env vars preferred over --bot-token/--app-token/--home-channel flags)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n${registeredCommandHelpLines().join("\n")}\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  ponytail start [lite|full|ultra] [--json]    (lazy senior dev mode; persisted + re-injected each turn)\n  ponytail status [--json]\n  ponytail off [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--notify-target slack:<ID>] [--notify-desktop] [--notify-open-omp] [--dry-run] [--json]
-                                                (--notify-desktop: native OS notification on completion [macOS uses osascript]; --notify-open-omp: click opens an omp session in the state root — needs OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1 + terminal-notifier on macOS)\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule open <id> [--tmux] [--json]          (show this id's latest status + full output; --tmux instead opens an interactive omp session in the project — recent runs show via the startup banner)\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (render goal+directives into copilot-instructions.md)\n  config get [--json] | config set memory-mode on|off | config set memory-review-model <slug> | config set memory-review-min-messages <n> [--global]\n                                                (--global writes ~/.omp/config.json; applies to every project. project .omp/config.json overrides it)\n  memory-review --session <uuid|latest> [--model <slug>] [--json]   (cheap-model end-of-session review; opt-in via memory-mode)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | prune-notes --keep <n>|--older-than <days> [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+  return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  update                                        (self-update: npm i -g @damian87/omp@latest)\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--force] [--json]\n                                                (--force overrides locally-changed bundled skills/agents; otherwise setup prompts. Always installs/refreshes ~/.copilot/hooks/omp.json)\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot] [--hooks] [--deep]\n  cost [--json] [--session <id>] [--days <n>]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  gateway serve [--only <name>[,<name>]]        (run all configured connectors; today: slack)\n  gateway status [--json] [--only <name>[,...]] (per-connector readiness; no sockets opened)\n  gateway doctor [--json] [--only <name>[,...]] (alias for 'gateway status')\n  gateway notify --text "<msg>" [--target slack:C\\|D\\|G\\|U... [:thread_ts]] [--thread-ts <ts>] [--json]\n                                                (one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL)\n  slack serve                                   (deprecated alias for 'gateway serve --only slack')\n  slack doctor [--json]                         (deprecated alias for 'gateway status --only slack')\n  env init [--force]                            (interactive: write ~/.omp/.env with Slack tokens + optional SLACK_HOME_CHANNEL)\n                                                non-interactive: set OMP_INIT_BOT_TOKEN/OMP_INIT_APP_TOKEN/OMP_INIT_HOME_CHANNEL\n                                                (env vars preferred over --bot-token/--app-token/--home-channel flags)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n${registeredCommandHelpLines().join("\n")}\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  ponytail start [lite|full|ultra] [--json]    (lazy senior dev mode; persisted + re-injected each turn)\n  ponytail status [--json]\n  ponytail off [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--notify-target slack:<ID>] [--notify-desktop] [--notify-open-omp] [--dry-run] [--json]
+                                                (--notify-desktop: native OS notification on completion [macOS uses osascript]; --notify-open-omp: click opens an omp session in the state root — needs OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1 + terminal-notifier on macOS)\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule open <id> [--tmux] [--json]          (show this id's latest status + full output; --tmux instead opens an interactive omp session in the project — recent runs show via the startup banner)\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (render goal+directives into copilot-instructions.md)\n  config get [--json] | config set memory-mode on|off [--no-validate] [--model <slug>] | config set memory-review-model <slug> | config set memory-review-min-messages <n> [--global]\n                                                (memory-mode on probes/validates a model + writes ~/.omp globally; --no-validate skips the probe. --global writes ~/.omp/config.json; project .omp/config.json overrides per key)\n  memory-review --session <uuid|latest> [--model <slug>] [--json]   (cheap-model end-of-session review; opt-in via memory-mode)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | prune-notes --keep <n>|--older-than <days> [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -321,6 +342,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
       copilotBin: flagValue(argv, "--copilot-bin"),
       skipCopilot: hasFlag(argv, "--skip-copilot"),
       checkHooks: hasFlag(argv, "--hooks"),
+      deepCheck: hasFlag(argv, "--deep"),
     });
     return json
       ? { ok: report.ok, exitCode: report.ok ? 0 : 1, output: report }
@@ -457,7 +479,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   }
 
   if (group === "config") {
-    const { readMemoryConfig, setMemoryConfigValue } = await import("./memory-review/config.js");
+    const { readMemoryConfig, setMemoryConfigValue, unsetMemoryConfigValue } = await import("./memory-review/config.js");
     const cwd = flagValue(argv, "--root") ?? process.cwd();
     // OMP_HOME_OVERRIDE relocates the global ~/.omp config dir (test seam; also
     // lets users point at a custom home). Undefined => os.homedir() default.
@@ -478,10 +500,39 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
       const where = scope === "global" ? " (global ~/.omp)" : "";
       if (value === "memory-mode") {
         if (setVal !== "on" && setVal !== "off") {
-          return { ok: false, exitCode: 1, message: "usage: omp config set memory-mode on|off [--global]" };
+          return { ok: false, exitCode: 1, message: "usage: omp config set memory-mode on|off [--no-validate] [--model <slug>]" };
         }
-        setMemoryConfigValue(cwd, "memoryMode", setVal, { scope, homeDir });
-        return json ? { ok: true, output: { memoryMode: setVal, scope } } : { ok: true, message: `memory-mode=${setVal}${where}` };
+        // memory-mode is a user-level preference (like git user.email): always
+        // written GLOBAL (~/.omp), so enabling once applies everywhere.
+        if (setVal === "off") {
+          setMemoryConfigValue(cwd, "memoryMode", "off", { scope: "global", homeDir });
+          // Drop any stale PROJECT memoryMode so it can't shadow the global off.
+          unsetMemoryConfigValue(cwd, "memoryMode", { scope: "project" });
+          return json
+            ? { ok: true, output: { memoryMode: "off", scope: "global" } }
+            : { ok: true, message: "memory-mode=off (global ~/.omp)" };
+        }
+        // on → validate a usable review model (probe), optionally pick one
+        // interactively, then persist mode+model atomically. --no-validate skips
+        // the probe (offline/CI); --model <slug> preselects in non-interactive use.
+        const { enableMemoryMode } = await import("./memory-review/enable.js");
+        const { createReviewSpawn } = await import("./memory-review/spawn.js");
+        const validate = !hasFlag(argv, "--no-validate");
+        const interactive = isInteractive(json);
+        const explicitModel = flagValue(argv, "--model");
+        const spawn = createReviewSpawn();
+        const run = (io: PromptIO) =>
+          enableMemoryMode({ cwd, homeDir, interactive, validate, spawn, explicitModel, io });
+        const result = interactive
+          ? await withReadlineIO(json, run)
+          : await run({ print: (line) => (json ? console.error(line) : console.log(line)), ask: async () => undefined });
+        return json
+          ? {
+              ok: result.ok,
+              exitCode: result.ok ? 0 : 1,
+              output: { memoryMode: result.ok ? "on" : "off", memoryReviewModel: result.model, scope: "global" },
+            }
+          : { ok: result.ok, exitCode: result.ok ? 0 : 1, message: result.message };
       }
       if (value === "memory-review-model") {
         if (!setVal || setVal.startsWith("-")) {

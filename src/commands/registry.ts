@@ -1,7 +1,8 @@
 import type { CommandModule } from "./types.js";
 import { suggestCommand } from "./suggest.js";
+import { modelsCommand } from "./models.js";
 
-const COMMANDS: CommandModule[] = [suggestCommand];
+const COMMANDS: CommandModule[] = [suggestCommand, modelsCommand];
 
 export function findRegisteredCommand(name: string | undefined): CommandModule | undefined {
   if (!name) return undefined;

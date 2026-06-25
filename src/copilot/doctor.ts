@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { resolveCopilotPaths, type CopilotPaths, type ResolveCopilotPathsOptions } from "./paths.js";
+import { UNAVAILABLE_SIGNATURE } from "../council/types.js";
+import { readMemoryConfig } from "../memory-review/config.js";
 
 export type CheckStatus = "pass" | "fail" | "warn";
 
@@ -22,6 +24,9 @@ export interface DoctorOptions extends ResolveCopilotPathsOptions {
   skipCopilot?: boolean;
   copilotBin?: string;
   checkHooks?: boolean;
+  /** Run slow, network-dependent probes (e.g. the memory-review model). Opt-in
+   *  via `omp doctor --deep` so the default doctor stays fast. */
+  deepCheck?: boolean;
 }
 
 function checkNodeVersion(): DoctorCheck {
@@ -313,6 +318,49 @@ function checkCopilotCli(bin: string): DoctorCheck {
   }
 }
 
+/** Pure classifier for a memory-review model probe (kept separate so it's
+ *  testable without spawning copilot). Mirrors copilot/models.probeModel: a
+ *  working model is proven by captured stdout, because `copilot -p` often prints
+ *  its reply but doesn't exit (so spawnSync reports a SIGTERM/timeout, not 0). */
+export function classifyMemoryReviewProbe(
+  slug: string,
+  outcome: { status: number | null; stdout: string; stderr: string; errorCode?: string },
+): DoctorCheck {
+  const name = "memory-review-model";
+  if (outcome.stdout.trim().length > 0 || outcome.status === 0) {
+    return { name, status: "pass", detail: `${slug} ok` };
+  }
+  if (UNAVAILABLE_SIGNATURE.test(outcome.stderr)) {
+    return {
+      name,
+      status: "warn",
+      detail: `model '${slug}' not available — run: omp config set memory-review-model <slug>`,
+    };
+  }
+  if (outcome.errorCode === "ENOENT") {
+    return { name, status: "warn", detail: "copilot not found on PATH" };
+  }
+  return { name, status: "warn", detail: `probe failed (exit=${outcome.status ?? "timeout"})` };
+}
+
+function checkMemoryReviewModel(cwd: string | undefined, bin: string): DoctorCheck {
+  const cfg = readMemoryConfig(cwd ?? process.cwd());
+  if (cfg.memoryMode !== "on") {
+    return { name: "memory-review-model", status: "pass", detail: "memory-mode off (skipped)" };
+  }
+  const slug = cfg.memoryReviewModel;
+  const result = spawnSync(bin, ["--model", slug, "-p", "Reply with: ok"], {
+    encoding: "utf8",
+    timeout: 15000,
+  });
+  return classifyMemoryReviewProbe(slug, {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+    errorCode: (result.error as NodeJS.ErrnoException | undefined)?.code,
+  });
+}
+
 export function runDoctor(options: DoctorOptions = {}): DoctorReport {
   const paths = resolveCopilotPaths(options);
   const checks: DoctorCheck[] = [
@@ -327,6 +375,9 @@ export function runDoctor(options: DoctorOptions = {}): DoctorReport {
   }
   if (!options.skipCopilot) {
     checks.push(checkCopilotCli(options.copilotBin ?? "copilot"));
+    if (options.deepCheck) {
+      checks.push(checkMemoryReviewModel(options.cwd, options.copilotBin ?? "copilot"));
+    }
   }
   const ok = checks.every((c) => c.status !== "fail");
   return { ok, checks, paths };
