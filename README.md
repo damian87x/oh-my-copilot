@@ -29,7 +29,10 @@ And the in-session skills, as a Copilot CLI plugin:
 ```bash
 copilot plugin marketplace add damian87x/oh-my-copilot
 copilot plugin install oh-my-copilot@oh-my-copilot
+omp setup
 ```
+
+(`omp setup` installs the lifecycle hooks into `~/.copilot/hooks/` so end-of-session memory review and cost tracking fire. Bare `omp` also installs them on first run.)
 
 Requires Copilot CLI v1.0.48+. After install, `omp --madmax` works from any shell, and `/omp-autopilot`, `/ralplan`, `/code-review`, `/create-skill`, `/self-evolve`, and the rest are available inside any Copilot session.
 

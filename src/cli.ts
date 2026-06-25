@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { findCapability, loadCatalogBundle, validateCatalogBundle } from "./catalog.js";
@@ -276,6 +276,18 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
         io: { print: (line) => console.log(line), ask: async () => undefined },
         interactive: true,
       });
+    }
+    // First-run self-setup: ensure Copilot lifecycle hooks exist so memory-review
+    // and cost hooks fire without a manual `omp setup`. Best-effort, only when the
+    // hook file is MISSING (no per-launch rewrites; never scaffolds the project).
+    try {
+      const { userHookPath, installUserHooks } = await import("./copilot/setup.js");
+      if (!existsSync(userHookPath({ cwd: launchCwd }))) {
+        installUserHooks({ cwd: launchCwd });
+        console.error("omp: installed Copilot lifecycle hooks (~/.copilot/hooks/omp.json).");
+      }
+    } catch {
+      // never block a launch on hook setup
     }
     const beforeSessions = await snapshotSessionsForReview();
     const result = await launchCopilot({

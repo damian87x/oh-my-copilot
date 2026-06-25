@@ -199,6 +199,12 @@ function installHooks(paths: CopilotPaths, dryRun: boolean, actions: SetupAction
   actions.push({ source, target, kind });
 }
 
+/** Absolute path of the user-level hook file omp installs/refreshes. Lets callers
+ *  (e.g. bare-launch first-run setup) cheaply check "are hooks installed?". */
+export function userHookPath(options: SetupOptions = {}): string {
+  return join(resolveCopilotPaths(options).userScope, "hooks", HOOK_FILE_NAME);
+}
+
 /** Install just the user-level hooks (the piece copilot won't load from the
  *  plugin dir). Used by `omp update` to refresh hooks after a self-update without
  *  scaffolding the current project's .github (skills/agents ship via the

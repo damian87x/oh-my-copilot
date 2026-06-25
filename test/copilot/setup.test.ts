@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { formatSetup, installUserHooks, runSetup } from "../../src/copilot/setup.js";
+import { formatSetup, installUserHooks, runSetup, userHookPath } from "../../src/copilot/setup.js";
 
 function tempProject() {
   const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-setup-"));
@@ -212,6 +212,17 @@ describe("runSetup", () => {
 
     execSync(bash, { env: { ...process.env, MARKER: marker }, shell: "/bin/sh" });
     expect(existsSync(marker)).toBe(true); // script ran → plugin root resolved correctly
+  });
+});
+
+describe("userHookPath", () => {
+  it("points at <copilotHome>/hooks/omp.json and matches where installUserHooks writes", () => {
+    const home = tempHome();
+    const p = userHookPath({ copilotHome: home });
+    expect(p).toBe(path.join(home, "hooks", "omp.json"));
+    expect(existsSync(p)).toBe(false);
+    installUserHooks({ cwd: tempProject(), pluginRoot: tempPlugin(), copilotHome: home });
+    expect(existsSync(p)).toBe(true); // now installed at exactly that path
   });
 });
 
