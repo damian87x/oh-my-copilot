@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { ompRoot } from "./omp-root.mjs";
@@ -9,18 +10,27 @@ import { ompRoot } from "./omp-root.mjs";
 // downstream claim guard de-dupes against the wrapper fallback. Fail-open:
 // any error means "don't trigger", never throw into the hook.
 
+function readModeFrom(p) {
+  try {
+    if (!existsSync(p)) return undefined;
+    const raw = JSON.parse(readFileSync(p, "utf8"));
+    return raw && (raw.memoryMode === "on" || raw.memoryMode === "off") ? raw.memoryMode : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Precedence mirrors readMemoryConfig (TS): OMP_MEMORY_MODE env > project
+// .omp/config.json > GLOBAL ~/.omp/config.json. The global fallback is essential
+// — `omp config set memory-mode on` writes GLOBAL, so without it the hook would
+// never trigger for a globally-enabled (but project-unset) memory mode.
 function readMemoryMode(cwd) {
   const env = process.env.OMP_MEMORY_MODE;
-  if (env === "on") return "on";
-  if (env === "off") return "off";
-  try {
-    const p = join(ompRoot(cwd), ".omp", "config.json");
-    if (!existsSync(p)) return "off";
-    const raw = JSON.parse(readFileSync(p, "utf8"));
-    return raw && raw.memoryMode === "on" ? "on" : "off";
-  } catch {
-    return "off";
-  }
+  if (env === "on" || env === "off") return env;
+  const projectMode = readModeFrom(join(ompRoot(cwd), ".omp", "config.json"));
+  if (projectMode) return projectMode;
+  const home = process.env.OMP_HOME_OVERRIDE || homedir();
+  return readModeFrom(join(home, ".omp", "config.json")) ?? "off";
 }
 
 function defaultDistPath() {

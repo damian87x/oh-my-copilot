@@ -22,6 +22,9 @@ export interface ResolveCopilotPathsOptions {
   projectRoot?: string;
   pluginRoot?: string;
   importMetaUrl?: string;
+  /** Override the copilot home dir (defaults to $COPILOT_HOME, then ~/.copilot).
+   *  Used by tests and to honor copilot's own COPILOT_HOME relocation. */
+  copilotHome?: string;
 }
 
 export function resolveCopilotPaths(options: ResolveCopilotPathsOptions = {}): CopilotPaths {
@@ -43,7 +46,7 @@ export function resolveCopilotPaths(options: ResolveCopilotPathsOptions = {}): C
     pluginRoot,
     stateDir,
     hooksLogPath: join(stateDir, "hooks.log"),
-    userScope: join(homedir(), ".copilot"),
+    userScope: resolve(options.copilotHome ?? process.env.COPILOT_HOME ?? join(homedir(), ".copilot")),
     projectScopeSkills: join(projectRoot, ".github", "skills"),
     projectScopeAgents: join(projectRoot, ".github", "agents"),
     copilotInstructions: join(projectRoot, ".github", "copilot-instructions.md"),
