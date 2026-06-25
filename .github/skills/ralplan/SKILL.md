@@ -19,7 +19,10 @@ Use `/ralplan` when the task needs planning before edits.
 2. **List implementation slices** in execution order — each slice should be independently verifiable
 3. **Define acceptance criteria** — what must be true when done
 4. **Define test shape** — which tests to write or run, what they cover
-5. **Call out risks** — what could go wrong, tradeoffs chosen, alternatives rejected
+5. **Call out risks** — what could go wrong, tradeoffs chosen, alternatives rejected. For any
+   auth, security, or data-handling feature, the plan **must** name the security specifics even
+   if the request didn't: secret/token **expiry**, **single-use / replay** protection, and
+   **enumeration / rate-limiting**. Leaving these implicit is how the plan ships a hole.
 6. **Stop at the plan** unless the user explicitly asked to implement
 
 ## Output
