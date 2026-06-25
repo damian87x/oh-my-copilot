@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { resolveCopilotPaths, type CopilotPaths, type ResolveCopilotPathsOptions } from "./paths.js";
 
@@ -7,7 +7,7 @@ export interface SetupOptions extends ResolveCopilotPathsOptions {
   scope?: "project" | "user";
 }
 
-export type SetupActionKind = "copy" | "create" | "skip-exists" | "skip-source-missing";
+export type SetupActionKind = "copy" | "create" | "update" | "skip-exists" | "skip-source-missing";
 
 export interface SetupAction {
   source: string;
@@ -98,6 +98,65 @@ function ensureDir(target: string, actions: SetupAction[], dryRun: boolean): voi
   actions.push({ source: "(dir)", target, kind: "create" });
 }
 
+// Copilot only loads hooks from user (`~/.copilot/hooks/*.json`) or project
+// (`.github/hooks/*.json`) locations — NOT from a plugin's own hooks/hooks.json.
+// So omp's lifecycle hooks (sessionEnd → memory-review, cost ledger, etc.) never
+// fire until we install them into one of those locations (this is how Orca's
+// orca.json works). The file is machine-local (absolute node script paths), so
+// it always goes to the user location regardless of skills/agents scope.
+const HOOK_FILE_NAME = "omp.json";
+
+/** Pin the plugin root for a hook command. The bundled hooks.json resolves its
+ *  script dir from `${COPILOT_PLUGIN_ROOT:-…}`, but copilot does NOT set that var
+ *  for user/project hook files (only for plugin-context hooks). Prepending the
+ *  vars makes the script's own fallback resolve to the real install path. */
+function pinPluginRoot(bash: string, pluginRoot: string): string {
+  const esc = pluginRoot.replace(/'/g, "'\\''");
+  return `COPILOT_PLUGIN_ROOT='${esc}' OMP_PLUGIN_ROOT='${esc}' ${bash}`;
+}
+
+function installHooks(paths: CopilotPaths, dryRun: boolean, actions: SetupAction[]): void {
+  const source = paths.hooksManifest;
+  if (!existsSync(source)) {
+    actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-missing" });
+    return;
+  }
+  let manifest: { version?: number; hooks?: Record<string, unknown> };
+  try {
+    manifest = JSON.parse(readFileSync(source, "utf8"));
+  } catch {
+    actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-missing" });
+    return;
+  }
+  const hooks = manifest.hooks;
+  if (!hooks || typeof hooks !== "object") {
+    actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-missing" });
+    return;
+  }
+  // Rewrite every command's bash to pin the absolute plugin root.
+  for (const handlers of Object.values(hooks)) {
+    if (!Array.isArray(handlers)) continue;
+    for (const handler of handlers) {
+      if (handler && typeof handler === "object" && typeof (handler as { bash?: unknown }).bash === "string") {
+        const h = handler as { bash: string };
+        h.bash = pinPluginRoot(h.bash, paths.pluginRoot);
+      }
+    }
+  }
+
+  const target = join(paths.userScope, "hooks", HOOK_FILE_NAME);
+  // Managed, generated file — refresh on every setup so updated script paths /
+  // new events propagate (unlike copied skills, which we never clobber).
+  const kind: SetupActionKind = existsSync(target) ? "update" : "create";
+  if (!dryRun) {
+    mkdirSync(dirname(target), { recursive: true });
+    const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
+    writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    renameSync(tmp, target);
+  }
+  actions.push({ source, target, kind });
+}
+
 export function runSetup(options: SetupOptions = {}): SetupResult {
   const paths = resolveCopilotPaths(options);
   const dryRun = Boolean(options.dryRun);
@@ -116,6 +175,7 @@ export function runSetup(options: SetupOptions = {}): SetupResult {
 
   ensureFile(paths.copilotInstructions, COPILOT_INSTRUCTIONS_TEMPLATE, actions, dryRun);
   ensureDir(paths.stateDir, actions, dryRun);
+  installHooks(paths, dryRun, actions);
 
   return { ok: true, dryRun, scope, actions, paths };
 }
