@@ -7,7 +7,13 @@ export interface SetupOptions extends ResolveCopilotPathsOptions {
   scope?: "project" | "user";
 }
 
-export type SetupActionKind = "copy" | "create" | "update" | "skip-exists" | "skip-source-missing";
+export type SetupActionKind =
+  | "copy"
+  | "create"
+  | "update"
+  | "skip-exists"
+  | "skip-source-missing"
+  | "skip-source-invalid";
 
 export interface SetupAction {
   source: string;
@@ -108,11 +114,13 @@ const HOOK_FILE_NAME = "omp.json";
 
 /** Pin the plugin root for a hook command. The bundled hooks.json resolves its
  *  script dir from `${COPILOT_PLUGIN_ROOT:-…}`, but copilot does NOT set that var
- *  for user/project hook files (only for plugin-context hooks). Prepending the
- *  vars makes the script's own fallback resolve to the real install path. */
+ *  for user/project hook files (only for plugin-context hooks). We `export` the
+ *  vars as a SEPARATE statement first: an assignment prefix on the same simple
+ *  command (`VAR=x node "${VAR:-…}"`) is NOT visible to that command's own
+ *  parameter expansion, so it must be exported before the command runs. */
 function pinPluginRoot(bash: string, pluginRoot: string): string {
   const esc = pluginRoot.replace(/'/g, "'\\''");
-  return `COPILOT_PLUGIN_ROOT='${esc}' OMP_PLUGIN_ROOT='${esc}' ${bash}`;
+  return `export COPILOT_PLUGIN_ROOT='${esc}' OMP_PLUGIN_ROOT='${esc}'; ${bash}`;
 }
 
 function installHooks(paths: CopilotPaths, dryRun: boolean, actions: SetupAction[]): void {
@@ -125,12 +133,13 @@ function installHooks(paths: CopilotPaths, dryRun: boolean, actions: SetupAction
   try {
     manifest = JSON.parse(readFileSync(source, "utf8"));
   } catch {
-    actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-missing" });
+    // Present but unparseable — surface it rather than masking as "missing".
+    actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-invalid" });
     return;
   }
   const hooks = manifest.hooks;
   if (!hooks || typeof hooks !== "object") {
-    actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-missing" });
+    actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-invalid" });
     return;
   }
   // Rewrite every command's bash to pin the absolute plugin root.
@@ -155,6 +164,17 @@ function installHooks(paths: CopilotPaths, dryRun: boolean, actions: SetupAction
     renameSync(tmp, target);
   }
   actions.push({ source, target, kind });
+}
+
+/** Install just the user-level hooks (the piece copilot won't load from the
+ *  plugin dir). Used by `omp update` to refresh hooks after a self-update without
+ *  scaffolding the current project's .github (skills/agents ship via the
+ *  marketplace plugin). Idempotent. */
+export function installUserHooks(options: SetupOptions = {}): { actions: SetupAction[]; paths: CopilotPaths } {
+  const paths = resolveCopilotPaths(options);
+  const actions: SetupAction[] = [];
+  installHooks(paths, Boolean(options.dryRun), actions);
+  return { actions, paths };
 }
 
 export function runSetup(options: SetupOptions = {}): SetupResult {

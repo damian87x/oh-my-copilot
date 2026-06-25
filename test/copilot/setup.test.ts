@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { formatSetup, runSetup } from "../../src/copilot/setup.js";
+import { formatSetup, installUserHooks, runSetup } from "../../src/copilot/setup.js";
 
 function tempProject() {
   const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-setup-"));
@@ -127,6 +128,68 @@ describe("runSetup", () => {
     expect(existsSync(path.join(home, "hooks", "omp.json"))).toBe(false);
     const hookAction = result.actions.find((a) => a.kind === "skip-source-missing");
     expect(hookAction).toBeTruthy();
+  });
+
+  it("reports skip-source-invalid for an unparseable hooks manifest", () => {
+    const project = tempProject();
+    const plugin = mkdtempSync(path.join(tmpdir(), "omc-setup-badhooks-"));
+    writeFileSync(path.join(plugin, "package.json"), '{"name":"p"}');
+    mkdirSync(path.join(plugin, "hooks"), { recursive: true });
+    writeFileSync(path.join(plugin, "hooks", "hooks.json"), "{ not json");
+    const home = tempHome();
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
+    expect(existsSync(path.join(home, "hooks", "omp.json"))).toBe(false);
+    expect(result.actions.some((a) => a.kind === "skip-source-invalid")).toBe(true);
+  });
+
+  // Codex catch: a `VAR=x cmd "${VAR:-…}"` prefix is NOT visible to the command's
+  // own expansion. This test EXECUTES the generated bash (plugin path has a space)
+  // and proves the script actually resolves + runs from the pinned plugin root.
+  it("generated hook bash resolves the plugin root and runs the script (path with spaces)", () => {
+    const project = tempProject();
+    const home = tempHome();
+    // plugin root containing a space
+    const plugin = path.join(mkdtempSync(path.join(tmpdir(), "omc-setup-exec-")), "plugin with space");
+    mkdirSync(path.join(plugin, "scripts"), { recursive: true });
+    mkdirSync(path.join(plugin, "hooks"), { recursive: true });
+    const marker = path.join(home, "ran.marker");
+    writeFileSync(
+      path.join(plugin, "scripts", "probe.mjs"),
+      `import { writeFileSync } from "node:fs"; writeFileSync(process.env.MARKER, "ok");`,
+    );
+    writeFileSync(
+      path.join(plugin, "hooks", "hooks.json"),
+      JSON.stringify({
+        version: 1,
+        hooks: {
+          sessionEnd: [
+            { type: "command", bash: 'node "${COPILOT_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}"/scripts/probe.mjs', timeoutSec: 5 },
+          ],
+        },
+      }),
+    );
+
+    runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
+    const installed = JSON.parse(readFileSync(path.join(home, "hooks", "omp.json"), "utf8"));
+    const bash = installed.hooks.sessionEnd[0].bash as string;
+
+    execSync(bash, { env: { ...process.env, MARKER: marker }, shell: "/bin/sh" });
+    expect(existsSync(marker)).toBe(true); // script ran → plugin root resolved correctly
+  });
+});
+
+describe("installUserHooks (used by omp update)", () => {
+  it("installs hooks but does NOT scaffold the project's .github", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const { actions } = installUserHooks({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(existsSync(path.join(home, "hooks", "omp.json"))).toBe(true);
+    // update must not copy skills/agents into the cwd
+    expect(existsSync(path.join(project, ".github", "skills"))).toBe(false);
+    expect(existsSync(path.join(project, ".github", "agents"))).toBe(false);
+    expect(actions.some((a) => a.target.endsWith("omp.json"))).toBe(true);
   });
 });
 

@@ -203,7 +203,24 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
         : plugin === "failed"
           ? "Copilot plugin update failed; run: copilot plugin update oh-my-copilot"
           : "Copilot plugin: skipped (copilot CLI not found).";
-    return { ok: true, message: `omp CLI updated.\n${pluginMsg}\nre-run \`omp\`.` };
+    // Refresh the user-level lifecycle hooks so newly-shipped hooks take effect
+    // (copilot loads hooks from ~/.copilot/hooks, never the plugin dir). Hooks
+    // only — we don't scaffold the current project's .github on an update.
+    let hooksMsg: string;
+    try {
+      const { installUserHooks } = await import("./copilot/setup.js");
+      const { actions } = installUserHooks({ cwd: flagValue(argv, "--root") ?? process.cwd() });
+      const hook = actions.find((a) => a.target.endsWith("omp.json"));
+      hooksMsg =
+        hook?.kind === "update"
+          ? "\nHooks refreshed (~/.copilot/hooks/omp.json)."
+          : hook?.kind === "create"
+            ? "\nHooks installed (~/.copilot/hooks/omp.json)."
+            : "\nHooks: skipped (no bundled manifest).";
+    } catch {
+      hooksMsg = "\nHooks: refresh skipped (run: omp setup).";
+    }
+    return { ok: true, message: `omp CLI updated.\n${pluginMsg}${hooksMsg}\nre-run \`omp\`.` };
   }
 
   // Auto-load ~/.omp/.env so subcommands that read process.env (slack tokens,
