@@ -17,7 +17,7 @@ Use `/debug` for broken, failing, slow, or confusing behavior.
 
 ## Steps (follow in order)
 
-1. **Reproduce** — get the failure to happen reliably. If you can't reproduce, that's important information.
+1. **Reproduce** — get the failure to happen reliably. If you can't reproduce, that's important information. For a web UI bug, use `/qa-browse` to drive the page and reproduce the broken flow.
 2. **Minimise** — find the smallest case that still fails. Strip away unrelated code/config.
 3. **Hypothesise** — form 2–3 ranked theories about the cause. Start with the most likely.
 4. **Inspect** — gather evidence for/against each hypothesis. Read code, add logging, check state.
