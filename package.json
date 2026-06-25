@@ -1,7 +1,7 @@
 {
   "name": "@damian87/omp",
   "version": "0.17.0",
-  "description": "Multi-agent orchestration for GitHub Copilot CLI — autonomous loops (Autopilot, Ralph, UltraQA, Ultrawork), parallel tmux agent teams, a weighted-consensus model council, a Slack chat bridge, durable scheduled jobs, and in-session skills + custom agents. Zero learning curve.",
+  "description": "Multi-agent orchestration for GitHub Copilot CLI \u2014 autonomous loops (Autopilot, Ralph, UltraQA, Ultrawork), parallel tmux agent teams, a weighted-consensus model council, a Slack chat bridge, durable scheduled jobs, and in-session skills + custom agents. Zero learning curve.",
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -61,15 +61,15 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "@eslint/js": "^9.13.0",
-    "eslint": "^9.13.0",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.5.0",
     "typescript-eslint": "^8.11.0",
-    "@types/node": "^22.15.29",
+    "@types/node": "^26.0.1",
     "@types/node-notifier": "^8.0.5",
-    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/coverage-v8": "^4.1.9",
     "tsx": "^4.22.4",
-    "typescript": "^5.8.3",
-    "vitest": "^3.1.4"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

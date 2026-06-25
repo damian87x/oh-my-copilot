@@ -220,7 +220,7 @@ export function readSessionTranscript(
   const maxMessages = options.maxMessages ?? DEFAULT_MAX_MESSAGES;
   const path = sessionEventsPath(uuid, options.sessionStateDir);
   if (!existsSync(path)) return [];
-  let raw = "";
+  let raw: string;
   try {
     raw = readTail(path, maxBytes);
   } catch {

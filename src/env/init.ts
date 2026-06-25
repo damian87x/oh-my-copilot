@@ -249,7 +249,7 @@ export async function runEnvInit(opts: InitOptions): Promise<InitResult> {
   // no chance of stomping a pre-existing temp file with stale perms. The
   // final rename then atomically installs the 0o600 file into place.
   let tmpDir: string | null = null;
-  let tmpFile: string | null = null;
+  let tmpFile: string;
   try {
     tmpDir = mkdtempSync(join(dirname(path), ".env-init-"));
     tmpFile = join(tmpDir, "env");
