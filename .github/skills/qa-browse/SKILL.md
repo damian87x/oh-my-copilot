@@ -6,13 +6,13 @@ argument-hint: "<url> <what to verify>"
 
 # QA Browse — CLI browser driving with @playwright/cli
 
-`/qa-browse` opens a live browser via the official Playwright CLI and walks a flow to verify it works. No test files. No MCP.
+`/qa-browse` opens a live browser via `@playwright/cli` (binary `playwright-cli`) and walks a flow to verify it works. No test files. No MCP. This is distinct from the standard Playwright CLI (`npx playwright`, used for test/codegen/show-trace).
 
 Engine: `@playwright/cli` (Microsoft). Snapshots live on disk, not in context — cheap tokens. Browser stays alive between commands.
 
 ## Rules
 
-- Use `npx playwright-cli` if not installed globally. Never assume global.
+- If not installed globally, run via the scoped package: `npx @playwright/cli` (NOT `npx playwright-cli` — that resolves the unscoped name and fails with ENOTFOUND). Never assume global.
 - Loop: **snapshot → read refs → act → re-snapshot.** Always.
 - Refs (`e5`, `e12`) are valid only for the latest snapshot. Re-snapshot after any navigation/click that changes the page.
 - Headless by default. Add `--headed` only when a human must watch.
@@ -24,8 +24,8 @@ Engine: `@playwright/cli` (Microsoft). Snapshots live on disk, not in context �
 ## Setup
 
 ```bash
-npm install -g @playwright/cli@latest   # or use: npx playwright-cli
-npx playwright-cli install chromium      # first run in a fresh env
+npm install -g @playwright/cli@latest   # or run ad-hoc: npx @playwright/cli
+playwright-cli install-browser chromium  # first run in a fresh env (NOT `install` — that inits a workspace)
 ```
 
 ## Core loop
@@ -78,11 +78,11 @@ playwright-cli console                       # console messages
 ## Evidence
 
 ```bash
-playwright-cli screenshot                    # full page
+playwright-cli screenshot --full-page        # full scrollable page (bare `screenshot` = current viewport)
 playwright-cli screenshot e5                 # one element
 playwright-cli screenshot --filename=step1.png
 playwright-cli video-start / video-stop
-playwright-cli tracing-start / tracing-stop  # open in trace viewer
+playwright-cli tracing-start / tracing-stop  # record a trace; view it with: npx playwright show-trace <trace>
 playwright-cli pdf --filename=page.pdf
 ```
 
