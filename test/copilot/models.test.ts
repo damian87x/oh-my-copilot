@@ -48,9 +48,14 @@ describe("probeModel", () => {
     const spawn = spawnFromMap({ flaky: { exitCode: 1, stderr: "network error" } });
     expect(await probeModel(spawn, "flaky")).toEqual({ model: "flaky", status: "unknown" });
   });
-  it("returns unknown on a timeout", async () => {
+  it("returns unknown on a timeout with no output", async () => {
     const spawn = spawnFromMap({ slow: { exitCode: 124, timedOut: true } });
     expect(await probeModel(spawn, "slow")).toEqual({ model: "slow", status: "unknown" });
+  });
+  it("returns available when the model answered, even if copilot timed out (no clean exit)", async () => {
+    // copilot -p often prints the reply but never exits → timedOut with stdout.
+    const spawn = spawnFromMap({ hangs: { exitCode: 124, timedOut: true, stdout: "ok\n" } });
+    expect(await probeModel(spawn, "hangs")).toEqual({ model: "hangs", status: "available" });
   });
   it("returns unknown when spawn throws", async () => {
     const spawn: CouncilSpawn = async () => {

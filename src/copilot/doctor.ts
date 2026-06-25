@@ -319,14 +319,17 @@ function checkCopilotCli(bin: string): DoctorCheck {
 }
 
 /** Pure classifier for a memory-review model probe (kept separate so it's
- *  testable without spawning copilot). */
+ *  testable without spawning copilot). Mirrors copilot/models.probeModel: a
+ *  working model is proven by captured stdout, because `copilot -p` often prints
+ *  its reply but doesn't exit (so spawnSync reports a SIGTERM/timeout, not 0). */
 export function classifyMemoryReviewProbe(
   slug: string,
-  outcome: { status: number | null; stderr: string; failed?: boolean },
+  outcome: { status: number | null; stdout: string; stderr: string; errorCode?: string },
 ): DoctorCheck {
   const name = "memory-review-model";
-  if (outcome.failed) return { name, status: "warn", detail: `probe failed (is copilot installed?)` };
-  if (outcome.status === 0) return { name, status: "pass", detail: `${slug} ok` };
+  if (outcome.stdout.trim().length > 0 || outcome.status === 0) {
+    return { name, status: "pass", detail: `${slug} ok` };
+  }
   if (UNAVAILABLE_SIGNATURE.test(outcome.stderr)) {
     return {
       name,
@@ -334,7 +337,10 @@ export function classifyMemoryReviewProbe(
       detail: `model '${slug}' not available — run: omp config set memory-review-model <slug>`,
     };
   }
-  return { name, status: "warn", detail: `probe failed (exit=${outcome.status ?? "?"})` };
+  if (outcome.errorCode === "ENOENT") {
+    return { name, status: "warn", detail: "copilot not found on PATH" };
+  }
+  return { name, status: "warn", detail: `probe failed (exit=${outcome.status ?? "timeout"})` };
 }
 
 function checkMemoryReviewModel(cwd: string | undefined, bin: string): DoctorCheck {
@@ -349,8 +355,9 @@ function checkMemoryReviewModel(cwd: string | undefined, bin: string): DoctorChe
   });
   return classifyMemoryReviewProbe(slug, {
     status: result.status,
+    stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
-    failed: Boolean(result.error),
+    errorCode: (result.error as NodeJS.ErrnoException | undefined)?.code,
   });
 }
 

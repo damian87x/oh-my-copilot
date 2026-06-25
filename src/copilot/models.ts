@@ -31,14 +31,19 @@ export interface ProbeResult {
   status: ProbeStatus;
 }
 
-/** Default probe timeout — a model either answers a trivial prompt fast or we
- *  don't block a config/CLI command on it. NOT the council's 120s member timeout. */
-export const DEFAULT_PROBE_TIMEOUT_MS = 5000;
+/** Default probe timeout. copilot's headless `-p` mode frequently prints its
+ *  answer but does NOT exit promptly, so a working model is detected by captured
+ *  stdout (below) rather than a clean exit — the timeout just bounds the wait. */
+export const DEFAULT_PROBE_TIMEOUT_MS = 12000;
 
 /**
- * Probe one model with a trivial prompt. exit 0 → available; the entitlement
- * signature → unavailable; anything else (timeout, spawn error, non-signature
- * failure) → unknown (we can't prove it's bad — "slow/broken != not entitled").
+ * Probe one model with a trivial prompt and classify:
+ *  - the entitlement signature on stderr → `unavailable` (fast, reliable),
+ *  - any captured stdout OR a clean exit → `available` (the model answered;
+ *    we accept stdout even on timeout because `copilot -p` often hangs after
+ *    replying instead of exiting),
+ *  - otherwise (no output: timeout/crash/spawn error) → `unknown` (can't prove
+ *    it's bad — "slow/broken != not entitled").
  */
 export async function probeModel(
   spawn: CouncilSpawn,
@@ -51,8 +56,9 @@ export async function probeModel(
   } catch {
     return { model, status: "unknown" };
   }
-  if (res.exitCode === 0 && !res.timedOut) return { model, status: "available" };
   if (isModelUnavailable(res)) return { model, status: "unavailable" };
+  if (res.stdout.trim().length > 0) return { model, status: "available" };
+  if (res.exitCode === 0 && !res.timedOut) return { model, status: "available" };
   return { model, status: "unknown" };
 }
 
