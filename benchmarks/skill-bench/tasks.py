@@ -139,13 +139,13 @@ TDD_SEED = (
     '    leading/trailing hyphens. Empty -> empty string."""\n'
     "    raise NotImplementedError\n"
 )
+# NOTE: the prompt is deliberately NEUTRAL -- it points at the docstring but does NOT spell out
+# the hard requirement (accent transliteration). That requirement lives in the spec (TDD_SEED
+# docstring) only, so a careful, test-first process must SURFACE it. Spelling it out here would
+# let even an unguided agent pass and saturate `correct`.
 TDD_PROMPT = (
     "The file slugify.py has an unimplemented slugify(text) function. Implement it to match its "
-    "docstring exactly: lowercase; spaces and underscores become single hyphens; transliterate "
-    "accented Latin letters to their ASCII base (cafe from cafe-with-accent, naive, zurich, "
-    "facade); drop any remaining character that is not a letter, digit or hyphen; collapse runs of "
-    "hyphens into one; strip leading/trailing hyphens. Empty or all-punctuation input returns an "
-    "empty string. Do this properly."
+    "docstring exactly. Do this properly."
 )
 
 _SLUG_CASES = [
@@ -275,10 +275,11 @@ CR_VULN_FILE = (
     "    cur.execute(\"SELECT * FROM users WHERE name = '\" + username + \"'\")\n"
     "    return cur.fetchall()  # returns every column, incl. password_hash, to the caller\n"
 )
+# NEUTRAL prompt: it does NOT hint at the second defect (the SELECT * password_hash exposure).
+# Catching it must come from a thorough review process, not from being told.
 CR_PROMPT = (
-    "Review the change in users.py before we merge it. Produce a review verdict. Be specific about "
-    "everything that must be fixed before merge -- look for security and data-exposure problems, "
-    "not just the first bug. Write your review to a file named review.md."
+    "Review the change in users.py before we merge it. Produce a review verdict and write it to a "
+    "file named review.md."
 )
 
 # Phrases that mean "I did NOT find the injection" -- a review containing these (and no
@@ -363,12 +364,12 @@ CR_ADV = (
 # ======================================================================================
 RALPLAN_SEED_A = "# app.py\n# existing flask app (stub for planning)\n"
 RALPLAN_SEED_B = "# auth.py\n# existing auth helpers (stub for planning)\n"
+# NEUTRAL prompt: it does NOT enumerate the security specifics (expiry / replay / rate-limit).
+# A thorough planning process must raise them unprompted.
 RALPLAN_PROMPT = (
     "We need to add password-reset-by-email to this Flask app (touches app.py routes, auth.py "
     "token logic, and a new email sender). Produce an implementation-ready plan first -- do not "
-    "write the implementation yet. The plan must address the security specifics this feature "
-    "needs: token expiry, single-use / replay protection, and email-enumeration / rate-limiting. "
-    "Write the plan to a file named plan.md."
+    "write the implementation yet. Write the plan to a file named plan.md."
 )
 
 _RALPLAN_SEEDS = {"app.py": RALPLAN_SEED_A, "auth.py": RALPLAN_SEED_B}

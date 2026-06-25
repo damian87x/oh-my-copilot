@@ -34,14 +34,48 @@ Each task seeds a starter file, runs the agent, and scores **deterministically**
 
 | task | skill | seed | `applied` means… | `correct` means… |
 |---|---|---|---|---|
-| `tdd-slugify` | `tdd` | a `slugify()` stub | a real **test file** was written (asserts present) | the impl passes 8 edge-case checks |
-| `code-review-sqli` | `code-review` | a SQL-injection bug in `users.py` | the **injection was flagged** + a verdict given | the injection was caught |
-| `ralplan-pwreset` | `ralplan` | two stub modules | ≥3 of {slices, acceptance, tests, risks} **and stopped at the plan** | a usable plan (≥3 sections) |
+| `tdd-slugify` | `tdd` | a `slugify()` stub (spec also needs accent transliteration) | a real **test file** with assertions | the impl passes all 11 checks, incl. accented/unicode input |
+| `code-review-sqli` | `code-review` | **two** planted defects in `users.py` (SQL injection + `SELECT *` leaking `password_hash`) | the **injection flagged** + a verdict given | **both** defects caught |
+| `ralplan-pwreset` | `ralplan` | two stub modules | ≥3 of {slices, acceptance, tests, risks}, task-anchored, **stopped at the plan** | also covers ≥2 security specifics (expiry / replay / rate-limit) |
 
 - **`applied`** = did the skill's discipline show up? (the skill's whole point)
 - **`correct`** = is the artifact sound?
 - Soft quality (is the plan actually *good*?) is graded separately by `judge.py` — a fixed model
   at temperature 0 with a published rubric, validated by its own selftest first.
+
+## Findings so far (Claude Haiku 4.5, n=3/arm)
+
+Run on the Copilot CLI against Claude Haiku 4.5, with each task's hard requirement moved **out of
+the prompt and into the spec/seed** — so only a genuine *process* (test-first, thorough review,
+careful planning) can surface it. That neutral-prompt design is what makes the arms separate;
+state the requirement in the prompt and every arm passes, telling you nothing.
+
+**Process axis (`applied%` — did the skill's discipline show up):**
+
+| skill | baseline | prompt | skill | reading |
+|---|---|---|---|---|
+| `code-review` | 0.33 | 0.67 | **1.00** | **skill beats both** — the only arm that reliably emits a structured verdict ✅ |
+| `ralplan` | 0.67 | 1.00 | 1.00 | beats baseline, **ties** the one-line prompt |
+| `tdd` | 0.00 | 1.00 | 1.00 | writes real tests where the bare agent writes none, but **ties** the one-liner |
+
+**Outcome axis (`correct%`):** saturates at 1.0 when the prompt states the requirement; with
+neutral prompts it drops and goes noisy (e.g. `tdd` 0.00 → 0.33, *equal* for skill and prompt).
+
+**Takeaways**
+
+1. **Only `/code-review` clearly beats its own one-line description.** Its "don't stop at the
+   first issue / check data exposure" guidance reliably produces a verdict the bare agent (0.33)
+   and a one-liner (0.67) miss.
+2. **`/tdd` and `/ralplan` tie the one-line prompt.** On a capable model, their elaborate
+   `SKILL.md` isn't earning its keep over a sentence. Rewriting `/tdd` around **Canon TDD**
+   (test-list-first + an edge-case taxonomy) lifted outcomes off zero but did **not** open a gap
+   versus the prompt — the lever is task difficulty / model tier, not more prose.
+3. **A skill that ties a one-liner is a signal to simplify it**, not to add words.
+4. **n=3 is noisy** — treat single-run deltas as directional and raise `--runs` for a verdict.
+   `correct%` only discriminates when the difficulty lives in the spec, not the instruction.
+
+> The benchmark earning its keep: it says, with evidence, *which* skills beat just asking — and
+> for these three at this model tier, that's `code-review`, not `tdd` or `ralplan`.
 
 ## Run it
 
