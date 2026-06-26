@@ -196,3 +196,195 @@ export function readNote(cwd: string, id: string): string | null {
     return null;
   }
 }
+
+// --- topics (surfaced in instructions-memory) ---
+
+export interface Topic {
+  id: string;
+  description: string; // one-liner, extracted from note title
+}
+
+/**
+ * List all topics (id + one-liner description) sorted by id.
+ * Descriptions are extracted from note titles.
+ */
+export function listTopics(cwd: string): Topic[] {
+  return noteIndex(cwd).map(({ id, title }) => ({
+    id,
+    description: title,
+  }));
+}
+
+// --- topics (topic-based durable memory with fact consolidation) ---
+
+export interface TopicMemory {
+  id: string;
+  topic: string;
+  lastUpdated: string;
+  facts: string[];
+}
+
+interface TopicFile {
+  topic: string;
+  lastUpdated: string;
+  facts: string[];
+}
+
+function topicsDir(cwd: string): string {
+  return join(ompRoot(cwd), ".omp", "memory", "topics");
+}
+
+function isValidTopicId(id: string): boolean {
+  return /^[a-z0-9-]+$/i.test(id) && id.length > 0 && id.length <= 100;
+}
+
+function topicPath(cwd: string, topic: string): string {
+  return join(topicsDir(cwd), `${topic}.json`);
+}
+
+/** Read topic memory from disk; returns empty topic if missing. */
+export function readTopicMemory(cwd: string, topic: string): TopicMemory | null {
+  if (!isValidTopicId(topic)) return null;
+  const p = topicPath(cwd, topic);
+  if (!existsSync(p)) return null;
+  try {
+    const data = JSON.parse(readFileSync(p, "utf8")) as TopicFile;
+    return {
+      id: topic,
+      topic: data.topic,
+      lastUpdated: data.lastUpdated,
+      facts: Array.isArray(data.facts) ? data.facts : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeTopicMemory(cwd: string, topic: string, data: TopicFile): void {
+  const p = topicPath(cwd, topic);
+  mkdirSync(dirname(p), { recursive: true });
+  const tmp = `${p}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");
+  renameSync(tmp, p);
+}
+
+/** Add a single fact to a topic; creates topic if missing. Returns true if fact was added. */
+export function addTopicFact(cwd: string, topic: string, fact: string): boolean {
+  if (!isValidTopicId(topic)) return false;
+  const memo = readTopicMemory(cwd, topic) || {
+    id: topic,
+    topic,
+    lastUpdated: new Date().toISOString(),
+    facts: [],
+  };
+  const trimmedFact = String(fact).trim();
+  if (!trimmedFact) return false;
+  if (memo.facts.includes(trimmedFact)) return false; // duplicate
+  memo.facts.push(trimmedFact);
+  writeTopicMemory(cwd, topic, {
+    topic: memo.topic,
+    lastUpdated: new Date().toISOString(),
+    facts: memo.facts,
+  });
+  return true;
+}
+
+/** List all topic memories; returns array of topic ids. */
+export function listTopicMemories(cwd: string): string[] {
+  const dir = topicsDir(cwd);
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".json"))
+    .map((f) => f.replace(/\.json$/, ""))
+    .sort();
+}
+
+/** Remove a fact by index from a topic; returns true if removed. */
+export function removeTopicFact(cwd: string, topic: string, factIndex: number): boolean {
+  if (!isValidTopicId(topic)) return false;
+  const memo = readTopicMemory(cwd, topic);
+  if (!memo) return false;
+  if (factIndex < 0 || factIndex >= memo.facts.length) return false;
+  memo.facts.splice(factIndex, 1);
+  writeTopicMemory(cwd, topic, {
+    topic: memo.topic,
+    lastUpdated: new Date().toISOString(),
+    facts: memo.facts,
+  });
+  return true;
+}
+
+export interface ConsolidationSummary {
+  merged: number;
+  removed: number;
+  kept: number;
+}
+
+/** Consolidate topic facts by replacing current facts with a merged list.
+ *  Returns a summary of merged/removed/kept facts. */
+export function consolidateTopicFacts(
+  cwd: string,
+  topic: string,
+  consolidatedFacts: string[],
+): ConsolidationSummary | null {
+  if (!isValidTopicId(topic)) return null;
+  const memo = readTopicMemory(cwd, topic);
+  if (!memo) return null;
+  const oldCount = memo.facts.length;
+  const filtered = consolidatedFacts.map((f) => String(f).trim()).filter((f) => f.length > 0);
+  const newCount = filtered.length;
+  const kept = memo.facts.filter((f) => filtered.includes(f)).length;
+  memo.facts = filtered;
+  writeTopicMemory(cwd, topic, {
+    topic: memo.topic,
+    lastUpdated: new Date().toISOString(),
+    facts: memo.facts,
+  });
+  return {
+    merged: oldCount - kept,
+    removed: oldCount - newCount,
+    kept,
+  };
+}
+
+export interface PromotionSummary {
+  promotedCount: number;
+  targetTopic: string;
+}
+
+/** Promote facts from one topic to another (or new topic).
+ *  Removes promoted facts from source and adds to target.
+ *  Returns summary of promoted facts. */
+export function promoteToDurableMemory(
+  cwd: string,
+  sourceId: string,
+  targetTopic: string,
+  facts: string[],
+): PromotionSummary | null {
+  if (!isValidTopicId(sourceId) || !isValidTopicId(targetTopic)) return null;
+  const source = readTopicMemory(cwd, sourceId);
+  if (!source) return null;
+
+  // Add facts to target
+  let promotedCount = 0;
+  for (const fact of facts) {
+    const trimmed = String(fact).trim();
+    if (trimmed && addTopicFact(cwd, targetTopic, trimmed)) {
+      promotedCount += 1;
+    }
+  }
+
+  // Remove promoted facts from source
+  for (const fact of facts) {
+    const trimmed = String(fact).trim();
+    const idx = source.facts.indexOf(trimmed);
+    if (idx >= 0) {
+      removeTopicFact(cwd, sourceId, idx);
+      // Re-read since removal changes indices
+      const updated = readTopicMemory(cwd, sourceId);
+      if (updated) source.facts = updated.facts;
+    }
+  }
+
+  return { promotedCount, targetTopic };
+}

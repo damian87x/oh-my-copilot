@@ -113,3 +113,232 @@ describe("pruneNotes", () => {
     expect(noteIndex(root)).toHaveLength(1);
   });
 });
+
+// --- Topic-based durable memory tests ---
+
+describe("topic memory: CRUD operations", () => {
+  it("adds facts to a new topic and reads them back", async () => {
+    const {
+      addTopicFact,
+      readTopicMemory,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    expect(addTopicFact(root, "auth", "JWT is used for authentication")).toBe(true);
+    expect(addTopicFact(root, "auth", "Token refresh endpoint is /auth/refresh")).toBe(true);
+    const topic = readTopicMemory(root, "auth");
+    expect(topic).not.toBeNull();
+    expect(topic?.topic).toBe("auth");
+    expect(topic?.facts).toEqual([
+      "JWT is used for authentication",
+      "Token refresh endpoint is /auth/refresh",
+    ]);
+  });
+
+  it("rejects invalid topic ids (path traversal, invalid chars)", async () => {
+    const {
+      addTopicFact,
+      readTopicMemory,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    expect(addTopicFact(root, "../../../etc/passwd", "hacked")).toBe(false);
+    expect(addTopicFact(root, "auth/config", "bad")).toBe(false);
+    expect(addTopicFact(root, "auth config", "bad")).toBe(false);
+    expect(readTopicMemory(root, "../evil")).toBeNull();
+  });
+
+  it("accepts valid slug topic ids", async () => {
+    const {
+      addTopicFact,
+      readTopicMemory,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    expect(addTopicFact(root, "auth", "fact1")).toBe(true);
+    expect(addTopicFact(root, "user-model", "fact2")).toBe(true);
+    expect(addTopicFact(root, "api-v2-routes", "fact3")).toBe(true);
+    expect(readTopicMemory(root, "auth")?.facts).toContain("fact1");
+    expect(readTopicMemory(root, "user-model")?.facts).toContain("fact2");
+    expect(readTopicMemory(root, "api-v2-routes")?.facts).toContain("fact3");
+  });
+
+  it("prevents duplicate facts", async () => {
+    const {
+      addTopicFact,
+      readTopicMemory,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    expect(addTopicFact(root, "db", "PostgreSQL is used")).toBe(true);
+    expect(addTopicFact(root, "db", "PostgreSQL is used")).toBe(false);
+    expect(readTopicMemory(root, "db")?.facts.length).toBe(1);
+  });
+
+  it("lists all topics", async () => {
+    const {
+      addTopicFact,
+      listTopicMemories,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    expect(listTopicMemories(root)).toEqual([]);
+    addTopicFact(root, "zebra", "z");
+    addTopicFact(root, "apple", "a");
+    addTopicFact(root, "middle", "m");
+    expect(listTopicMemories(root)).toEqual(["apple", "middle", "zebra"]); // sorted
+  });
+
+  it("returns null for non-existent topics", async () => {
+    const {
+      readTopicMemory,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    expect(readTopicMemory(root, "missing")).toBeNull();
+  });
+});
+
+describe("topic memory: fact removal", () => {
+  it("removes a fact by index", async () => {
+    const {
+      addTopicFact,
+      removeTopicFact,
+      readTopicMemory,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    addTopicFact(root, "db", "fact1");
+    addTopicFact(root, "db", "fact2");
+    addTopicFact(root, "db", "fact3");
+    expect(removeTopicFact(root, "db", 1)).toBe(true);
+    expect(readTopicMemory(root, "db")?.facts).toEqual(["fact1", "fact3"]);
+  });
+
+  it("rejects invalid indices", async () => {
+    const {
+      addTopicFact,
+      removeTopicFact,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    addTopicFact(root, "db", "fact1");
+    expect(removeTopicFact(root, "db", -1)).toBe(false);
+    expect(removeTopicFact(root, "db", 10)).toBe(false);
+    expect(removeTopicFact(root, "db", 0)).toBe(true);
+    expect(removeTopicFact(root, "db", 0)).toBe(false); // now empty
+  });
+
+  it("rejects removal on non-existent topic", async () => {
+    const {
+      removeTopicFact,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    expect(removeTopicFact(root, "missing", 0)).toBe(false);
+  });
+});
+
+describe("topic memory: consolidation", () => {
+  it("consolidates facts and returns summary", async () => {
+    const {
+      addTopicFact,
+      consolidateTopicFacts,
+      readTopicMemory,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    addTopicFact(root, "arch", "React frontend");
+    addTopicFact(root, "arch", "Node.js backend");
+    addTopicFact(root, "arch", "PostgreSQL database");
+    const result = consolidateTopicFacts(root, "arch", [
+      "React frontend",
+      "Express.js backend",
+    ]);
+    expect(result?.merged).toBe(2);
+    expect(result?.kept).toBe(1);
+    expect(readTopicMemory(root, "arch")?.facts).toEqual([
+      "React frontend",
+      "Express.js backend",
+    ]);
+  });
+
+  it("returns null for invalid topic or non-existent topic", async () => {
+    const {
+      consolidateTopicFacts,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    expect(consolidateTopicFacts(root, "../evil", [])).toBeNull();
+    expect(consolidateTopicFacts(root, "missing", [])).toBeNull();
+  });
+});
+
+describe("topic memory: promotion to durable memory", () => {
+  it("promotes facts from one topic to another", async () => {
+    const {
+      addTopicFact,
+      promoteToDurableMemory,
+      readTopicMemory,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    addTopicFact(root, "session", "Auth done via JWT");
+    addTopicFact(root, "session", "Tokens expire in 1h");
+    addTopicFact(root, "session", "Refresh tokens in DB");
+    const result = promoteToDurableMemory(root, "session", "auth", [
+      "Auth done via JWT",
+      "Tokens expire in 1h",
+    ]);
+    expect(result?.promotedCount).toBe(2);
+    expect(result?.targetTopic).toBe("auth");
+    expect(readTopicMemory(root, "auth")?.facts).toEqual([
+      "Auth done via JWT",
+      "Tokens expire in 1h",
+    ]);
+    expect(readTopicMemory(root, "session")?.facts).toEqual([
+      "Refresh tokens in DB",
+    ]);
+  });
+
+  it("rejects invalid topic ids", async () => {
+    const {
+      promoteToDurableMemory,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    expect(promoteToDurableMemory(root, "../evil", "auth", [])).toBeNull();
+    expect(promoteToDurableMemory(root, "session", "../evil", [])).toBeNull();
+  });
+
+  it("returns 0 promoted when source topic missing", async () => {
+    const {
+      promoteToDurableMemory,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    const result = promoteToDurableMemory(root, "missing", "auth", ["fact"]);
+    expect(result).toBeNull();
+  });
+});
+
+describe("topic memory: atomic writes", () => {
+  it("writes facts atomically using tmp → rename", async () => {
+    const {
+      addTopicFact,
+      readTopicMemory,
+    } = await import("../src/project-memory.js");
+    const { existsSync } = await import("node:fs");
+    const root = cwd();
+    const topicsDir = path.join(root, ".omp", "memory", "topics");
+    addTopicFact(root, "test", "fact1");
+    expect(existsSync(path.join(topicsDir, "test.json"))).toBe(true);
+    // Verify no .tmp files exist (atomic write completed)
+    const files = (await import("node:fs")).readdirSync(topicsDir);
+    expect(files.every((f) => !f.includes(".tmp"))).toBe(true);
+    const memo = readTopicMemory(root, "test");
+    expect(memo?.facts).toContain("fact1");
+  });
+
+  it("preserves facts across multiple writes", async () => {
+    const {
+      addTopicFact,
+      readTopicMemory,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    addTopicFact(root, "persist", "fact1");
+    addTopicFact(root, "persist", "fact2");
+    addTopicFact(root, "persist", "fact3");
+    const first = readTopicMemory(root, "persist");
+    addTopicFact(root, "persist", "fact4");
+    const second = readTopicMemory(root, "persist");
+    expect(first?.facts).toEqual(["fact1", "fact2", "fact3"]);
+    expect(second?.facts).toEqual(["fact1", "fact2", "fact3", "fact4"]);
+  });
+});
