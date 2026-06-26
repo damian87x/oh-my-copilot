@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { searchMemory, MemoryResult } from "../src/memory-recall.js";
+import { searchMemory } from "../src/memory-recall.js";
 import { addNote } from "../src/project-memory.js";
 import { addLogEntry } from "../src/daily-log.js";
 
