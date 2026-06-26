@@ -462,6 +462,23 @@ npm run sync:dry-run
 
 After `npm link`, the global `omp` command runs your local build. Any changes you make are reflected after `npm run build`.
 
+> **`npm link` only refreshes the `omp` shell CLI — not in-session `/skills`.**
+> The Copilot plugin is a separate, cached copy under
+> `~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/` (source: the
+> `oh-my-copilot` GitHub marketplace). So a new or edited skill shows up in
+> `omp list` immediately but **not** in a Copilot session until that cache is
+> refreshed. To test in-session skill changes:
+>
+> ```bash
+> # Proper way (after the change is on the marketplace's default branch):
+> copilot plugin update oh-my-copilot
+>
+> # Local pre-merge test — sync your branch's skill into the cache, then start
+> # a fresh Copilot session (skills load at session start):
+> cp -R .github/skills/<name> \
+>   ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/<name>
+> ```
+
 To unlink and revert to the published package:
 
 ```bash
