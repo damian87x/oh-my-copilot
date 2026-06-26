@@ -157,7 +157,7 @@ flowchart TB
 ### Intelligent Orchestration
 
 - **7 specialized agents** — planner, architect, executor, verifier, code-reviewer, designer, researcher (all `--agent <name>` compatible with Copilot CLI)
-- **26 in-session skills** auto-discovered from `.github/skills/`
+- **27 in-session skills** auto-discovered from `.github/skills/`
 - **Smart pipeline routing** — `/research-codebase` → `/ralplan` → `/team` / `/ralph` / `/ultrawork` → `/code-review` → `/ultraqa`
 
 ### Developer Experience
@@ -202,6 +202,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/schedule`             | Durable local cron job — re-runs a prompt on a schedule, survives reboot | `/schedule "check the PR every 15 min"`   |
 | `/goal`                 | Set/read the repo-level goal injected into the managed Copilot context | `/goal "ship v1.0 of the billing flow"` |
 | `/daily-log`            | Per-day goal + work log surfaced at the start of new sessions | `/daily-log "ratelimit refactor landed"`        |
+| `/teach`                | Stateful multi-session teaching loop for a topic (mission → lessons → quizzes) | `/teach "rust ownership"`         |
 | `/slack`                | One-way outbound Slack notification (explicit command only) | `/slack "deploy is green"`                         |
 
 ---
@@ -460,6 +461,23 @@ npm run sync:dry-run
 ```
 
 After `npm link`, the global `omp` command runs your local build. Any changes you make are reflected after `npm run build`.
+
+> **`npm link` only refreshes the `omp` shell CLI — not in-session `/skills`.**
+> The Copilot plugin is a separate, cached copy under
+> `~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/` (source: the
+> `oh-my-copilot` GitHub marketplace). So a new or edited skill shows up in
+> `omp list` immediately but **not** in a Copilot session until that cache is
+> refreshed. To test in-session skill changes:
+>
+> ```bash
+> # Proper way (after the change is on the marketplace's default branch):
+> copilot plugin update oh-my-copilot
+>
+> # Local pre-merge test — sync your branch's skill into the cache, then start
+> # a fresh Copilot session (skills load at session start):
+> cp -R .github/skills/<name> \
+>   ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/<name>
+> ```
 
 To unlink and revert to the published package:
 
