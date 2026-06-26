@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ompRoot } from "./omp-root.js";
 import { readNote, noteIndex } from "./project-memory.js";
@@ -98,7 +98,7 @@ function getDailyLogResults(
     }
 
     const filePath = join(dailyDir, file);
-    let content = "";
+    let content: string;
     try {
       content = readFileSync(filePath, "utf8");
     } catch {
