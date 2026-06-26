@@ -977,6 +977,29 @@
           "notes": "Use /verify-byok from .github/skills/verify-byok/SKILL.md."
         }
       }
+    },
+    {
+      "id": "teach",
+      "name": "teach",
+      "title": "Teach",
+      "category": "learning",
+      "summary": "Stateful multi-session teaching loop grounded in a mission.",
+      "notes": "Lite slash project skill; stateful workspace files, no bundled runtime.",
+      "defaultCommand": "teach",
+      "phase1": true,
+      "sourceSkill": "teach",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /teach from .github/skills/teach/SKILL.md."
+        }
+      }
     }
   ]
 }

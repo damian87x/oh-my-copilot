@@ -157,7 +157,7 @@ flowchart TB
 ### Intelligent Orchestration
 
 - **7 specialized agents** — planner, architect, executor, verifier, code-reviewer, designer, researcher (all `--agent <name>` compatible with Copilot CLI)
-- **26 in-session skills** auto-discovered from `.github/skills/`
+- **27 in-session skills** auto-discovered from `.github/skills/`
 - **Smart pipeline routing** — `/research-codebase` → `/ralplan` → `/team` / `/ralph` / `/ultrawork` → `/code-review` → `/ultraqa`
 
 ### Developer Experience
@@ -202,6 +202,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/schedule`             | Durable local cron job — re-runs a prompt on a schedule, survives reboot | `/schedule "check the PR every 15 min"`   |
 | `/goal`                 | Set/read the repo-level goal injected into the managed Copilot context | `/goal "ship v1.0 of the billing flow"` |
 | `/daily-log`            | Per-day goal + work log surfaced at the start of new sessions | `/daily-log "ratelimit refactor landed"`        |
+| `/teach`                | Stateful multi-session teaching loop for a topic (mission → lessons → quizzes) | `/teach "rust ownership"`         |
 | `/slack`                | One-way outbound Slack notification (explicit command only) | `/slack "deploy is green"`                         |
 
 ---

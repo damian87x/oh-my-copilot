@@ -579,6 +579,31 @@
       },
       "projection": "project-skill",
       "phase1": true
+    },
+    {
+      "name": "teach",
+      "capabilityId": "teach",
+      "capabilityIds": [
+        "teach"
+      ],
+      "source": ".github/skills/teach/SKILL.md",
+      "sourcePath": ".github/skills/teach/SKILL.md",
+      "canonicalPath": ".github/skills/teach/SKILL.md",
+      "description": "Stateful multi-session teaching loop grounded in a mission.",
+      "summary": "Stateful multi-session teaching loop grounded in a mission.",
+      "support": "project-skill",
+      "aliases": [],
+      "slashCommands": [
+        "teach"
+      ],
+      "projections": {
+        "copilot": {
+          "command": "/teach",
+          "state": "supported"
+        }
+      },
+      "projection": "project-skill",
+      "phase1": true
     }
   ]
 }
