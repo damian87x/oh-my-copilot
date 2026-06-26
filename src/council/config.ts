@@ -11,19 +11,25 @@ export const DEFAULT_PER_MEMBER_TIMEOUT_MS = 120000;
 export const DEFAULT_MAX_CONCURRENCY = 4;
 
 /**
- * Built-in default roster. Uses the free/included lightweight models verified
- * available via the Task 0 spike (gpt-5-mini, gpt-4.1) so the council runs
- * without consuming premium model quota. Users override these in
- * .omp/config.json `council` or inline via --models (e.g. add a Claude member
- * for cross-provider diversity if their plan includes it).
+ * Built-in default roster. Uses ONLY gpt-5-mini — the cheap, included model
+ * (no premium request) that effectively every Copilot plan can run — so the
+ * council works out of the box without entitlement errors. Diversity here
+ * comes from the per-member ROLE prompts, not the model.
+ *
+ * Do NOT hardcode a premium model in this default: it breaks the council for
+ * anyone whose plan lacks it (gpt-4.1 used to be here and is no longer broadly
+ * available). For real multi-model diversity, override in .omp/config.json
+ * `council` or inline via --models. Run `omp models` to see which slugs your
+ * plan can actually use (e.g. claude-sonnet-4.6, gpt-5.4, gemini-3.1-pro-preview),
+ * then list those.
  */
 export const DEFAULT_MEMBERS: CouncilMemberSpec[] = [
   { model: "gpt-5-mini", role: "critic", weight: 0.4 },
-  { model: "gpt-4.1", role: "architect", weight: 0.35 },
+  { model: "gpt-5-mini", role: "architect", weight: 0.35 },
   { model: "gpt-5-mini", role: "pragmatist", weight: 0.25 },
 ];
 
-export const DEFAULT_SYNTHESIZER = "gpt-4.1";
+export const DEFAULT_SYNTHESIZER = "gpt-5-mini";
 
 interface PartialCouncilFileConfig {
   members?: unknown;

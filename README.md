@@ -221,10 +221,11 @@ both in-session via the skill and from the shell.
 # Shell — default roster from .omp/config.json (or built-in default)
 omp council "Should we adopt a monorepo? One paragraph."
 
-# Pick the roster inline (model:role:weight, or bare models with default roles)
+# Run `omp models` first to see which slugs your plan can actually use,
+# then pick the roster inline (model:role:weight, or bare models with default roles)
 omp council "Is this migration safe?" \
-  --models "gpt-5-mini:critic:1.5,gpt-4.1:architect:1" \
-  --synth gpt-4.1 --json
+  --models "gpt-5-mini:critic:1.5,claude-sonnet-4.6:architect:1" \
+  --synth gpt-5-mini --json
 
 # Feed a diff/file as shared context and an evaluation rubric
 omp council "Review this change for blockers" --context @diff.txt --rubric @rubric.md
