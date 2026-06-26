@@ -235,20 +235,21 @@ In-session, just ask:
 
 ```
 /weighted-consensus "Should this service use gRPC or REST?"
-/weighted-consensus "Compare these two caching strategies" --models gpt-5-mini,gpt-4.1
+/weighted-consensus "Compare these two caching strategies" --models gpt-5-mini,claude-sonnet-4.6
 ```
 
-Configure the default roster in `.omp/config.json`:
+Configure the default roster in `.omp/config.json` (run `omp models` first to see
+which slugs your plan supports):
 
 ```json
 {
   "council": {
-    "synthesizer": "gpt-4.1",
+    "synthesizer": "gpt-5-mini",
     "minSurvivors": 2,
     "maxConcurrency": 4,
     "members": [
       { "model": "gpt-5-mini", "role": "critic", "weight": 0.4 },
-      { "model": "gpt-4.1", "role": "architect", "weight": 0.35 },
+      { "model": "claude-sonnet-4.6", "role": "architect", "weight": 0.35 },
       { "model": "gpt-5-mini", "role": "pragmatist", "weight": 0.25 }
     ]
   }

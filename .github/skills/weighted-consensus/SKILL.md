@@ -86,7 +86,7 @@ for the raw per-member JSON if the user wants to inspect individual answers.
 
 ```
 /weighted-consensus "Should this service use gRPC or REST?"
-/weighted-consensus "Is this migration safe to ship?" --models gpt-5-mini,gpt-4.1
+/weighted-consensus "Is this migration safe to ship?" --models gpt-5-mini,claude-sonnet-4.6
 /weighted-consensus "Review the staged diff for blockers" --context @/tmp/diff.txt --rubric @/tmp/rubric.md
 ```
 
@@ -94,19 +94,23 @@ for the raw per-member JSON if the user wants to inspect individual answers.
 
 The default roster and synthesizer live in `.omp/config.json` under a `council`
 block; inline `--models` overrides it. If no config is present, a built-in
-default roster is used.
+default roster is used (all `gpt-5-mini` — the included model every plan can run).
+
+Run `omp models` first to see which slugs your plan actually supports, then list
+those (the example below mixes the included GPT tier with a Claude member for
+cross-provider diversity):
 
 ```json
 {
   "council": {
-    "synthesizer": "gpt-4.1",
+    "synthesizer": "gpt-5-mini",
     "minSurvivors": 2,
     "maxConcurrency": 4,
     "synthTimeoutMs": 240000,
     "probe": false,
     "members": [
       { "model": "gpt-5-mini", "role": "critic", "weight": 0.4 },
-      { "model": "gpt-4.1", "role": "architect", "weight": 0.35 },
+      { "model": "claude-sonnet-4.6", "role": "architect", "weight": 0.35 },
       { "model": "gpt-5-mini", "role": "pragmatist", "weight": 0.25 }
     ]
   }
@@ -120,8 +124,9 @@ default roster is used.
 - Per-member JSON artifacts are written under a temp directory for debugging and
   are not auto-cleaned.
 - For genuine independence, prefer distinct models. If your plan only includes
-  the free GPT tier (e.g. `gpt-5-mini`, `gpt-4.1`), distinct ROLES still add
-  diversity; add a different-provider model (e.g. a Claude model) if available.
+  the cheap GPT tier (e.g. `gpt-5-mini`), distinct ROLES still add diversity;
+  add a different-provider model (e.g. a Claude or Gemini model) if `omp models`
+  shows your plan supports one.
 
 ## Composition
 
