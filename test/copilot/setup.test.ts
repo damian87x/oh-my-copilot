@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { formatSetup, installUserHooks, runSetup, userHookPath } from "../../src/copilot/setup.js";
+import { formatSetup, installUserHooks, runSetup, userHookPath, userHooksNeedRefresh } from "../../src/copilot/setup.js";
 
 function tempProject() {
   const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-setup-"));
@@ -223,6 +223,49 @@ describe("userHookPath", () => {
     expect(existsSync(p)).toBe(false);
     installUserHooks({ cwd: tempProject(), pluginRoot: tempPlugin(), copilotHome: home });
     expect(existsSync(p)).toBe(true); // now installed at exactly that path
+  });
+});
+
+describe("userHooksNeedRefresh", () => {
+  it("is true when the hook file is missing", () => {
+    expect(userHooksNeedRefresh({ copilotHome: tempHome() })).toBe(true);
+  });
+
+  it("is false right after install (pinned root == current)", () => {
+    const home = tempHome();
+    const plugin = tempPlugin();
+    installUserHooks({ cwd: tempProject(), pluginRoot: plugin, copilotHome: home });
+    expect(userHooksNeedRefresh({ cwd: tempProject(), pluginRoot: plugin, copilotHome: home })).toBe(false);
+  });
+
+  it("is true when the pinned plugin root differs from the current install (stale path)", () => {
+    const home = tempHome();
+    installUserHooks({ cwd: tempProject(), pluginRoot: tempPlugin(), copilotHome: home });
+    // now omp 'runs' from a different install path → pinned path is stale
+    expect(userHooksNeedRefresh({ cwd: tempProject(), pluginRoot: tempPlugin(), copilotHome: home })).toBe(true);
+  });
+
+  it("round-trips a pathological plugin path (quotes + literal ' OMP_PLUGIN_ROOT=') without a false refresh", () => {
+    const home = tempHome();
+    // a real dir whose name contains a single quote AND the literal marker the
+    // greedy regex would have mis-stopped on
+    const parent = mkdtempSync(path.join(tmpdir(), "omc-tricky-"));
+    const tricky = path.join(parent, "we'ird OMP_PLUGIN_ROOT=plugin");
+    mkdirSync(path.join(tricky, "hooks"), { recursive: true });
+    writeFileSync(
+      path.join(tricky, "hooks", "hooks.json"),
+      JSON.stringify({ version: 1, hooks: { sessionEnd: [{ type: "command", bash: 'node "${COPILOT_PLUGIN_ROOT:-x}"/scripts/session-end.mjs', timeoutSec: 5 }] } }),
+    );
+    installUserHooks({ pluginRoot: tricky, copilotHome: home });
+    // pinned path round-trips → not stale (greedy regex would have returned true)
+    expect(userHooksNeedRefresh({ pluginRoot: tricky, copilotHome: home })).toBe(false);
+  });
+
+  it("is true for an unparseable hook file", () => {
+    const home = tempHome();
+    mkdirSync(path.join(home, "hooks"), { recursive: true });
+    writeFileSync(path.join(home, "hooks", "omp.json"), "{ not json");
+    expect(userHooksNeedRefresh({ copilotHome: home })).toBe(true);
   });
 });
 
