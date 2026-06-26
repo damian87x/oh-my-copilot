@@ -44,6 +44,67 @@ describe("instructions memory block", () => {
     expect(text).not.toContain("details");
   });
 
+  it("surfaces topic list with id and one-liner description when topics exist", () => {
+    const root = cwd();
+    addNote(root, "Authentication strategy", "implementation details");
+    addNote(root, "Database schema design", "full schema");
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    // Topics section should appear with descriptions
+    expect(text).toContain("Project topics");
+    expect(text).toContain("Authentication strategy");
+    expect(text).toContain("Database schema design");
+    // Only ids shown, not full bodies
+    expect(text).not.toContain("implementation details");
+    expect(text).not.toContain("full schema");
+  });
+
+  it("truncates topic descriptions to keep them brief", () => {
+    const root = cwd();
+    const longDesc = "This is a very long description that should be truncated to keep the instructions block from getting too large and bloated over time";
+    addNote(root, longDesc, "body content");
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    // Check that topic description is truncated
+    expect(text).toContain("Project topics");
+    // The truncated version should appear in the topics section (truncated to 57 chars + …)
+    expect(text).toContain("This is a very long description that should be truncated …");
+    // Verify descriptions are kept brief - check in topics section only
+    const topicsStart = text.indexOf("Project topics");
+    const topicsEnd = text.indexOf("<!-- omp:memory:end -->");
+    const topicsSection = text.substring(topicsStart, topicsEnd);
+    // The long body "body content" should not appear in topics
+    expect(topicsSection).not.toContain("body content");
+  });
+
+  it("caps topic list at MAX_TOPIC_TITLES and shows overflow pointer", () => {
+    const root = cwd();
+    // Create 12 topics to exceed MAX_TOPIC_TITLES (10)
+    for (let i = 1; i <= 12; i++) {
+      addNote(root, `Topic ${i}`, "body");
+    }
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    // Should show 10 topics
+    expect(text).toContain("Topic 1");
+    expect(text).toContain("Topic 10");
+    // Should show overflow pointer with correct count
+    expect(text).toContain("(+2 more — `omp project-memory topics` for full list)");
+    // Check that body content doesn't appear in topics section
+    const topicsSection = text.substring(text.indexOf("Project topics"));
+    expect(topicsSection).not.toContain("body");
+  });
+
+  it("never injects full fact bodies in rendered block", () => {
+    const root = cwd();
+    addNote(root, "Config structure", "This is sensitive config documentation that should not be inlined");
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    expect(text).toContain("Config structure");
+    expect(text).not.toContain("sensitive config documentation");
+    expect(text).not.toContain("should not be inlined");
+  });
+
   it("replaces the block on re-sync without duplicating", () => {
     const root = cwd();
     writeRepoGoal(root, "v1");
