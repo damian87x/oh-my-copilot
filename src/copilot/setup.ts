@@ -205,6 +205,37 @@ export function userHookPath(options: SetupOptions = {}): string {
   return join(resolveCopilotPaths(options).userScope, "hooks", HOOK_FILE_NAME);
 }
 
+/** True when the user-level hooks should be (re)installed: either missing, or the
+ *  PINNED plugin root in the installed omp.json differs from where omp now runs
+ *  (e.g. an nvm node switch / reinstall moved the install path, leaving the hook
+ *  scripts pointing at a stale absolute path). Lets bare `omp` self-repair. */
+export function userHooksNeedRefresh(options: SetupOptions = {}): boolean {
+  const p = userHookPath(options);
+  if (!existsSync(p)) return true;
+  try {
+    const raw = JSON.parse(readFileSync(p, "utf8")) as { hooks?: Record<string, unknown> };
+    const current = resolveCopilotPaths(options).pluginRoot;
+    for (const handlers of Object.values(raw.hooks ?? {})) {
+      if (!Array.isArray(handlers)) continue;
+      for (const handler of handlers) {
+        const bash = (handler as { bash?: unknown })?.bash;
+        if (typeof bash !== "string") continue;
+        // Quote-aware capture: a single-quoted shell value is non-quote chars or
+        // the escaped-quote token `'\''`. Greedy `(.*)` would mis-stop on a path
+        // that literally contains ` OMP_PLUGIN_ROOT=` and refresh-loop forever.
+        const m = bash.match(/COPILOT_PLUGIN_ROOT='((?:[^']|'\\'')*)' OMP_PLUGIN_ROOT=/);
+        if (m) {
+          const pinned = m[1].replace(/'\\''/g, "'"); // reverse shell-escaping
+          return pinned !== current; // stale if it points at a different install
+        }
+      }
+    }
+    return false; // no pinned marker found → leave it alone
+  } catch {
+    return true; // unparseable → reinstall a clean copy
+  }
+}
+
 /** Install just the user-level hooks (the piece copilot won't load from the
  *  plugin dir). Used by `omp update` to refresh hooks after a self-update without
  *  scaffolding the current project's .github (skills/agents ship via the

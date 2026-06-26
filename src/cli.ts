@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { findCapability, loadCatalogBundle, validateCatalogBundle } from "./catalog.js";
@@ -277,14 +277,16 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
         interactive: true,
       });
     }
-    // First-run self-setup: ensure Copilot lifecycle hooks exist so memory-review
-    // and cost hooks fire without a manual `omp setup`. Best-effort, only when the
-    // hook file is MISSING (no per-launch rewrites; never scaffolds the project).
+    // First-run / self-repair: ensure Copilot lifecycle hooks exist AND point at
+    // the omp install that's actually running, so memory-review and cost hooks
+    // fire without a manual `omp setup`. Reinstalls only when missing or the
+    // pinned plugin path is stale (e.g. an nvm node switch moved the install) —
+    // no per-launch rewrites for a healthy install, never scaffolds the project.
     try {
-      const { userHookPath, installUserHooks } = await import("./copilot/setup.js");
-      if (!existsSync(userHookPath({ cwd: launchCwd }))) {
+      const { userHooksNeedRefresh, installUserHooks } = await import("./copilot/setup.js");
+      if (userHooksNeedRefresh({ cwd: launchCwd })) {
         installUserHooks({ cwd: launchCwd });
-        console.error("omp: installed Copilot lifecycle hooks (~/.copilot/hooks/omp.json).");
+        console.error("omp: installed/refreshed Copilot lifecycle hooks (~/.copilot/hooks/omp.json).");
       }
     } catch {
       // never block a launch on hook setup
