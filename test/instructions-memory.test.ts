@@ -4,14 +4,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { syncInstructionsMemory } from "../src/instructions-memory.js";
 import { writeRepoGoal } from "../src/goal.js";
+import { setMemoryConfigValue } from "../src/memory-review/config.js";
 import { addDirective, addNote } from "../src/project-memory.js";
 
+const originalHomeOverride = process.env.OMP_HOME_OVERRIDE;
 const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-instr-"));
 const instr = (root: string) => readFileSync(path.join(root, ".github", "copilot-instructions.md"), "utf8");
 
 describe("instructions memory block", () => {
   afterEach(() => {
     delete process.env.OMP_DISABLE_INSTRUCTIONS_MEMORY;
+    if (originalHomeOverride === undefined) {
+      delete process.env.OMP_HOME_OVERRIDE;
+    } else {
+      process.env.OMP_HOME_OVERRIDE = originalHomeOverride;
+    }
   });
 
   it("renders a lightweight on-demand project context block", () => {
@@ -77,21 +84,22 @@ describe("instructions memory block", () => {
     expect(topicsSection).not.toContain("body content");
   });
 
-  it("caps topic list at MAX_TOPIC_TITLES and shows overflow pointer", () => {
+  it("caps topic list using the configured ~/.omp topic title limit and shows overflow pointer", () => {
     const root = cwd();
-    // Create 12 topics to exceed MAX_TOPIC_TITLES (10)
-    for (let i = 1; i <= 12; i++) {
-      addNote(root, `Topic ${i}`, "body");
+    const home = cwd();
+    process.env.OMP_HOME_OVERRIDE = home;
+    setMemoryConfigValue(root, "instructionsMemoryTopicTitles", "2", { scope: "global", homeDir: home });
+    for (const title of ["Alpha topic", "Beta topic", "Gamma topic", "Delta topic"]) {
+      addNote(root, title, "body");
     }
     expect(syncInstructionsMemory(root).wrote).toBe(true);
     const text = instr(root);
-    // Should show 10 topics
-    expect(text).toContain("Topic 1");
-    expect(text).toContain("Topic 10");
-    // Should show overflow pointer with correct count
-    expect(text).toContain("(+2 more — `omp project-memory topics` for full list)");
-    // Check that body content doesn't appear in topics section
     const topicsSection = text.substring(text.indexOf("Project topics"));
+    expect(topicsSection).toContain("Alpha topic");
+    expect(topicsSection).toContain("Beta topic");
+    expect(topicsSection).not.toContain("Delta topic");
+    expect(topicsSection).not.toContain("Gamma topic");
+    expect(topicsSection).toContain("(+2 more — `omp project-memory topics` for full list)");
     expect(topicsSection).not.toContain("body");
   });
 

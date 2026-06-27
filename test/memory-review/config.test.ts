@@ -2,7 +2,12 @@ import { describe, expect, it, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DEFAULT_REVIEW_MODEL, readMemoryConfig, setMemoryConfigValue } from "../../src/memory-review/config.js";
+import {
+  DEFAULT_INSTRUCTIONS_TOPIC_TITLES,
+  DEFAULT_REVIEW_MODEL,
+  readMemoryConfig,
+  setMemoryConfigValue,
+} from "../../src/memory-review/config.js";
 
 const root = () => mkdtempSync(path.join(tmpdir(), "omc-mem-cfg-"));
 
@@ -16,12 +21,19 @@ describe("memory-review config", () => {
     expect(cfg.memoryMode).toBe("off");
     expect(cfg.memoryReviewModel).toBe(DEFAULT_REVIEW_MODEL);
     expect(cfg.memoryReviewMinMessages).toBe(4);
+    expect(cfg.instructionsMemoryTopicTitles).toBe(DEFAULT_INSTRUCTIONS_TOPIC_TITLES);
   });
 
   it("reads a custom min-messages threshold", () => {
     const cwd = root();
     setMemoryConfigValue(cwd, "memoryReviewMinMessages", "2");
     expect(readMemoryConfig(cwd).memoryReviewMinMessages).toBe(2);
+  });
+
+  it("reads a custom instructions memory topic title cap", () => {
+    const cwd = root();
+    setMemoryConfigValue(cwd, "instructionsMemoryTopicTitles", "3");
+    expect(readMemoryConfig(cwd).instructionsMemoryTopicTitles).toBe(3);
   });
 
   it("persists memoryMode and a custom model without clobbering other keys", () => {
@@ -52,6 +64,13 @@ describe("memory-review config", () => {
     // written to <home>/.omp/config.json, NOT the project
     expect(JSON.parse(readFileSync(path.join(home, ".omp", "config.json"), "utf8")).memoryReviewModel).toBe("home-cheap");
     expect(readMemoryConfig(cwd, { homeDir: home }).memoryReviewModel).toBe("home-cheap");
+  });
+
+  it("reads the topic title cap from global ~/.omp config", () => {
+    const cwd = root();
+    const home = root();
+    setMemoryConfigValue(cwd, "instructionsMemoryTopicTitles", "4", { scope: "global", homeDir: home });
+    expect(readMemoryConfig(cwd, { homeDir: home }).instructionsMemoryTopicTitles).toBe(4);
   });
 
   it("project config overrides global, per key", () => {

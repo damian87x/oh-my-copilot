@@ -14,14 +14,20 @@ import { ompRoot } from "../omp-root.js";
 export type MemoryMode = "off" | "on";
 export const DEFAULT_REVIEW_MODEL = "gpt-5-mini";
 export const DEFAULT_MIN_MESSAGES = 4;
+export const DEFAULT_INSTRUCTIONS_TOPIC_TITLES = 10;
 
 export interface MemoryConfig {
   memoryMode: MemoryMode;
   memoryReviewModel: string;
   memoryReviewMinMessages: number;
+  instructionsMemoryTopicTitles: number;
 }
 
-export type MemoryConfigKey = "memoryMode" | "memoryReviewModel" | "memoryReviewMinMessages";
+export type MemoryConfigKey =
+  | "memoryMode"
+  | "memoryReviewModel"
+  | "memoryReviewMinMessages"
+  | "instructionsMemoryTopicTitles";
 
 export interface ReadConfigOptions {
   /** Override the home dir (defaults to os.homedir()); used in tests. */
@@ -72,7 +78,12 @@ export function readMemoryConfig(cwd: string, opts: ReadConfigOptions = {}): Mem
   const parsedMin = Number(raw.memoryReviewMinMessages);
   const memoryReviewMinMessages =
     Number.isFinite(parsedMin) && parsedMin >= 0 ? Math.floor(parsedMin) : DEFAULT_MIN_MESSAGES;
-  return { memoryMode, memoryReviewModel, memoryReviewMinMessages };
+  const parsedTopicTitles = Number(raw.instructionsMemoryTopicTitles);
+  const instructionsMemoryTopicTitles =
+    Number.isFinite(parsedTopicTitles) && parsedTopicTitles >= 1
+      ? Math.floor(parsedTopicTitles)
+      : DEFAULT_INSTRUCTIONS_TOPIC_TITLES;
+  return { memoryMode, memoryReviewModel, memoryReviewMinMessages, instructionsMemoryTopicTitles };
 }
 
 /** Persist a single memory key, preserving all other keys in that file. Atomic.

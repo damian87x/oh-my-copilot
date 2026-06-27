@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { ompRoot } from "./omp-root.js";
 import { readRepoGoal } from "./goal.js";
+import { readMemoryConfig } from "./memory-review/config.js";
 import { noteIndex, recentNotes, listTopics } from "./project-memory.js";
 
 // Cap surfaced note titles so the managed block can't balloon as notes
@@ -11,8 +12,8 @@ const MAX_NOTE_TITLES = 12;
 const MAX_NOTE_TITLE_CHARS = 1200;
 
 // Cap surfaced topic pointers (id + description) to avoid bloating the block
-// as more topics accumulate. Overflow is summarized with a pointer.
-const MAX_TOPIC_TITLES = 10;
+// as more topics accumulate. Overflow is summarized with a pointer. The topic
+// count is configurable via ~/.omp/config.json (or project .omp/config.json).
 const MAX_TOPIC_CHARS = 800;
 
 // Copilot CLI can inject memory via the `sessionStart` hook's `additionalContext`
@@ -33,6 +34,8 @@ function renderBlock(cwd: string): string {
   const goal = readRepoGoal(cwd);
   const total = noteIndex(cwd).length;
   const topics = listTopics(cwd);
+  const config = readMemoryConfig(cwd);
+  const topicTitleLimit = config.instructionsMemoryTopicTitles;
   const lines: string[] = [START, "## oh-my-copilot project context"];
   if (goal) lines.push("", `**Repo goal:** ${goal}`);
   lines.push(
@@ -69,7 +72,7 @@ function renderBlock(cwd: string): string {
         ? topic.description.slice(0, 57) + "…"
         : topic.description;
       const line = `- ${desc} (\`${topic.id}\`)`;
-      if (topicChars + line.length > MAX_TOPIC_CHARS || shownTopics.length >= MAX_TOPIC_TITLES) {
+      if (topicChars + line.length > MAX_TOPIC_CHARS || shownTopics.length >= topicTitleLimit) {
         break;
       }
       shownTopics.push(line);
