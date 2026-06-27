@@ -43,13 +43,13 @@ function getTopicResults(
   searchTerms: string[],
   topic?: string,
   keyword?: string,
-  limit?: number,
+  limit = Number.POSITIVE_INFINITY,
 ): MemoryResult[] {
   const results: MemoryResult[] = [];
   const topicIds = topic ? [topic] : listTopicMemories(cwd);
 
   for (const topicId of topicIds) {
-    if (limit !== undefined && results.length >= limit) break;
+    if (results.length >= limit) break;
 
     const memo = readTopicMemory(cwd, topicId);
     if (!memo) continue;
@@ -76,13 +76,13 @@ function getNotesResults(
   cwd: string,
   searchTerms: string[],
   keyword?: string,
-  limit?: number,
+  limit = Number.POSITIVE_INFINITY,
 ): MemoryResult[] {
   const results: MemoryResult[] = [];
   const notes = noteIndex(cwd);
 
   for (const note of notes) {
-    if (limit !== undefined && results.length >= limit) break;
+    if (results.length >= limit) break;
 
     const body = readNote(cwd, note.id);
     if (!body) continue;
@@ -109,7 +109,7 @@ function getDailyLogResults(
   searchTerms: string[],
   dateRange?: { start: Date; end: Date },
   keyword?: string,
-  limit?: number,
+  limit = Number.POSITIVE_INFINITY,
 ): MemoryResult[] {
   const results: MemoryResult[] = [];
   const dailyDir = join(ompRoot(cwd), ".omp", "memory", "daily");
@@ -122,7 +122,7 @@ function getDailyLogResults(
     .reverse();
 
   for (const file of files) {
-    if (limit !== undefined && results.length >= limit) break;
+    if (results.length >= limit) break;
 
     const dateStr = file.replace(/\.md$/, "");
     const date = new Date(dateStr);
