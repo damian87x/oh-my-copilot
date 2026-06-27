@@ -2,13 +2,11 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { ompRoot } from "./omp-root.js";
 import { readRepoGoal } from "./goal.js";
-import { noteIndex, recentNotes } from "./project-memory.js";
+import { readMemoryConfig } from "./memory-review/config.js";
+import { noteIndex, recentNotes, listTopics } from "./project-memory.js";
 
-// Cap surfaced note titles so the managed block can't balloon as notes
-// accumulate; overflow is summarized with a pointer (mirrors the directive cap
-// in scripts/session-start.mjs). Newest notes stay visible.
-const MAX_NOTE_TITLES = 12;
-const MAX_NOTE_TITLE_CHARS = 1200;
+// Caps keep the managed block from ballooning as memory accumulates. They are
+// configurable via ~/.omp/config.json (or project .omp/config.json).
 
 // Copilot CLI can inject memory via the `sessionStart` hook's `additionalContext`
 // (see hooks/hooks.json + scripts/session-start.mjs, ported to Copilot's hook
@@ -27,6 +25,8 @@ function instructionsPath(cwd: string): string {
 function renderBlock(cwd: string): string {
   const goal = readRepoGoal(cwd);
   const total = noteIndex(cwd).length;
+  const topics = listTopics(cwd);
+  const config = readMemoryConfig(cwd);
   const lines: string[] = [START, "## oh-my-copilot project context"];
   if (goal) lines.push("", `**Repo goal:** ${goal}`);
   lines.push(
@@ -42,8 +42,8 @@ function renderBlock(cwd: string): string {
     // on demand via `omp project-memory read <id>`.
     const shown: string[] = [];
     let chars = 0;
-    for (const n of recentNotes(cwd, MAX_NOTE_TITLES)) {
-      if (chars + n.title.length > MAX_NOTE_TITLE_CHARS) break;
+    for (const n of recentNotes(cwd, config.memoryNoteTitleCap)) {
+      if (chars + n.title.length > config.memoryNoteCharCap) break;
       shown.push(`- ${n.title} (\`${n.id}\`)`);
       chars += n.title.length;
     }
@@ -51,6 +51,29 @@ function renderBlock(cwd: string): string {
     lines.push("", `Project memory notes (${total}):`, ...shown);
     if (more > 0) lines.push(`- (+${more} more — \`omp project-memory read\` for the full index)`);
   }
+
+  // Surface topic pointers (id + one-liner description) capped to avoid bloat.
+  // Descriptions stay brief; full bodies never appear inline.
+  if (topics.length > 0) {
+    const shownTopics: string[] = [];
+    let topicChars = 0;
+    for (const topic of topics) {
+      // Truncate description to keep it brief
+      const desc = topic.description.length > 60
+        ? topic.description.slice(0, 57) + "…"
+        : topic.description;
+      const line = `- ${desc} (\`${topic.id}\`)`;
+      if (topicChars + line.length > config.memoryTopicCharCap || shownTopics.length >= config.memoryTopicCap) {
+        break;
+      }
+      shownTopics.push(line);
+      topicChars += line.length;
+    }
+    const moreTopics = topics.length - shownTopics.length;
+    lines.push("", `Project topics (${topics.length}):`, ...shownTopics);
+    if (moreTopics > 0) lines.push(`- (+${moreTopics} more — \`omp project-memory topics\` for full list)`);
+  }
+
   lines.push(END);
   return lines.join("\n");
 }

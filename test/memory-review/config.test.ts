@@ -2,7 +2,15 @@ import { describe, expect, it, afterEach } from "vitest";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DEFAULT_REVIEW_MODEL, readMemoryConfig, setMemoryConfigValue } from "../../src/memory-review/config.js";
+import {
+  DEFAULT_MEMORY_NOTE_CHAR_CAP,
+  DEFAULT_MEMORY_NOTE_TITLE_CAP,
+  DEFAULT_MEMORY_TOPIC_CAP,
+  DEFAULT_MEMORY_TOPIC_CHAR_CAP,
+  DEFAULT_REVIEW_MODEL,
+  readMemoryConfig,
+  setMemoryConfigValue,
+} from "../../src/memory-review/config.js";
 
 const root = () => mkdtempSync(path.join(tmpdir(), "omc-mem-cfg-"));
 
@@ -16,12 +24,30 @@ describe("memory-review config", () => {
     expect(cfg.memoryMode).toBe("off");
     expect(cfg.memoryReviewModel).toBe(DEFAULT_REVIEW_MODEL);
     expect(cfg.memoryReviewMinMessages).toBe(4);
+    expect(cfg.memoryNoteTitleCap).toBe(DEFAULT_MEMORY_NOTE_TITLE_CAP);
+    expect(cfg.memoryNoteCharCap).toBe(DEFAULT_MEMORY_NOTE_CHAR_CAP);
+    expect(cfg.memoryTopicCap).toBe(DEFAULT_MEMORY_TOPIC_CAP);
+    expect(cfg.memoryTopicCharCap).toBe(DEFAULT_MEMORY_TOPIC_CHAR_CAP);
   });
 
   it("reads a custom min-messages threshold", () => {
     const cwd = root();
     setMemoryConfigValue(cwd, "memoryReviewMinMessages", "2");
     expect(readMemoryConfig(cwd).memoryReviewMinMessages).toBe(2);
+  });
+
+  it("reads custom instructions memory caps", () => {
+    const cwd = root();
+    setMemoryConfigValue(cwd, "memoryNoteTitleCap", "3");
+    setMemoryConfigValue(cwd, "memoryNoteCharCap", "300");
+    setMemoryConfigValue(cwd, "memoryTopicCap", "4");
+    setMemoryConfigValue(cwd, "memoryTopicCharCap", "400");
+    expect(readMemoryConfig(cwd)).toMatchObject({
+      memoryNoteTitleCap: 3,
+      memoryNoteCharCap: 300,
+      memoryTopicCap: 4,
+      memoryTopicCharCap: 400,
+    });
   });
 
   it("persists memoryMode and a custom model without clobbering other keys", () => {
@@ -52,6 +78,13 @@ describe("memory-review config", () => {
     // written to <home>/.omp/config.json, NOT the project
     expect(JSON.parse(readFileSync(path.join(home, ".omp", "config.json"), "utf8")).memoryReviewModel).toBe("home-cheap");
     expect(readMemoryConfig(cwd, { homeDir: home }).memoryReviewModel).toBe("home-cheap");
+  });
+
+  it("reads memory render caps from global ~/.omp config", () => {
+    const cwd = root();
+    const home = root();
+    setMemoryConfigValue(cwd, "memoryTopicCap", "4", { scope: "global", homeDir: home });
+    expect(readMemoryConfig(cwd, { homeDir: home }).memoryTopicCap).toBe(4);
   });
 
   it("project config overrides global, per key", () => {

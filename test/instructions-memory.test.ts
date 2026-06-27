@@ -4,14 +4,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { syncInstructionsMemory } from "../src/instructions-memory.js";
 import { writeRepoGoal } from "../src/goal.js";
-import { addDirective, addNote } from "../src/project-memory.js";
+import { setMemoryConfigValue } from "../src/memory-review/config.js";
+import { addDirective, addNote, addTopicFact, setTopicDescription } from "../src/project-memory.js";
 
+const originalHomeOverride = process.env.OMP_HOME_OVERRIDE;
 const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-instr-"));
 const instr = (root: string) => readFileSync(path.join(root, ".github", "copilot-instructions.md"), "utf8");
 
 describe("instructions memory block", () => {
   afterEach(() => {
     delete process.env.OMP_DISABLE_INSTRUCTIONS_MEMORY;
+    if (originalHomeOverride === undefined) {
+      delete process.env.OMP_HOME_OVERRIDE;
+    } else {
+      process.env.OMP_HOME_OVERRIDE = originalHomeOverride;
+    }
   });
 
   it("renders a lightweight on-demand project context block", () => {
@@ -42,6 +49,67 @@ describe("instructions memory block", () => {
     expect(text).toContain("DB schema notes");
     // bodies stay on-demand (progressive disclosure)
     expect(text).not.toContain("details");
+  });
+
+  it("surfaces topic list with id and one-liner description when topics exist", () => {
+    const root = cwd();
+    setTopicDescription(root, "auth", "Authentication strategy");
+    addTopicFact(root, "db", "full schema");
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    expect(text).toContain("Project topics");
+    expect(text).toContain("Authentication strategy");
+    expect(text).toContain("db (`db`)");
+    expect(text).not.toContain("full schema");
+  });
+
+  it("truncates topic descriptions to keep them brief", () => {
+    const root = cwd();
+    const longDesc = "This is a very long description that should be truncated to keep the instructions block from getting too large and bloated over time";
+    setTopicDescription(root, "long-topic", longDesc);
+    addTopicFact(root, "long-topic", "body content");
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    // Check that topic description is truncated
+    expect(text).toContain("Project topics");
+    // The truncated version should appear in the topics section (truncated to 57 chars + …)
+    expect(text).toContain("This is a very long description that should be truncated …");
+    // Verify descriptions are kept brief - check in topics section only
+    const topicsStart = text.indexOf("Project topics");
+    const topicsEnd = text.indexOf("<!-- omp:memory:end -->");
+    const topicsSection = text.substring(topicsStart, topicsEnd);
+    // The long body "body content" should not appear in topics
+    expect(topicsSection).not.toContain("body content");
+  });
+
+  it("caps topic list using the configured ~/.omp topic title limit and shows overflow pointer", () => {
+    const root = cwd();
+    const home = cwd();
+    process.env.OMP_HOME_OVERRIDE = home;
+    setMemoryConfigValue(root, "memoryTopicCap", "2", { scope: "global", homeDir: home });
+    for (const [id, title] of [["alpha", "Alpha topic"], ["beta", "Beta topic"], ["gamma", "Gamma topic"], ["delta", "Delta topic"]]) {
+      setTopicDescription(root, id, title);
+      addTopicFact(root, id, "body");
+    }
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    const topicsSection = text.substring(text.indexOf("Project topics"));
+    expect(topicsSection).toContain("Alpha topic");
+    expect(topicsSection).toContain("Beta topic");
+    expect(topicsSection).not.toContain("Delta topic");
+    expect(topicsSection).not.toContain("Gamma topic");
+    expect(topicsSection).toContain("(+2 more — `omp project-memory topics` for full list)");
+    expect(topicsSection).not.toContain("body");
+  });
+
+  it("never injects full fact bodies in rendered block", () => {
+    const root = cwd();
+    addNote(root, "Config structure", "This is sensitive config documentation that should not be inlined");
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    expect(text).toContain("Config structure");
+    expect(text).not.toContain("sensitive config documentation");
+    expect(text).not.toContain("should not be inlined");
   });
 
   it("replaces the block on re-sync without duplicating", () => {

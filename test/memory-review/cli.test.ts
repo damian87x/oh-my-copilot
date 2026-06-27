@@ -90,6 +90,19 @@ describe("omp config", () => {
     expect(res.message).toContain("memory-review-min-messages=6");
   });
 
+  it("sets and reports memory render caps", async () => {
+    const cwd = root();
+    await runCli(["config", "set", "memory-note-cap", "5", "--root", cwd]);
+    await runCli(["config", "set", "memory-note-char-cap", "500", "--root", cwd]);
+    await runCli(["config", "set", "memory-topic-cap", "6", "--root", cwd]);
+    await runCli(["config", "set", "memory-topic-char-cap", "600", "--root", cwd]);
+    const res = await runCli(["config", "get", "--root", cwd]);
+    expect(res.message).toContain("memory-note-cap=5");
+    expect(res.message).toContain("memory-note-char-cap=500");
+    expect(res.message).toContain("memory-topic-cap=6");
+    expect(res.message).toContain("memory-topic-char-cap=600");
+  });
+
   it("rejects a non-numeric min-messages value", async () => {
     const res = await runCli(["config", "set", "memory-review-min-messages", "lots", "--root", root()]);
     expect(res.ok).toBe(false);
@@ -111,6 +124,21 @@ describe("omp memory-review", () => {
       expect(res.ok).toBe(false);
       expect(res.message).toContain("invalid --session id");
     });
+  });
+});
+
+describe("omp project-memory topics", () => {
+  it("adds, lists, and reads topics", async () => {
+    const cwd = root();
+    const topic = await runCli(["project-memory", "add-topic", "Auth", "--description", "Authentication strategy", "--root", cwd]);
+    expect(topic.ok).toBe(true);
+    expect(topic.message).toContain("auth");
+    const fact = await runCli(["project-memory", "add-fact", "AUTH", "JWT tokens rotate", "--root", cwd]);
+    expect(fact.ok).toBe(true);
+    const topics = await runCli(["project-memory", "topics", "--root", cwd]);
+    expect(topics.message).toContain("auth\tAuthentication strategy");
+    const read = await runCli(["project-memory", "read-topic", "auth", "--root", cwd]);
+    expect(read.message).toContain("JWT tokens rotate");
   });
 });
 

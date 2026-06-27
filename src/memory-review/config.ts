@@ -14,14 +14,29 @@ import { ompRoot } from "../omp-root.js";
 export type MemoryMode = "off" | "on";
 export const DEFAULT_REVIEW_MODEL = "gpt-5-mini";
 export const DEFAULT_MIN_MESSAGES = 4;
+export const DEFAULT_MEMORY_NOTE_TITLE_CAP = 12;
+export const DEFAULT_MEMORY_NOTE_CHAR_CAP = 1200;
+export const DEFAULT_MEMORY_TOPIC_CAP = 10;
+export const DEFAULT_MEMORY_TOPIC_CHAR_CAP = 800;
 
 export interface MemoryConfig {
   memoryMode: MemoryMode;
   memoryReviewModel: string;
   memoryReviewMinMessages: number;
+  memoryNoteTitleCap: number;
+  memoryNoteCharCap: number;
+  memoryTopicCap: number;
+  memoryTopicCharCap: number;
 }
 
-export type MemoryConfigKey = "memoryMode" | "memoryReviewModel" | "memoryReviewMinMessages";
+export type MemoryConfigKey =
+  | "memoryMode"
+  | "memoryReviewModel"
+  | "memoryReviewMinMessages"
+  | "memoryNoteTitleCap"
+  | "memoryNoteCharCap"
+  | "memoryTopicCap"
+  | "memoryTopicCharCap";
 
 export interface ReadConfigOptions {
   /** Override the home dir (defaults to os.homedir()); used in tests. */
@@ -72,7 +87,23 @@ export function readMemoryConfig(cwd: string, opts: ReadConfigOptions = {}): Mem
   const parsedMin = Number(raw.memoryReviewMinMessages);
   const memoryReviewMinMessages =
     Number.isFinite(parsedMin) && parsedMin >= 0 ? Math.floor(parsedMin) : DEFAULT_MIN_MESSAGES;
-  return { memoryMode, memoryReviewModel, memoryReviewMinMessages };
+  const positiveInt = (value: unknown, fallback: number): number => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : fallback;
+  };
+  const memoryNoteTitleCap = positiveInt(raw.memoryNoteTitleCap, DEFAULT_MEMORY_NOTE_TITLE_CAP);
+  const memoryNoteCharCap = positiveInt(raw.memoryNoteCharCap, DEFAULT_MEMORY_NOTE_CHAR_CAP);
+  const memoryTopicCap = positiveInt(raw.memoryTopicCap, DEFAULT_MEMORY_TOPIC_CAP);
+  const memoryTopicCharCap = positiveInt(raw.memoryTopicCharCap, DEFAULT_MEMORY_TOPIC_CHAR_CAP);
+  return {
+    memoryMode,
+    memoryReviewModel,
+    memoryReviewMinMessages,
+    memoryNoteTitleCap,
+    memoryNoteCharCap,
+    memoryTopicCap,
+    memoryTopicCharCap,
+  };
 }
 
 /** Persist a single memory key, preserving all other keys in that file. Atomic.
