@@ -3,12 +3,40 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { searchMemory } from "../src/memory-recall.js";
-import { addNote } from "../src/project-memory.js";
+import { addNote, addTopicFact, setTopicDescription } from "../src/project-memory.js";
 import { addLogEntry } from "../src/daily-log.js";
 
 const cwd = () => mkdtempSync(path.join(tmpdir(), "omp-recall-"));
 
 describe("memory-recall: bounded search", () => {
+  it("searches topic facts before notes and daily logs", () => {
+    const root = cwd();
+    setTopicDescription(root, "auth", "Authentication strategy");
+    addTopicFact(root, "auth", "JWT tokens rotate every hour");
+    addNote(root, "Auth note", "JWT note details");
+
+    const results = searchMemory(root, { query: "JWT" });
+
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]).toMatchObject({
+      source: "topic",
+      id: "auth",
+      title: "Authentication strategy",
+    });
+    expect(results[0].preview).toContain("JWT tokens");
+  });
+
+  it("scopes topic search with options.topic", () => {
+    const root = cwd();
+    addTopicFact(root, "auth", "JWT tokens rotate every hour");
+    addTopicFact(root, "db", "JWT audit records live in PostgreSQL");
+
+    const results = searchMemory(root, { query: "JWT", topic: "db" });
+
+    expect(results.filter((r) => r.source === "topic")).toEqual([
+      expect.objectContaining({ source: "topic", id: "db" }),
+    ]);
+  });
   it("searches notes by query", () => {
     const root = cwd();
     addNote(root, "Database schema", "Tables for users and posts stored in PostgreSQL");

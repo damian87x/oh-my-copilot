@@ -5,7 +5,7 @@ import path from "node:path";
 import { syncInstructionsMemory } from "../src/instructions-memory.js";
 import { writeRepoGoal } from "../src/goal.js";
 import { setMemoryConfigValue } from "../src/memory-review/config.js";
-import { addDirective, addNote } from "../src/project-memory.js";
+import { addDirective, addNote, addTopicFact, setTopicDescription } from "../src/project-memory.js";
 
 const originalHomeOverride = process.env.OMP_HOME_OVERRIDE;
 const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-instr-"));
@@ -53,23 +53,21 @@ describe("instructions memory block", () => {
 
   it("surfaces topic list with id and one-liner description when topics exist", () => {
     const root = cwd();
-    addNote(root, "Authentication strategy", "implementation details");
-    addNote(root, "Database schema design", "full schema");
+    setTopicDescription(root, "auth", "Authentication strategy");
+    addTopicFact(root, "db", "full schema");
     expect(syncInstructionsMemory(root).wrote).toBe(true);
     const text = instr(root);
-    // Topics section should appear with descriptions
     expect(text).toContain("Project topics");
     expect(text).toContain("Authentication strategy");
-    expect(text).toContain("Database schema design");
-    // Only ids shown, not full bodies
-    expect(text).not.toContain("implementation details");
+    expect(text).toContain("db (`db`)");
     expect(text).not.toContain("full schema");
   });
 
   it("truncates topic descriptions to keep them brief", () => {
     const root = cwd();
     const longDesc = "This is a very long description that should be truncated to keep the instructions block from getting too large and bloated over time";
-    addNote(root, longDesc, "body content");
+    setTopicDescription(root, "long-topic", longDesc);
+    addTopicFact(root, "long-topic", "body content");
     expect(syncInstructionsMemory(root).wrote).toBe(true);
     const text = instr(root);
     // Check that topic description is truncated
@@ -88,9 +86,10 @@ describe("instructions memory block", () => {
     const root = cwd();
     const home = cwd();
     process.env.OMP_HOME_OVERRIDE = home;
-    setMemoryConfigValue(root, "instructionsMemoryTopicTitles", "2", { scope: "global", homeDir: home });
-    for (const title of ["Alpha topic", "Beta topic", "Gamma topic", "Delta topic"]) {
-      addNote(root, title, "body");
+    setMemoryConfigValue(root, "memoryTopicCap", "2", { scope: "global", homeDir: home });
+    for (const [id, title] of [["alpha", "Alpha topic"], ["beta", "Beta topic"], ["gamma", "Gamma topic"], ["delta", "Delta topic"]]) {
+      setTopicDescription(root, id, title);
+      addTopicFact(root, id, "body");
     }
     expect(syncInstructionsMemory(root).wrote).toBe(true);
     const text = instr(root);

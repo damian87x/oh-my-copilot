@@ -5,16 +5,8 @@ import { readRepoGoal } from "./goal.js";
 import { readMemoryConfig } from "./memory-review/config.js";
 import { noteIndex, recentNotes, listTopics } from "./project-memory.js";
 
-// Cap surfaced note titles so the managed block can't balloon as notes
-// accumulate; overflow is summarized with a pointer (mirrors the directive cap
-// in scripts/session-start.mjs). Newest notes stay visible.
-const MAX_NOTE_TITLES = 12;
-const MAX_NOTE_TITLE_CHARS = 1200;
-
-// Cap surfaced topic pointers (id + description) to avoid bloating the block
-// as more topics accumulate. Overflow is summarized with a pointer. The topic
-// count is configurable via ~/.omp/config.json (or project .omp/config.json).
-const MAX_TOPIC_CHARS = 800;
+// Caps keep the managed block from ballooning as memory accumulates. They are
+// configurable via ~/.omp/config.json (or project .omp/config.json).
 
 // Copilot CLI can inject memory via the `sessionStart` hook's `additionalContext`
 // (see hooks/hooks.json + scripts/session-start.mjs, ported to Copilot's hook
@@ -35,7 +27,6 @@ function renderBlock(cwd: string): string {
   const total = noteIndex(cwd).length;
   const topics = listTopics(cwd);
   const config = readMemoryConfig(cwd);
-  const topicTitleLimit = config.instructionsMemoryTopicTitles;
   const lines: string[] = [START, "## oh-my-copilot project context"];
   if (goal) lines.push("", `**Repo goal:** ${goal}`);
   lines.push(
@@ -51,8 +42,8 @@ function renderBlock(cwd: string): string {
     // on demand via `omp project-memory read <id>`.
     const shown: string[] = [];
     let chars = 0;
-    for (const n of recentNotes(cwd, MAX_NOTE_TITLES)) {
-      if (chars + n.title.length > MAX_NOTE_TITLE_CHARS) break;
+    for (const n of recentNotes(cwd, config.memoryNoteTitleCap)) {
+      if (chars + n.title.length > config.memoryNoteCharCap) break;
       shown.push(`- ${n.title} (\`${n.id}\`)`);
       chars += n.title.length;
     }
@@ -72,7 +63,7 @@ function renderBlock(cwd: string): string {
         ? topic.description.slice(0, 57) + "…"
         : topic.description;
       const line = `- ${desc} (\`${topic.id}\`)`;
-      if (topicChars + line.length > MAX_TOPIC_CHARS || shownTopics.length >= topicTitleLimit) {
+      if (topicChars + line.length > config.memoryTopicCharCap || shownTopics.length >= config.memoryTopicCap) {
         break;
       }
       shownTopics.push(line);

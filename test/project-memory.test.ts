@@ -146,7 +146,7 @@ describe("topic memory: CRUD operations", () => {
     expect(readTopicMemory(root, "../evil")).toBeNull();
   });
 
-  it("accepts valid slug topic ids", async () => {
+  it("accepts valid slug topic ids and normalizes case", async () => {
     const {
       addTopicFact,
       readTopicMemory,
@@ -155,7 +155,9 @@ describe("topic memory: CRUD operations", () => {
     expect(addTopicFact(root, "auth", "fact1")).toBe(true);
     expect(addTopicFact(root, "user-model", "fact2")).toBe(true);
     expect(addTopicFact(root, "api-v2-routes", "fact3")).toBe(true);
-    expect(readTopicMemory(root, "auth")?.facts).toContain("fact1");
+    expect(addTopicFact(root, "AUTH", "fact4")).toBe(true);
+    expect(readTopicMemory(root, "Auth")?.id).toBe("auth");
+    expect(readTopicMemory(root, "auth")?.facts).toEqual(["fact1", "fact4"]);
     expect(readTopicMemory(root, "user-model")?.facts).toContain("fact2");
     expect(readTopicMemory(root, "api-v2-routes")?.facts).toContain("fact3");
   });
@@ -171,7 +173,7 @@ describe("topic memory: CRUD operations", () => {
     expect(readTopicMemory(root, "db")?.facts.length).toBe(1);
   });
 
-  it("lists all topics", async () => {
+  it("lists all topic memories", async () => {
     const {
       addTopicFact,
       listTopicMemories,
@@ -182,6 +184,39 @@ describe("topic memory: CRUD operations", () => {
     addTopicFact(root, "apple", "a");
     addTopicFact(root, "middle", "m");
     expect(listTopicMemories(root)).toEqual(["apple", "middle", "zebra"]); // sorted
+  });
+
+  it("lists topics from the real topic store with optional descriptions", async () => {
+    const {
+      addNote,
+      addTopicFact,
+      listTopics,
+      setTopicDescription,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    addNote(root, "Note that should not appear as a topic");
+    setTopicDescription(root, "auth", "Authentication strategy");
+    addTopicFact(root, "db", "PostgreSQL is used");
+    expect(listTopics(root)).toEqual([
+      { id: "auth", description: "Authentication strategy" },
+      { id: "db", description: "db" },
+    ]);
+  });
+
+  it("sets a topic description without dropping facts", async () => {
+    const {
+      addTopicFact,
+      readTopicMemory,
+      setTopicDescription,
+    } = await import("../src/project-memory.js");
+    const root = cwd();
+    addTopicFact(root, "auth", "JWT is used");
+    expect(setTopicDescription(root, "AUTH", "Authentication strategy")).toBe("auth");
+    expect(readTopicMemory(root, "auth")).toMatchObject({
+      id: "auth",
+      description: "Authentication strategy",
+      facts: ["JWT is used"],
+    });
   });
 
   it("returns null for non-existent topics", async () => {

@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ompRoot } from "./omp-root.js";
-import { readNote, noteIndex } from "./project-memory.js";
+import { readNote, noteIndex, listTopicMemories, readTopicMemory } from "./project-memory.js";
 
 export interface MemoryResult {
   source: "topic" | "note" | "daily-log";
@@ -38,6 +38,40 @@ function searchInText(text: string, searchTerms: string[]): boolean {
   return searchTerms.every((term) => lower.includes(term.toLowerCase()));
 }
 
+function getTopicResults(
+  cwd: string,
+  searchTerms: string[],
+  topic?: string,
+  keyword?: string,
+  limit?: number,
+): MemoryResult[] {
+  const results: MemoryResult[] = [];
+  const topicIds = topic ? [topic] : listTopicMemories(cwd);
+
+  for (const topicId of topicIds) {
+    if (limit !== undefined && results.length >= limit) break;
+
+    const memo = readTopicMemory(cwd, topicId);
+    if (!memo) continue;
+
+    const title = memo.description || memo.id;
+    const fullText = `${title}\n${memo.facts.join("\n")}`;
+    if (!searchInText(fullText, searchTerms)) continue;
+
+    if (keyword && !searchInText(fullText, [keyword])) continue;
+
+    const matchingFact = memo.facts.find((fact) => searchInText(fact, searchTerms)) ?? memo.facts[0] ?? title;
+    results.push({
+      source: "topic",
+      id: memo.id,
+      title,
+      preview: extractPreview(matchingFact),
+    });
+  }
+
+  return results;
+}
+
 function getNotesResults(
   cwd: string,
   searchTerms: string[],
@@ -48,7 +82,7 @@ function getNotesResults(
   const notes = noteIndex(cwd);
 
   for (const note of notes) {
-    if (limit && results.length >= limit) break;
+    if (limit !== undefined && results.length >= limit) break;
 
     const body = readNote(cwd, note.id);
     if (!body) continue;
@@ -88,7 +122,7 @@ function getDailyLogResults(
     .reverse();
 
   for (const file of files) {
-    if (limit && results.length >= limit) break;
+    if (limit !== undefined && results.length >= limit) break;
 
     const dateStr = file.replace(/\.md$/, "");
     const date = new Date(dateStr);
@@ -142,11 +176,16 @@ export function searchMemory(cwd: string, options: SearchOptions): MemoryResult[
 
   const results: MemoryResult[] = [];
 
-  // Always include notes
-  const notesResults = getNotesResults(cwd, searchTerms, options.keyword, limit - results.length);
-  results.push(...notesResults);
+  // Topics first, then notes, then daily logs, all under the same bound.
+  const topicResults = getTopicResults(cwd, searchTerms, options.topic, options.keyword, limit - results.length);
+  results.push(...topicResults);
+  if (options.topic) return results.slice(0, limit);
 
-  // Include daily logs
+  if (results.length < limit) {
+    const notesResults = getNotesResults(cwd, searchTerms, options.keyword, limit - results.length);
+    results.push(...notesResults);
+  }
+
   if (results.length < limit) {
     const dailyResults = getDailyLogResults(
       cwd,
