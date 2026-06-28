@@ -1,5 +1,5 @@
 // Type contracts for the weighted-consensus model council.
-// See docs/plans / .omc/plans/weighted-consensus.md for the authoritative design.
+// See docs/plans / .omp/plans/weighted-consensus.md for the authoritative design.
 
 /** One council member: a model running under a role with a prior weight. */
 export interface CouncilMemberSpec {

@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cancelPonytail, normalizeLevel, readPonytail, startPonytail } from "../../src/mode-state/ponytail.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-pt-"));
+const cwd = () => mkdtempSync(path.join(tmpdir(), "omp-pt-"));
 const HOOK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../scripts/prompt-submit.mjs");
 
 describe("ponytail mode-state", () => {

@@ -16,7 +16,7 @@ function tempRoot(prefix: string): string {
 }
 
 function tempPlugin(): string {
-  const dir = tempRoot("omc-cost-plugin-");
+  const dir = tempRoot("omp-cost-plugin-");
   mkdirSync(path.join(dir, ".github", "skills"), { recursive: true });
   mkdirSync(path.join(dir, ".github", "agents"), { recursive: true });
   return dir;
@@ -24,7 +24,7 @@ function tempPlugin(): string {
 
 describe("cost/token instruction contracts", () => {
   it("keeps setup template and committed Copilot instructions aligned on cost semantics", () => {
-    const project = tempRoot("omc-cost-project-");
+    const project = tempRoot("omp-cost-project-");
     runSetup({ cwd: project, pluginRoot: tempPlugin() });
 
     const generated = readFileSync(path.join(project, ".github", "copilot-instructions.md"), "utf8");
@@ -45,7 +45,7 @@ describe("cost/token instruction contracts", () => {
   });
 
   it("preserves static cost guidance outside the managed memory block", () => {
-    const project = tempRoot("omc-cost-memory-");
+    const project = tempRoot("omp-cost-memory-");
     mkdirSync(path.join(project, ".github"), { recursive: true });
     writeFileSync(
       path.join(project, ".github", "copilot-instructions.md"),

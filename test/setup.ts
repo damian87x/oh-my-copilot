@@ -22,4 +22,4 @@ process.env.OMP_SKIP_USER_ENV = "1";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-process.env.OMP_HOME_OVERRIDE = mkdtempSync(join(tmpdir(), "omc-test-home-"));
+process.env.OMP_HOME_OVERRIDE = mkdtempSync(join(tmpdir(), "omp-test-home-"));

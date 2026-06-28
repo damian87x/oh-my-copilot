@@ -6,7 +6,7 @@ import { appendOutbox, peekNewOutbox, readNewOutbox, resetOutboxCursor } from ".
 import type { OutboxMessage } from "../../src/team/types.js";
 
 function tempFiles() {
-  const dir = mkdtempSync(path.join(tmpdir(), "omc-outbox-"));
+  const dir = mkdtempSync(path.join(tmpdir(), "omp-outbox-"));
   return { outbox: path.join(dir, "outbox.jsonl"), cursor: path.join(dir, ".outbox-offset") };
 }
 

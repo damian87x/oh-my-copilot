@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { runCli } from "../../src/cli.js";
 
-const root = () => mkdtempSync(path.join(tmpdir(), "omc-mem-cli-"));
+const root = () => mkdtempSync(path.join(tmpdir(), "omp-mem-cli-"));
 
 /** Run with an isolated global ~/.omp home so memory-mode (now written GLOBAL)
  *  can't leak into other tests sharing setup.ts's OMP_HOME_OVERRIDE. */

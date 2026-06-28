@@ -13,7 +13,7 @@ import {
 import type { MailboxMessage } from "../../src/team/types.js";
 
 function tempDir(): string {
-  return mkdtempSync(path.join(tmpdir(), "omc-mailbox-"));
+  return mkdtempSync(path.join(tmpdir(), "omp-mailbox-"));
 }
 
 function msg(to: string, extra: Partial<MailboxMessage> = {}): MailboxMessage {

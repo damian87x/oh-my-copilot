@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { stateCleanup, stateDelete, stateList, stateRead, stateStatus, stateWrite } from "../src/state.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-state-"));
+const cwd = () => mkdtempSync(path.join(tmpdir(), "omp-state-"));
 
 describe("state kv (src/state)", () => {
   it("reads null for a missing key", () => {

@@ -508,10 +508,10 @@ export function formatJiraDryRun(config: JiraConfig = discoverJiraConfig()): str
     labels: ['oh-my-copilot', 'dry-run'],
   };
   const create = createIssuePayload(config, sampleTicket);
-  const comment = commentPayload(config, 'OMC-123', 'Verification: dry-run evidence collected.');
-  const update = safeUpdatePayload(config, 'OMC-123', { summary: 'Dry-run Jira issue update', labels: ['verified'] });
-  const transition = transitionFallbackPayload(config, 'OMC-123', 'Done');
-  const link = linkFallbackPayload(config, 'OMC-123', 'OMC-124');
+  const comment = commentPayload(config, 'OMP-123', 'Verification: dry-run evidence collected.');
+  const update = safeUpdatePayload(config, 'OMP-123', { summary: 'Dry-run Jira issue update', labels: ['verified'] });
+  const transition = transitionFallbackPayload(config, 'OMP-123', 'Done');
+  const link = linkFallbackPayload(config, 'OMP-123', 'OMP-124');
 
   return JSON.stringify({
     ok: true,

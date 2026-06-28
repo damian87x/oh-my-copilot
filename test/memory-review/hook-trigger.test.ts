@@ -5,7 +5,7 @@ import path from "node:path";
 // Import the .mjs hook helper directly — same code the sessionEnd hook runs.
 import { triggerMemoryReview, resolveMemoryReviewInvocation } from "../../scripts/lib/memory-review-trigger.mjs";
 
-const root = () => mkdtempSync(path.join(tmpdir(), "omc-mem-hook-"));
+const root = () => mkdtempSync(path.join(tmpdir(), "omp-mem-hook-"));
 
 function writeConfig(dir: string, obj: unknown) {
   mkdirSync(path.join(dir, ".omp"), { recursive: true });

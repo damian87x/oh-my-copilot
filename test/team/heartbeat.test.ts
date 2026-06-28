@@ -6,7 +6,7 @@ import { isHeartbeatStale, readHeartbeat, writeHeartbeat } from "../../src/team/
 
 describe("heartbeat", () => {
   it("round-trips through disk", () => {
-    const file = path.join(mkdtempSync(path.join(tmpdir(), "omc-hb-")), "heartbeat.json");
+    const file = path.join(mkdtempSync(path.join(tmpdir(), "omp-hb-")), "heartbeat.json");
     const hb = {
       pid: 123,
       workerName: "worker-1",

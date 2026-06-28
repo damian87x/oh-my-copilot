@@ -5,7 +5,7 @@ import path from "node:path";
 import { formatList, listAll } from "../../src/copilot/list.js";
 
 function tempProject() {
-  const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-list-"));
+  const root = mkdtempSync(path.join(tmpdir(), "omp-copilot-list-"));
   writeFileSync(path.join(root, "package.json"), '{"name":"tmp"}');
   return root;
 }

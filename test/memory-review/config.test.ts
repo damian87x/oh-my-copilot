@@ -12,7 +12,7 @@ import {
   setMemoryConfigValue,
 } from "../../src/memory-review/config.js";
 
-const root = () => mkdtempSync(path.join(tmpdir(), "omc-mem-cfg-"));
+const root = () => mkdtempSync(path.join(tmpdir(), "omp-mem-cfg-"));
 
 afterEach(() => {
   delete process.env.OMP_MEMORY_MODE;

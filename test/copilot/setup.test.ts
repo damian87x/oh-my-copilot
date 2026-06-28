@@ -6,18 +6,18 @@ import path from "node:path";
 import { formatSetup, installUserHooks, runSetup, userHookPath, userHooksNeedRefresh } from "../../src/copilot/setup.js";
 
 function tempProject() {
-  const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-setup-"));
+  const root = mkdtempSync(path.join(tmpdir(), "omp-copilot-setup-"));
   writeFileSync(path.join(root, "package.json"), '{"name":"tmp"}');
   return root;
 }
 
 // Isolated copilot home so hook installs never touch the developer's real ~/.copilot.
 function tempHome() {
-  return mkdtempSync(path.join(tmpdir(), "omc-copilot-setup-home-"));
+  return mkdtempSync(path.join(tmpdir(), "omp-copilot-setup-home-"));
 }
 
 function tempPlugin() {
-  const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-setup-plugin-"));
+  const root = mkdtempSync(path.join(tmpdir(), "omp-copilot-setup-plugin-"));
   writeFileSync(path.join(root, "package.json"), '{"name":"plugin"}');
   const skill = path.join(root, ".github", "skills", "hello");
   mkdirSync(skill, { recursive: true });
@@ -158,7 +158,7 @@ describe("runSetup", () => {
 
   it("skips hook install when the plugin ships no hooks manifest", () => {
     const project = tempProject();
-    const plugin = mkdtempSync(path.join(tmpdir(), "omc-setup-nohooks-"));
+    const plugin = mkdtempSync(path.join(tmpdir(), "omp-setup-nohooks-"));
     writeFileSync(path.join(plugin, "package.json"), '{"name":"p"}');
     const home = tempHome();
     const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
@@ -169,7 +169,7 @@ describe("runSetup", () => {
 
   it("reports skip-source-invalid for an unparseable hooks manifest", () => {
     const project = tempProject();
-    const plugin = mkdtempSync(path.join(tmpdir(), "omc-setup-badhooks-"));
+    const plugin = mkdtempSync(path.join(tmpdir(), "omp-setup-badhooks-"));
     writeFileSync(path.join(plugin, "package.json"), '{"name":"p"}');
     mkdirSync(path.join(plugin, "hooks"), { recursive: true });
     writeFileSync(path.join(plugin, "hooks", "hooks.json"), "{ not json");
@@ -186,7 +186,7 @@ describe("runSetup", () => {
     const project = tempProject();
     const home = tempHome();
     // plugin root containing a space
-    const plugin = path.join(mkdtempSync(path.join(tmpdir(), "omc-setup-exec-")), "plugin with space");
+    const plugin = path.join(mkdtempSync(path.join(tmpdir(), "omp-setup-exec-")), "plugin with space");
     mkdirSync(path.join(plugin, "scripts"), { recursive: true });
     mkdirSync(path.join(plugin, "hooks"), { recursive: true });
     const marker = path.join(home, "ran.marker");
@@ -249,7 +249,7 @@ describe("userHooksNeedRefresh", () => {
     const home = tempHome();
     // a real dir whose name contains a single quote AND the literal marker the
     // greedy regex would have mis-stopped on
-    const parent = mkdtempSync(path.join(tmpdir(), "omc-tricky-"));
+    const parent = mkdtempSync(path.join(tmpdir(), "omp-tricky-"));
     const tricky = path.join(parent, "we'ird OMP_PLUGIN_ROOT=plugin");
     mkdirSync(path.join(tricky, "hooks"), { recursive: true });
     writeFileSync(

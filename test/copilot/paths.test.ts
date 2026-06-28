@@ -5,7 +5,7 @@ import path from "node:path";
 import { resolveCopilotPaths } from "../../src/copilot/paths.js";
 
 function tempProject() {
-  const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-paths-"));
+  const root = mkdtempSync(path.join(tmpdir(), "omp-copilot-paths-"));
   writeFileSync(path.join(root, "package.json"), '{"name":"tmp"}');
   return root;
 }

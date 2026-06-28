@@ -5,7 +5,7 @@ import path from "node:path";
 import { isLoopModeActive, writeModeStateJson, type LoopMode } from "../../src/mode-state/paths.js";
 
 function tempCwd(): string {
-  return mkdtempSync(path.join(tmpdir(), "omc-loopmode-"));
+  return mkdtempSync(path.join(tmpdir(), "omp-loopmode-"));
 }
 
 describe("isLoopModeActive", () => {

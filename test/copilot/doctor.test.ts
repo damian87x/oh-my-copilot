@@ -6,7 +6,7 @@ import { classifyMemoryReviewProbe, formatDoctor, runDoctor } from "../../src/co
 import { setMemoryConfigValue } from "../../src/memory-review/config.js";
 
 function tempProjectWithPlugin() {
-  const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-doctor-"));
+  const root = mkdtempSync(path.join(tmpdir(), "omp-copilot-doctor-"));
   writeFileSync(path.join(root, "package.json"), '{"name":"tmp"}');
   writeFileSync(
     path.join(root, "plugin.json"),
@@ -165,7 +165,7 @@ console.log(JSON.stringify({}));
   });
 
   it("fails when plugin manifest is missing", () => {
-    const project = mkdtempSync(path.join(tmpdir(), "omc-copilot-doctor-noplugin-"));
+    const project = mkdtempSync(path.join(tmpdir(), "omp-copilot-doctor-noplugin-"));
     writeFileSync(path.join(project, "package.json"), '{"name":"tmp"}');
     const report = runDoctor({ cwd: project, pluginRoot: project, skipCopilot: true });
     const manifest = report.checks.find((c) => c.name === "plugin-manifest");
@@ -190,7 +190,7 @@ describe("memory-review-model deep check", () => {
   /** Isolated global ~/.omp home so config writes don't leak across tests. */
   async function withHome<T>(fn: (home: string) => T): Promise<T> {
     const prev = process.env.OMP_HOME_OVERRIDE;
-    const home = mkdtempSync(path.join(tmpdir(), "omc-doctor-home-"));
+    const home = mkdtempSync(path.join(tmpdir(), "omp-doctor-home-"));
     process.env.OMP_HOME_OVERRIDE = home;
     try {
       return fn(home);

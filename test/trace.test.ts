@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { appendTraceEntry, traceSummary, traceTimeline } from "../src/trace.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-trace-"));
+const cwd = () => mkdtempSync(path.join(tmpdir(), "omp-trace-"));
 
 describe("trace (src/trace)", () => {
   it("returns empty when there is no trace", () => {

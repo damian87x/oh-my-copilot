@@ -32,7 +32,7 @@ function mockTmux(): TmuxApi & { sendText: ReturnType<typeof vi.fn> } {
 }
 
 function setup(workers: Worker[]): { cwd: string; teamName: string; mailboxDir: string } {
-  const cwd = mkdtempSync(path.join(tmpdir(), "omc-msg-"));
+  const cwd = mkdtempSync(path.join(tmpdir(), "omp-msg-"));
   const teamName = "demo";
   const paths = resolveTeamPaths(cwd, teamName);
   ensureTeamDirs(paths);

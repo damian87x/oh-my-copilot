@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { countPendingDirectives, pendingDirectivesNudge } from "../../scripts/lib/pending-directives.mjs";
 
-const root = () => mkdtempSync(path.join(tmpdir(), "omc-pend-"));
+const root = () => mkdtempSync(path.join(tmpdir(), "omp-pend-"));
 
 function writePending(cwd: string, body: string) {
   const dir = path.join(cwd, ".oh-my-copilot", "memory-review");

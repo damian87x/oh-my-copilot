@@ -74,7 +74,7 @@ output JSON to stdout (today they assume Claude shapes / print plain text):
 - `post-tool-use.mjs` / `error.mjs` / `session-end.mjs` / `prompt-submit.mjs`: adapt
   fields; note `userPromptSubmitted`/`errorOccurred`/`sessionEnd` outputs are ignored.
 
-### Slice 3 — `agentStop` loop driver (the OMC-style loop)
+### Slice 3 — `agentStop` loop driver (the OMP-style loop)
 New `scripts/agent-stop.mjs`:
 1. Read input `{ transcriptPath, cwd, ... }`.
 2. Read loop state `.omp/state/{ralph|ultrawork|ultraqa}.json` (already exists). If no

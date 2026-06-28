@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildRalphContext, cancelRalph, readRalph, startRalph, tickRalph } from "../../src/mode-state/ralph.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-ralph-"));
+const cwd = () => mkdtempSync(path.join(tmpdir(), "omp-ralph-"));
 
 describe("ralph mode-state", () => {
   it("startRalph writes the state file at .omp/state/ralph.json", () => {

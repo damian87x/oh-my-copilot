@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { readRepoGoal, writeRepoGoal } from "../src/goal.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-goal-"));
+const cwd = () => mkdtempSync(path.join(tmpdir(), "omp-goal-"));
 
 describe("repo goal (src/goal)", () => {
   it("reads empty when no goal is set", () => {

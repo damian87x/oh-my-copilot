@@ -6,7 +6,7 @@ import { ensureTeamDirs, ensureWorkerDirs, resolveTeamPaths, resolveWorkerPaths 
 
 describe("resolveTeamPaths", () => {
   it("places team state under cwd/.omp/state/team/<name>", () => {
-    const cwd = mkdtempSync(path.join(tmpdir(), "omc-team-paths-"));
+    const cwd = mkdtempSync(path.join(tmpdir(), "omp-team-paths-"));
     const t = resolveTeamPaths(cwd, "demo");
     expect(t.teamRoot).toBe(path.join(cwd, ".omp", "state", "team", "demo"));
     expect(t.configFile).toBe(path.join(t.teamRoot, "config.json"));
@@ -15,7 +15,7 @@ describe("resolveTeamPaths", () => {
   });
 
   it("derives worker paths under workers/<name>", () => {
-    const cwd = mkdtempSync(path.join(tmpdir(), "omc-team-paths-"));
+    const cwd = mkdtempSync(path.join(tmpdir(), "omp-team-paths-"));
     const t = resolveTeamPaths(cwd, "demo");
     const w = resolveWorkerPaths(t, "worker-1");
     expect(w.workerRoot).toBe(path.join(t.workersDir, "worker-1"));
@@ -28,7 +28,7 @@ describe("resolveTeamPaths", () => {
 
 describe("ensure*Dirs", () => {
   it("creates the team + worker directories idempotently", () => {
-    const cwd = mkdtempSync(path.join(tmpdir(), "omc-team-mkdirs-"));
+    const cwd = mkdtempSync(path.join(tmpdir(), "omp-team-mkdirs-"));
     const t = resolveTeamPaths(cwd, "demo");
     ensureTeamDirs(t);
     ensureTeamDirs(t);

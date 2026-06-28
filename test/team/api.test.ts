@@ -8,7 +8,7 @@ import { taskFilePath, writeTask } from "../../src/team/task-store.js";
 import { readNewOutbox } from "../../src/team/outbox.js";
 
 function setup(): { cwd: string; teamName: string } {
-  const cwd = mkdtempSync(path.join(tmpdir(), "omc-team-api-"));
+  const cwd = mkdtempSync(path.join(tmpdir(), "omp-team-api-"));
   const teamName = "demo";
   const paths = resolveTeamPaths(cwd, teamName);
   ensureTeamDirs(paths);

@@ -58,7 +58,7 @@ This no-guessing rule keeps workflow changes safe while still giving a human an 
 
 ```bash
 npm run jira:dry-run
-npx tsx src/cli.ts jira render ../.omx/plans/oh-my-copilot-general-skills-ralplan-handoff.md
+npx tsx src/cli.ts jira render ../.omp/plans/oh-my-copilot-general-skills-ralplan-handoff.md
 ```
 
 Expected dry-run evidence includes create/comment/safe-update support and transition/link discovery fallback state.

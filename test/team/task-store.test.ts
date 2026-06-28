@@ -17,7 +17,7 @@ import { writeFileSync } from "node:fs";
 import type { Task } from "../../src/team/types.js";
 
 function tempTasksDir() {
-  return mkdtempSync(path.join(tmpdir(), "omc-tasks-"));
+  return mkdtempSync(path.join(tmpdir(), "omp-tasks-"));
 }
 
 function makeTask(id: string): Task {

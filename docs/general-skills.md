@@ -49,7 +49,7 @@ The catalog is optional metadata for the built-in general skill list; Copilot di
 ## Capability semantics
 
 `providerSupport.copilot.state = native` means Copilot can read the repo-local slash skill from `.github/skills`.
-It does not imply a durable execution runtime. Phase 1 execution skills such as `/team`, `/ralph`, `/ultrawork`, and `/omc-autopilot` are plain project-skill instructions, not persisted runtimes.
+It does not imply a durable execution runtime. Phase 1 execution skills such as `/team`, `/ralph`, `/ultrawork`, and `/omp-autopilot` are plain project-skill instructions, not persisted runtimes.
 
 ## Phase 1 flow
 

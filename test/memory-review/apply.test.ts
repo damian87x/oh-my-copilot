@@ -5,7 +5,7 @@ import path from "node:path";
 import { applyReview } from "../../src/memory-review/apply.js";
 import { noteIndex, readDirectives, readNote } from "../../src/project-memory.js";
 
-const root = () => mkdtempSync(path.join(tmpdir(), "omc-mem-apply-"));
+const root = () => mkdtempSync(path.join(tmpdir(), "omp-mem-apply-"));
 
 describe("applyReview", () => {
   it("writes notes to project memory and drafts OUTSIDE .github/skills", () => {

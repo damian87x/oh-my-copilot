@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { isHeadless, triggerHeadlessReview, type DetachSpawn } from "../../src/memory-review/trigger.js";
 
-const root = () => mkdtempSync(path.join(tmpdir(), "omc-mem-trig-"));
+const root = () => mkdtempSync(path.join(tmpdir(), "omp-mem-trig-"));
 
 interface Call {
   command: string;

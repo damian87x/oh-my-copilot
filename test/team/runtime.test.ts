@@ -21,7 +21,7 @@ import type { TmuxApi, TmuxResult } from "../../src/team/tmux.js";
 import type { TeamConfig } from "../../src/team/types.js";
 
 function tempCwd(): string {
-  return mkdtempSync(path.join(tmpdir(), "omc-runtime-"));
+  return mkdtempSync(path.join(tmpdir(), "omp-runtime-"));
 }
 
 function mockTmux(): { api: TmuxApi; calls: string[][]; deadPanes: Set<string> } {

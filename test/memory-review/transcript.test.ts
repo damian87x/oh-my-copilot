@@ -11,7 +11,7 @@ import {
   readSessionTranscript,
 } from "../../src/memory-review/transcript.js";
 
-const root = () => mkdtempSync(path.join(tmpdir(), "omc-mem-tr-"));
+const root = () => mkdtempSync(path.join(tmpdir(), "omp-mem-tr-"));
 
 describe("transcript parsing (real Copilot events.jsonl format)", () => {
   // Real Copilot events are {"type":"user.message","data":{"content":...}} etc.,

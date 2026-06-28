@@ -6,7 +6,7 @@ import { enableMemoryMode, type EnableIO } from "../../src/memory-review/enable.
 import { readMemoryConfig, setMemoryConfigValue } from "../../src/memory-review/config.js";
 import type { CouncilSpawn, SpawnResponse } from "../../src/council/types.js";
 
-const root = () => mkdtempSync(join(tmpdir(), "omc-enable-"));
+const root = () => mkdtempSync(join(tmpdir(), "omp-enable-"));
 
 function resp(p: Partial<SpawnResponse>): SpawnResponse {
   return { stdout: "", stderr: "", exitCode: 0, timedOut: false, ...p };

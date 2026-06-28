@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { addLogEntry, pruneDailyLog, readDailyLog, setDailyGoal } from "../src/daily-log.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-dl-"));
+const cwd = () => mkdtempSync(path.join(tmpdir(), "omp-dl-"));
 const todayFile = (root: string) => {
   const dir = path.join(root, ".omp", "memory", "daily");
   return path.join(dir, readdirSync(dir)[0]!);

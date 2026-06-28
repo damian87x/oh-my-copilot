@@ -48,12 +48,12 @@ The catalog is optional metadata for this repository's built-in general skill li
 
 ## Native oh-my-copilot installer
 
-Use `omcc skill install` when you want the same simple OMC-style copy flow, or as a fallback on machines without a new enough GitHub CLI. The bin is `omcc` (not `omc`) to avoid colliding with the `oh-my-claudecode` global command:
+Use `omp skill install` when you want the same simple repo-native copy flow, or as a fallback on machines without a new enough GitHub CLI:
 
 ```bash
-omcc skill install ./skills/my-skill --dry-run
-omcc skill install ./skills/my-skill --root /path/to/repo
-omcc skill install ./skills/my-skill --scope user
+omp skill install ./skills/my-skill --dry-run
+omp skill install ./skills/my-skill --root /path/to/repo
+omp skill install ./skills/my-skill --scope user
 ```
 
 The installer validates `SKILL.md` frontmatter, previews copied files with `--dry-run`, preserves optional resource folders, and writes to `.github/skills/<name>` by default.
@@ -71,9 +71,9 @@ gh skill install OWNER/REPOSITORY SKILL --scope user
 gh skill publish --dry-run
 ```
 
-Local note: this machine has `gh 2.92.0`, so `gh skill` is available. Do not make `gh skill` the only install path; keep `omcc skill install` as the fallback and repo-native dry-run surface.
+Local note: this machine has `gh 2.92.0`, so `gh skill` is available. Do not make `gh skill` the only install path; keep `omp skill install` as the fallback and repo-native dry-run surface.
 
-## OMC-like installer shape
+## OMP installer shape
 
 The `oh-my-copilot` installer should stay thin:
 

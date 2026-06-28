@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildUltraworkContext, cancelUltrawork, readUltrawork, startUltrawork } from "../../src/mode-state/ultrawork.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-uw-"));
+const cwd = () => mkdtempSync(path.join(tmpdir(), "omp-uw-"));
 
 describe("ultrawork mode-state", () => {
   it("starts + reads + cancels", () => {

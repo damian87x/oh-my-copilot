@@ -5,7 +5,7 @@ import path from "node:path";
 import { formatVersionInfo, getVersionInfo } from "../../src/copilot/version.js";
 
 function tempProject(version = "9.9.9") {
-  const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-version-"));
+  const root = mkdtempSync(path.join(tmpdir(), "omp-copilot-version-"));
   writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "tmp", version }));
   return root;
 }
@@ -28,7 +28,7 @@ describe("getVersionInfo", () => {
   });
 
   it("returns 'unknown' when package.json lacks a version", () => {
-    const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-version-no-ver-"));
+    const root = mkdtempSync(path.join(tmpdir(), "omp-copilot-version-no-ver-"));
     writeFileSync(path.join(root, "package.json"), '{"name":"tmp"}');
     const info = getVersionInfo({ cwd: root });
     expect(info.package).toBe("unknown");

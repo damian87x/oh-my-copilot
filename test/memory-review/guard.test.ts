@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { claimSession } from "../../src/memory-review/guard.js";
 
-const root = () => mkdtempSync(path.join(tmpdir(), "omc-mem-guard-"));
+const root = () => mkdtempSync(path.join(tmpdir(), "omp-mem-guard-"));
 
 describe("session claim guard", () => {
   it("grants the claim exactly once for a session", () => {

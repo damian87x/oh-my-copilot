@@ -8,7 +8,7 @@ import { setMemoryConfigValue } from "../src/memory-review/config.js";
 import { addDirective, addNote, addTopicFact, setTopicDescription } from "../src/project-memory.js";
 
 const originalHomeOverride = process.env.OMP_HOME_OVERRIDE;
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-instr-"));
+const cwd = () => mkdtempSync(path.join(tmpdir(), "omp-instr-"));
 const instr = (root: string) => readFileSync(path.join(root, ".github", "copilot-instructions.md"), "utf8");
 
 describe("instructions memory block", () => {

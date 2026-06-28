@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { addDirective, addNote, noteIndex, readDirectives, readNote } from "../src/project-memory.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-pm-"));
+const cwd = () => mkdtempSync(path.join(tmpdir(), "omp-pm-"));
 
 describe("project memory: directives (injected)", () => {
   it("starts empty and appends", () => {

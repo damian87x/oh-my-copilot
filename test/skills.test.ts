@@ -5,13 +5,13 @@ import path from 'node:path';
 import { installSkill } from '../src/skills.js';
 
 function tempRepo() {
-  const root = mkdtempSync(path.join(tmpdir(), 'omc-skill-install-'));
+  const root = mkdtempSync(path.join(tmpdir(), 'omp-skill-install-'));
   writeFileSync(path.join(root, 'package.json'), '{"name":"tmp"}');
   return root;
 }
 
 function tempSkill() {
-  const root = mkdtempSync(path.join(tmpdir(), 'omc-skill-source-'));
+  const root = mkdtempSync(path.join(tmpdir(), 'omp-skill-source-'));
   const skill = path.join(root, 'skills', 'hello-skill');
   mkdirSync(path.join(skill, 'references'), { recursive: true });
   writeFileSync(path.join(skill, 'SKILL.md'), '---\nname: hello-skill\ndescription: Say hello with /hello-skill.\n---\n\n# Hello\n');

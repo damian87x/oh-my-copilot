@@ -8,7 +8,7 @@ import { noteIndex, readDirectives } from "../../src/project-memory.js";
 import { costLedgerPath } from "../../src/cost/ledger.js";
 import type { CouncilSpawn, SpawnRequest, SpawnResponse } from "../../src/council/types.js";
 
-const root = () => mkdtempSync(path.join(tmpdir(), "omc-mem-run-"));
+const root = () => mkdtempSync(path.join(tmpdir(), "omp-mem-run-"));
 
 function fakeSpawn(stdout: string, capture?: (req: SpawnRequest) => void): CouncilSpawn {
   return async (req: SpawnRequest): Promise<SpawnResponse> => {

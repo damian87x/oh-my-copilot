@@ -10,7 +10,7 @@ import {
   startUltraqa,
 } from "../../src/mode-state/ultraqa.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-uq-"));
+const cwd = () => mkdtempSync(path.join(tmpdir(), "omp-uq-"));
 
 describe("ultraqa mode-state", () => {
   it("starts and records a failing cycle", () => {
