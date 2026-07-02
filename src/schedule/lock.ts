@@ -1,4 +1,4 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 
@@ -32,10 +32,7 @@ export function acquireLock(lockPath: string): LockHandle {
   }
   const token = randomUUID();
   try {
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString(), token } satisfies LockData),
-    );
+    writeSync(fd, JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString(), token } satisfies LockData));
   } finally {
     closeSync(fd);
   }

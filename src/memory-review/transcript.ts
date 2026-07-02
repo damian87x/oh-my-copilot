@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -109,11 +109,11 @@ export function newestSessionSince(before: string[], base?: string): string | nu
 }
 
 function readTail(path: string, maxBytes: number): string {
-  const size = statSync(path).size;
-  const start = Math.max(0, size - maxBytes);
-  const len = size - start;
   const fd = openSync(path, "r");
   try {
+    const size = fstatSync(fd).size;
+    const start = Math.max(0, size - maxBytes);
+    const len = size - start;
     const buf = Buffer.alloc(len);
     readSync(fd, buf, 0, len, start);
     return buf.toString("utf8");

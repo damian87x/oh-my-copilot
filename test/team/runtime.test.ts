@@ -15,7 +15,6 @@ import {
 } from "../../src/team/runtime.js";
 import { writeModeStateJson } from "../../src/mode-state/paths.js";
 import { resolveTeamPaths, resolveWorkerPaths } from "../../src/team/state-paths.js";
-import { writeTask, taskFilePath } from "../../src/team/task-store.js";
 import { apiClaimTask, apiTransitionTaskStatus } from "../../src/team/api.js";
 import type { TmuxApi, TmuxResult } from "../../src/team/tmux.js";
 import type { TeamConfig } from "../../src/team/types.js";

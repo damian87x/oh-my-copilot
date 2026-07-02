@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync, unlinkSync } from "node:fs";
-import { basename } from "node:path";
 import { getInstalledStatus, installJob, uninstallJob } from "./installer.js";
 import { deleteJob, listJobs, readJob, writeJob } from "./job-store.js";
 import {

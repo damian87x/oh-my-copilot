@@ -97,6 +97,7 @@ const DEFAULT_OPERATIONS: Required<JiraOperationsConfig> = {
 };
 
 const SAFE_UPDATE_FIELDS = new Set(['summary', 'description', 'labels', 'components', 'priority']);
+const MAX_JIRA_REQUEST_BYTES = 64 * 1024;
 
 export function loadDotEnv(cwd = process.cwd()): Record<string, string> {
   const path = join(cwd, '.env');
@@ -334,6 +335,30 @@ export function canRunLive(config: JiraConfig, operation: JiraOperationName): bo
   return configured === true || configured === 'discover';
 }
 
+function jiraRequestUrl(path: string, baseUrl: string): URL {
+  if (!path.startsWith("/") || path.startsWith("//")) {
+    throw new Error("Jira request path must be a relative API path");
+  }
+  const base = new URL(baseUrl);
+  if (base.protocol !== "https:") {
+    throw new Error("Jira live baseUrl must use https");
+  }
+  const url = new URL(path, base);
+  if (url.origin !== base.origin) {
+    throw new Error("Jira request path must stay on the configured Jira host");
+  }
+  return url;
+}
+
+function serializeJiraBody(body: unknown): string | undefined {
+  if (body === undefined) return undefined;
+  const serialized = JSON.stringify(body);
+  if (Buffer.byteLength(serialized, "utf8") > MAX_JIRA_REQUEST_BYTES) {
+    throw new Error(`Jira request payload exceeds ${MAX_JIRA_REQUEST_BYTES} bytes`);
+  }
+  return serialized;
+}
+
 export class JiraRestClient {
   constructor(private readonly config: JiraConfig) {}
 
@@ -377,14 +402,16 @@ export class JiraRestClient {
     if (!this.config.baseUrl || !this.config.email || !this.config.apiToken) {
       throw new Error('Jira config is incomplete');
     }
-    const response = await fetch(new URL(path, this.config.baseUrl), {
+    const url = jiraRequestUrl(path, this.config.baseUrl);
+    const body = serializeJiraBody(init.body);
+    const response = await fetch(url, {
       method: init.method,
       headers: {
         authorization: `Basic ${Buffer.from(`${this.config.email}:${this.config.apiToken}`).toString('base64')}`,
         accept: 'application/json',
         'content-type': 'application/json',
       },
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      body,
     });
     const text = await response.text();
     const data = text ? JSON.parse(text) : undefined;
