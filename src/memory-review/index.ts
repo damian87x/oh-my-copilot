@@ -9,6 +9,8 @@ import { claimSession, releaseClaim } from "./guard.js";
 import { isValidSessionId, readSessionTranscript, type TranscriptMessage } from "./transcript.js";
 import { buildReviewPrompt, parseReviewOutput } from "./prompt.js";
 import { applyReview, type ApplySummary } from "./apply.js";
+import { existingSkillSlugs, pendingDirectiveTexts } from "./quarantine.js";
+import { readDirectives } from "../project-memory.js";
 
 // End-of-session review pass — the Copilot analog of Hermes's background-review
 // fork. Triggered detached (sessionEnd hook) or post-exit (wrapper for `-p`).
@@ -70,7 +72,13 @@ export async function runMemoryReview(
   if (!claimSession(cwd, sessionId)) return { ran: false, reason: "already claimed" };
 
   const model = options.model ?? config.memoryReviewModel;
-  const prompt = buildReviewPrompt(messages);
+  // Tell the model what memory already holds so routine detection (automated
+  // self-evolve) extends knowledge instead of re-proposing it every session;
+  // applyReview dedups again as a hard backstop.
+  const prompt = buildReviewPrompt(messages, {
+    skillSlugs: existingSkillSlugs(cwd),
+    directives: [...readDirectives(cwd), ...pendingDirectiveTexts(cwd)],
+  });
   const timeoutMs = options.timeoutMs ?? 90_000;
 
   const res = await options.spawn({ model, prompt, timeoutMs });
