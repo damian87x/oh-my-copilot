@@ -967,15 +967,34 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
       if (operation === "create" && !ticket) {
         return { ok: false, exitCode: 1, output: json ? { ok: false, error: "jira apply create requires a readable plan/ticket file" } : undefined, message: "jira apply create requires a readable plan/ticket file" };
       }
+      if (inputPath && ticket) {
+        const transitionState = flagValue(argv, "--state") ?? "done";
+        const linkTarget = flagValue(argv, "--link-target");
+        const target = operation === "create" ? "new issue" : inputPath;
+        const payload = operation === "create"
+          ? jira.renderCreateIssue(ticket, config).payload
+          : operation === "comment"
+            ? jira.renderComment(ticket.summary)
+            : operation === "update"
+              ? jira.renderSafeUpdate(ticket, config)
+              : operation === "transition"
+                ? { transition: { logicalState: transitionState, configuredName: config.transitions[transitionState] } }
+                : { type: { name: config.linkType ?? "<discover>" }, inwardIssue: { key: target }, outwardIssue: { key: linkTarget } };
+        const result = {
+          ok: true,
+          live: false,
+          operation,
+          fallback: jira.makeFallback(operation, "file-backed Jira apply is dry-run only; no live Jira write was attempted", target, payload),
+        };
+        return json ? { ok: true, output: result } : { ok: true, message: JSON.stringify(result, null, 2) };
+      }
       const result = await jira.applyJiraOperation({
         operation,
-        target: inputPath ? undefined : value,
-        ticket,
-        comment: ticket ? ticket.summary : "Verification evidence goes here.",
-        update: ticket,
+        target: value,
+        comment: "Verification evidence goes here.",
         transitionState: flagValue(argv, "--state") ?? "done",
         linkTarget: flagValue(argv, "--link-target"),
-        dryRun: Boolean(inputPath) || hasFlag(argv, "--dry-run") || config.mode !== "live",
+        dryRun: hasFlag(argv, "--dry-run") || config.mode !== "live",
       }, config);
       return json ? { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result } : { ok: result.ok, exitCode: result.ok ? 0 : 1, message: JSON.stringify(result, null, 2) };
     }

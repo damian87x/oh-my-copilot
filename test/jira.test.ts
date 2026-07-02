@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   applyJiraOperation,
   canRunLive,
@@ -76,6 +79,42 @@ describe('Jira adapter payloads', () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/requires a readable plan\/ticket file/);
+  });
+
+  it('keeps file-backed apply on the local fallback path even with live config', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const dir = mkdtempSync(join(tmpdir(), 'omc-jira-'));
+    const planPath = join(dir, 'plan.md');
+    writeFileSync(planPath, '# File sourced issue\n\nDo not send this directly to Jira.', 'utf8');
+    const previous = {
+      JIRA_MODE: process.env.JIRA_MODE,
+      JIRA_SITE_URL: process.env.JIRA_SITE_URL,
+      JIRA_EMAIL: process.env.JIRA_EMAIL,
+      JIRA_API_TOKEN: process.env.JIRA_API_TOKEN,
+      JIRA_PROJECT_KEY: process.env.JIRA_PROJECT_KEY,
+    };
+    try {
+      process.env.JIRA_MODE = 'live';
+      process.env.JIRA_SITE_URL = 'https://example.atlassian.net';
+      process.env.JIRA_EMAIL = 'agent@example.com';
+      process.env.JIRA_API_TOKEN = 'secret-token';
+      process.env.JIRA_PROJECT_KEY = 'OMC';
+
+      const result = await runCli(['jira', 'apply', planPath, '--json']);
+
+      expect(result.ok).toBe(true);
+      expect(result.output.live).toBe(false);
+      expect(result.output.fallback.reason).toMatch(/file-backed Jira apply is dry-run only/i);
+      expect(JSON.stringify(result.output.fallback.payload)).toContain('File sourced issue');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('rejects non-HTTPS base URLs for live operations before fetch', async () => {

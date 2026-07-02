@@ -1,13 +1,15 @@
 import {
   appendFileSync,
   closeSync,
+  constants,
   existsSync,
+  fstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readSync,
-  fstatSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { DeliveryReceipt, MailboxLine, MailboxMessage, MailboxMessageView } from "./types.js";
@@ -128,43 +130,42 @@ export function markDelivered(mailboxDir: string, recipient: string, messageId: 
   const filePath = mailboxFilePath(mailboxDir, recipient);
   let fd: number;
   try {
-    fd = openSync(filePath, "r");
+    fd = openSync(filePath, constants.O_RDWR | constants.O_APPEND);
   } catch {
     return false;
   }
 
-  let text: string;
   try {
     const stats = fstatSync(fd);
     const buf = Buffer.alloc(stats.size);
     if (stats.size > 0) readSync(fd, buf, 0, stats.size, 0);
-    text = buf.toString("utf8");
+    const text = buf.toString("utf8");
+
+    let found = false;
+    for (const raw of text.split("\n")) {
+      if (!raw.trim()) continue;
+      try {
+        const line = JSON.parse(raw) as MailboxLine;
+        if (line.type === "message" && line.id === messageId) {
+          found = true;
+          break;
+        }
+      } catch {
+        // skip unparseable line
+      }
+    }
+    if (!found) return false;
+
+    const receipt: DeliveryReceipt = {
+      type: "delivery-receipt",
+      messageId,
+      deliveredAt: new Date().toISOString(),
+    };
+    writeSync(fd, `${JSON.stringify(receipt)}\n`, undefined, "utf8");
+    return true;
   } finally {
     closeSync(fd);
   }
-
-  let found = false;
-  for (const raw of text.split("\n")) {
-    if (!raw.trim()) continue;
-    try {
-      const line = JSON.parse(raw) as MailboxLine;
-      if (line.type === "message" && line.id === messageId) {
-        found = true;
-        break;
-      }
-    } catch {
-      // skip unparseable line
-    }
-  }
-  if (!found) return false;
-
-  const receipt: DeliveryReceipt = {
-    type: "delivery-receipt",
-    messageId,
-    deliveredAt: new Date().toISOString(),
-  };
-  appendFileSync(filePath, `${JSON.stringify(receipt)}\n`, "utf8");
-  return true;
 }
 
 // ---------------------------------------------------------------------------
