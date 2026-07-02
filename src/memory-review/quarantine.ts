@@ -70,34 +70,62 @@ export function pendingDirectiveTexts(cwd: string): string[] {
 // Conflicts are left in place except pending directives (appended so no
 // proposal is lost) and claim files (duplicates — the timestamps differ but
 // either one dedupes the session, so the legacy copy is dropped).
+// TOCTOU-safe by construction: stat once and act on that snapshot inside a
+// per-entry try/catch, so an entry changing mid-migration degrades to "leave
+// it in place for the next best-effort pass" instead of corrupting the move.
+function statOrNull(p: string): ReturnType<typeof lstatSync> | null {
+  try {
+    return lstatSync(p);
+  } catch {
+    return null;
+  }
+}
+
 function mergeMove(src: string, dest: string): void {
-  if (!existsSync(dest)) {
+  if (!statOrNull(dest)) {
     mkdirSync(dirname(dest), { recursive: true });
-    renameSync(src, dest);
-    return;
+    try {
+      renameSync(src, dest);
+      return;
+    } catch {
+      // dest appeared concurrently or EXDEV — fall through to a per-entry merge
+    }
   }
   for (const entry of readdirSync(src)) {
     const from = join(src, entry);
     const to = join(dest, entry);
-    if (!existsSync(to)) {
-      renameSync(from, to);
-    } else if (lstatSync(from).isDirectory() && lstatSync(to).isDirectory()) {
-      // lstat, not stat: never recurse THROUGH a symlink — a planted link could
-      // otherwise make the merge move files belonging to a tree outside .omp/.
-      mergeMove(from, to);
-    } else if (entry === PENDING_FILENAME) {
-      const legacy = readFileSync(from, "utf8")
-        .split("\n")
-        .filter((l) => /^\s*-\s*\[\s*\]/.test(l))
-        .join("\n");
-      if (legacy) appendFileSync(to, `${legacy}\n`, "utf8");
-      rmSync(from);
-    } else if (entry.startsWith(".claim-")) {
-      rmSync(from);
+    try {
+      const fromStat = statOrNull(from);
+      if (!fromStat) continue; // vanished since readdir
+      const toStat = statOrNull(to);
+      if (!toStat) {
+        renameSync(from, to);
+      } else if (fromStat.isDirectory() && toStat.isDirectory()) {
+        // lstat, not stat: never recurse THROUGH a symlink — a planted link could
+        // otherwise make the merge move files belonging to a tree outside .omp/.
+        mergeMove(from, to);
+      } else if (entry === PENDING_FILENAME) {
+        const legacy = readFileSync(from, "utf8")
+          .split("\n")
+          .filter((l) => /^\s*-\s*\[\s*\]/.test(l))
+          .join("\n");
+        // appendFileSync creates `to` if it vanished after the stat — either
+        // way no queued proposal is lost
+        if (legacy) appendFileSync(to, `${legacy}\n`, "utf8");
+        rmSync(from, { force: true });
+      } else if (entry.startsWith(".claim-")) {
+        rmSync(from, { force: true });
+      }
+      // any other conflict: leave the legacy entry where it is
+    } catch {
+      // entry changed mid-migration — leave it for the next pass
     }
-    // any other conflict: leave the legacy entry where it is
   }
-  if (readdirSync(src).length === 0) rmdirSync(src);
+  try {
+    rmdirSync(src); // fails ENOTEMPTY when conflicts remain — that is the point
+  } catch {
+    // keep the non-empty legacy dir
+  }
 }
 
 /** Move legacy `.oh-my-copilot/` quarantine state under `.omp/`. Idempotent
@@ -112,10 +140,12 @@ export function migrateLegacyQuarantine(cwd: string): void {
       [join(legacyRoot, "self-evolve"), selfEvolveDir(cwd)],
     ];
     for (const [src, dest] of moves) {
-      // lstat: a symlinked legacy subtree is left in place, never traversed
-      if (existsSync(src) && lstatSync(src).isDirectory()) mergeMove(src, dest);
+      // single lstat snapshot: a symlinked legacy subtree is left in place,
+      // never traversed; a vanished one is skipped
+      const st = statOrNull(src);
+      if (st?.isDirectory()) mergeMove(src, dest);
     }
-    if (readdirSync(legacyRoot).length === 0) rmdirSync(legacyRoot);
+    rmdirSync(legacyRoot); // fails ENOTEMPTY when user files remain — caught below
   } catch {
     // best-effort
   }
