@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ompRoot } from "../omp-root.js";
-import { addNote } from "../project-memory.js";
+import { addNote, noteIndex, readDirectives, readNote } from "../project-memory.js";
 import type { ReviewResult } from "./prompt.js";
+import { draftsDir, migrateLegacyQuarantine, pendingDirectiveTexts, reviewDir } from "./quarantine.js";
 
 // What the review may write, ordered by blast radius:
 //  - notes  -> project memory (progressive disclosure, on-demand) — safe, applied.
-//  - skill drafts -> .oh-my-copilot/self-evolve/drafts/<slug>/ — NEVER .github/skills,
+//  - skill drafts -> .omp/self-evolve/drafts/<slug>/ — NEVER .github/skills,
 //    so they are never auto-loaded; a human promotes them (matches /self-evolve).
 //  - directives -> a pending review queue, NEVER auto-applied. Directives inject
 //    into every future session, so an injected one would steer everything; they
@@ -16,14 +17,31 @@ export interface ApplySummary {
   notesAdded: number;
   draftsWritten: string[];
   directivesQueued: number;
+  notesSkipped: number;
+  draftsSkipped: number;
+  directivesSkipped: number;
 }
 
-function reviewDir(cwd: string): string {
-  return join(ompRoot(cwd), ".oh-my-copilot", "memory-review");
+// Dedup: automated runs happen every session, so anything already captured —
+// an identical note, a known skill slug (draft or promoted), an active or
+// already-proposed directive — must be skipped, not re-written.
+
+const normalize = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, " ");
+
+function skillSlugKnown(cwd: string, slug: string): boolean {
+  const skillsRoot = join(ompRoot(cwd), ".github", "skills");
+  return (
+    existsSync(join(draftsDir(cwd), slug, "SKILL.md")) ||
+    existsSync(join(skillsRoot, slug)) ||
+    existsSync(join(skillsRoot, `learned-${slug}`))
+  );
 }
 
-function draftsDir(cwd: string): string {
-  return join(ompRoot(cwd), ".oh-my-copilot", "self-evolve", "drafts");
+function noteIsDuplicate(cwd: string, title: string, body: string): boolean {
+  const t = title.trim();
+  // readNote returns trimmed content, so compare against the trimmed render
+  const rendered = `# ${t}\n${body.trim() ? `\n${body.trim()}\n` : ""}`.trim();
+  return noteIndex(cwd).some((meta) => meta.title === t && readNote(cwd, meta.id) === rendered);
 }
 
 function writeAtomic(p: string, content: string): void {
@@ -58,15 +76,26 @@ function ensureGitignored(cwd: string): void {
 
 export function applyReview(cwd: string, result: ReviewResult): ApplySummary {
   ensureGitignored(cwd);
+  migrateLegacyQuarantine(cwd);
   let notesAdded = 0;
+  let notesSkipped = 0;
   for (const n of result.notes) {
+    if (noteIsDuplicate(cwd, n.title, n.body)) {
+      notesSkipped += 1;
+      continue;
+    }
     addNote(cwd, n.title, n.body);
     notesAdded += 1;
   }
 
   const draftsWritten: string[] = [];
+  let draftsSkipped = 0;
   for (const d of result.skill_drafts) {
     if (!d.slug) continue;
+    if (skillSlugKnown(cwd, d.slug)) {
+      draftsSkipped += 1;
+      continue;
+    }
     const skillMd = [
       "---",
       `name: learned-${d.slug}`,
@@ -82,14 +111,20 @@ export function applyReview(cwd: string, result: ReviewResult): ApplySummary {
   }
 
   let directivesQueued = 0;
+  let directivesSkipped = 0;
   if (result.directives.length > 0) {
-    const pending = join(reviewDir(cwd), "pending-directives.md");
-    const header = "# Pending directives (review before applying)\n";
-    const existing = existsSync(pending) ? readFileSync(pending, "utf8") : header;
-    const lines = result.directives.map((d) => `- [ ] ${d}`).join("\n");
-    writeAtomic(pending, `${existing.trimEnd()}\n${lines}\n`);
-    directivesQueued = result.directives.length;
+    const known = new Set([...readDirectives(cwd), ...pendingDirectiveTexts(cwd)].map(normalize));
+    const fresh = result.directives.filter((d) => !known.has(normalize(d)));
+    directivesSkipped = result.directives.length - fresh.length;
+    if (fresh.length > 0) {
+      const pending = join(reviewDir(cwd), "pending-directives.md");
+      const header = "# Pending directives (review before applying)\n";
+      const existing = existsSync(pending) ? readFileSync(pending, "utf8") : header;
+      const lines = fresh.map((d) => `- [ ] ${d}`).join("\n");
+      writeAtomic(pending, `${existing.trimEnd()}\n${lines}\n`);
+      directivesQueued = fresh.length;
+    }
   }
 
-  return { notesAdded, draftsWritten, directivesQueued };
+  return { notesAdded, draftsWritten, directivesQueued, notesSkipped, draftsSkipped, directivesSkipped };
 }

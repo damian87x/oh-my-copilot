@@ -154,6 +154,7 @@ function readExternalConfig(cwd: string, env: NodeJS.ProcessEnv, explicitPath?: 
     explicitPath,
     env.OH_MY_COPILOT_JIRA_CONFIG,
     env.JIRA_CONFIG_FILE,
+    join(homedir(), '.omp', 'jira.json'),
     join(homedir(), '.config', 'oh-my-copilot', 'jira.json'),
     join(homedir(), '.config', 'oh-my-copilot', 'config.json'),
     join(homedir(), '.oh-my-copilot', 'jira.json'),

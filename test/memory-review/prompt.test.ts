@@ -106,3 +106,22 @@ describe("parseReviewOutput", () => {
     expect(out?.skill_drafts).toEqual([]);
   });
 });
+
+describe("buildReviewPrompt known-artifact dedup section", () => {
+  it("lists existing skills and directives so the model does not re-propose them", async () => {
+    const { buildReviewPrompt } = await import("../../src/memory-review/prompt.js");
+    const prompt = buildReviewPrompt([{ role: "user", text: "hi" }], {
+      skillSlugs: ["deploy-flow"],
+      directives: ["Use pnpm not npm"],
+    });
+    expect(prompt).toContain("ALREADY KNOWN");
+    expect(prompt).toContain("deploy-flow");
+    expect(prompt).toContain("Use pnpm not npm");
+  });
+
+  it("omits the section when nothing is known", async () => {
+    const { buildReviewPrompt } = await import("../../src/memory-review/prompt.js");
+    const prompt = buildReviewPrompt([{ role: "user", text: "hi" }]);
+    expect(prompt).not.toContain("ALREADY KNOWN");
+  });
+});

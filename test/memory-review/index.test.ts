@@ -69,7 +69,7 @@ describe("runMemoryReview (integration)", () => {
     expect(res.summary).toMatchObject({ notesAdded: 1, draftsWritten: ["release-flow"], directivesQueued: 1 });
     expect(noteIndex(cwd).map((n) => n.title)).toContain("Test runner");
     expect(readDirectives(cwd)).toEqual([]); // gated
-    expect(existsSync(path.join(cwd, ".oh-my-copilot", "memory-review", "pending-directives.md"))).toBe(true);
+    expect(existsSync(path.join(cwd, ".omp", "memory-review", "pending-directives.md"))).toBe(true);
 
     const ledger = readFileSync(costLedgerPath(cwd, "sess-42"), "utf8");
     expect(ledger).toContain("memory-review");

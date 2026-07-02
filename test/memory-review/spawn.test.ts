@@ -31,4 +31,13 @@ describe("createReviewSpawn", () => {
     expect(args).toContain("cheap");
     expect(args).toContain("-p");
   });
+
+  it("disables memory-mode in the reviewer env (its own session must never trigger a review of itself)", async () => {
+    const { createReviewSpawn } = await import("../../src/memory-review/spawn.js");
+    const spawn = createReviewSpawn("copilot");
+    await spawn({ model: "cheap", prompt: "review this", timeoutMs: 1000 });
+
+    const options = spawnMock.mock.calls[0][2] as { env?: Record<string, string> };
+    expect(options.env?.OMP_MEMORY_MODE).toBe("off");
+  });
 });

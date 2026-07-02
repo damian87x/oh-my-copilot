@@ -8,6 +8,9 @@ import { ompRoot } from "./omp-root.mjs";
 // `omp project-memory add-directive "<rule>"` then remove the line.
 
 function pendingPath(cwd) {
+  const current = join(ompRoot(cwd), ".omp", "memory-review", "pending-directives.md");
+  if (existsSync(current)) return current;
+  // pre-migration queue — omp moves it under .omp/ on the next review
   return join(ompRoot(cwd), ".oh-my-copilot", "memory-review", "pending-directives.md");
 }
 
@@ -30,7 +33,7 @@ export function pendingDirectivesNudge(cwd) {
   if (n === 0) return "";
   return (
     `[MEMORY REVIEW] ${n} proposed directive${n === 1 ? "" : "s"} await your review in ` +
-    `.oh-my-copilot/memory-review/pending-directives.md — promote the ones you want with ` +
+    `.omp/memory-review/pending-directives.md — promote the ones you want with ` +
     "`omp project-memory add-directive \"<rule>\"`, then delete the line."
   );
 }

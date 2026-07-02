@@ -14,8 +14,12 @@ export function createReviewSpawn(bin?: string): CouncilSpawn {
     new Promise<SpawnResponse>((resolveFn) => {
       // NOTE: deliberately no --allow-all-tools. In headless `-p` mode copilot
       // cannot prompt for tool permission, so tools simply do not run.
+      // OMP_MEMORY_MODE=off: copilot runs lifecycle hooks even for `-p`, so
+      // without this the reviewer's own session would trigger a review of
+      // itself — an infinite spawn cascade. Hooks inherit this env and skip.
       const child = spawn(copilotBin, ["--model", req.model, "-p", req.prompt], {
         stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, OMP_MEMORY_MODE: "off" },
       });
       let stdout = "";
       let stderr = "";

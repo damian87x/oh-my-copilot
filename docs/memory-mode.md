@@ -31,27 +31,34 @@ omp config set memory-review-model <slug> --global
 | Surface | Trigger | Notes |
 |---|---|---|
 | Interactive `copilot` (plugin installed) | `sessionEnd` hook | Detaches `omp memory-review` as a background process and returns immediately (hooks have a 5s budget). |
-| `omp -p` / `omp launch -- -p` (headless) | wrapper, post-exit | Headless `copilot -p` skips hooks, so the omp wrapper detaches the review. It snapshots session dirs before launch and reviews the **exact** session created by that run — if it can't identify one, it skips rather than guess. |
+| `omp -p` / `omp launch -- -p` (headless) | wrapper, post-exit | Belt-and-braces for headless runs (older copilot versions skip hooks in `-p` mode; current ones fire them — the claim below dedupes). It snapshots session dirs before launch and reviews the **exact** session created by that run — if it can't identify one, it skips rather than guess. |
 | Manual | `omp memory-review --session <uuid\|latest>` | Run it yourself against any session (`latest` = newest by mtime). |
 
 Both automatic triggers only **detach** the work. The review claims the session
-atomically (`.oh-my-copilot/memory-review/.claim-<uuid>`), so even if the hook
-and wrapper both fire, the review runs **exactly once**.
+atomically (`.omp/memory-review/.claim-<uuid>`), so even if the hook
+and wrapper both fire, the review runs **exactly once**. The reviewer's own
+`copilot -p` subprocess runs with `OMP_MEMORY_MODE=off`, so its session never
+triggers a review of itself (which would cascade indefinitely).
 
 ## What it writes
 
 | Output | Destination | Applied? |
 |---|---|---|
 | **Notes** (durable facts) | project memory (`omp project-memory`) | ✅ applied — progressive disclosure, low blast radius |
-| **Skill drafts** (procedures) | `.oh-my-copilot/self-evolve/drafts/<slug>/SKILL.md` | ⏸ human-promote — never auto-loaded (same as `/self-evolve`) |
-| **Directives** (every-session rules) | `.oh-my-copilot/memory-review/pending-directives.md` | ⏸ **gated** — never auto-applied |
+| **Skill drafts** (procedures) | `.omp/self-evolve/drafts/<slug>/SKILL.md` | ⏸ human-promote — never auto-loaded (same as `/self-evolve`). Deduped: known draft slugs and promoted skills are never re-proposed |
+| **Directives** (every-session rules) | `.omp/memory-review/pending-directives.md` | ⏸ **gated** — never auto-applied. Deduped against active and already-pending directives |
 
 After the review writes notes it refreshes the managed block in
 `.github/copilot-instructions.md`, listing the most recent note **titles** (capped,
 newest-first) so the next session knows what it remembers; bodies stay on demand
-(`omp project-memory read <id>`). The review also ensures `.omp/` and
-`.oh-my-copilot/` are gitignored so memory (which may contain tool output) isn't
-accidentally committed.
+(`omp project-memory read <id>`). The review also ensures `.omp/` (and the
+legacy `.oh-my-copilot/`) are gitignored so memory (which may contain tool
+output) isn't accidentally committed.
+
+> **Migration:** older omp versions wrote quarantine output to
+> `.oh-my-copilot/`. If that directory exists, the next review moves its
+> contents under `.omp/` automatically (existing `.omp/` files win; pending
+> directives are merged).
 
 ### Promoting a pending directive (manual, by design)
 
@@ -62,13 +69,13 @@ never one-off task instructions. On the next session start you'll see a nudge:
 `[MEMORY REVIEW] N proposed directive(s) await your review…`. To promote one:
 
 ```bash
-cat .oh-my-copilot/memory-review/pending-directives.md   # review the proposals
+cat .omp/memory-review/pending-directives.md   # review the proposals
 omp project-memory add-directive "User prefers concise replies"  # apply the ones you want
 # then delete the promoted line from pending-directives.md
 ```
 
 Skill drafts promote the same way as `/self-evolve`: move
-`.oh-my-copilot/self-evolve/drafts/<slug>/` to `.github/skills/learned-<slug>/`.
+`.omp/self-evolve/drafts/<slug>/` to `.github/skills/learned-<slug>/`.
 
 ### Pruning notes
 

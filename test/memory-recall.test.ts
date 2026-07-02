@@ -288,3 +288,28 @@ describe("memory-recall: bounded search", () => {
     expect(sources.size).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe("omp project-memory search (CLI)", () => {
+  it("searches topics, notes, and daily logs through one command", async () => {
+    const { runCli } = await import("../src/cli.js");
+    const root = cwd();
+    setTopicDescription(root, "infra", "Infrastructure setup");
+    addTopicFact(root, "infra", "Deploys run on Kubernetes");
+    addNote(root, "Kubernetes ingress", "nginx ingress handles TLS");
+    addLogEntry(root, "Debugged Kubernetes DNS today");
+
+    const res = await runCli(["project-memory", "search", "kubernetes", "--root", root, "--json"]);
+    expect(res.ok).toBe(true);
+    const results = (res.output as { results: Array<{ source: string }> }).results;
+    const sources = new Set(results.map((r) => r.source));
+    expect(sources.has("topic")).toBe(true);
+    expect(sources.has("note")).toBe(true);
+    expect(sources.has("daily-log")).toBe(true);
+  });
+
+  it("rejects a missing query", async () => {
+    const { runCli } = await import("../src/cli.js");
+    const res = await runCli(["project-memory", "search", "--root", cwd()]);
+    expect(res.ok).toBe(false);
+  });
+});
