@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   applyJiraOperation,
   canRunLive,
@@ -13,6 +13,9 @@ import {
 import { runCli } from '../src/cli.js';
 
 describe('Jira adapter payloads', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
   it('discovers configuration from environment-compatible values', () => {
     const config = discoverJiraConfig('/tmp/no-such-root', {
       JIRA_SITE_URL: 'https://example.atlassian.net',
@@ -73,6 +76,48 @@ describe('Jira adapter payloads', () => {
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/requires a readable plan\/ticket file/);
+  });
+
+  it('rejects non-HTTPS base URLs for live operations before fetch', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const config = discoverJiraConfig('/tmp/no-such-root', {
+      JIRA_MODE: 'live',
+      JIRA_SITE_URL: 'http://example.atlassian.net',
+      JIRA_EMAIL: 'agent@example.com',
+      JIRA_API_TOKEN: 'secret-token',
+      JIRA_PROJECT_KEY: 'OMC',
+    });
+
+    const result = await applyJiraOperation({
+      operation: 'create',
+      ticket: { summary: 'Unsafe URL', description: 'Body' },
+    }, config);
+
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result.fallback)).toMatch(/https/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized live request payloads before fetch', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const config = discoverJiraConfig('/tmp/no-such-root', {
+      JIRA_MODE: 'live',
+      JIRA_SITE_URL: 'https://example.atlassian.net',
+      JIRA_EMAIL: 'agent@example.com',
+      JIRA_API_TOKEN: 'secret-token',
+      JIRA_PROJECT_KEY: 'OMC',
+    });
+
+    const result = await applyJiraOperation({
+      operation: 'create',
+      ticket: { summary: 'Huge payload', description: 'x'.repeat(70_000) },
+    }, config);
+
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result.fallback)).toMatch(/payload/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
 });

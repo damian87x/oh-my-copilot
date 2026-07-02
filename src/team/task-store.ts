@@ -8,6 +8,7 @@ import {
   renameSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Task, TaskStatus } from "./types.js";
@@ -64,10 +65,7 @@ function openLockExclusive(lockPath: string, worker: string): number | undefined
   try {
     const fd = openSync(lockPath, "wx");
     try {
-      writeFileSync(
-        lockPath,
-        JSON.stringify({ owner: worker, pid: process.pid, claimedAt: new Date().toISOString() }),
-      );
+      writeSync(fd, JSON.stringify({ owner: worker, pid: process.pid, claimedAt: new Date().toISOString() }));
     } finally {
       closeSync(fd);
     }

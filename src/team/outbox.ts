@@ -6,7 +6,7 @@ import {
   openSync,
   readFileSync,
   readSync,
-  statSync,
+  fstatSync,
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
@@ -39,15 +39,20 @@ interface OutboxScan {
 }
 
 function scanFromCursor(outboxPath: string, offsetPath: string): OutboxScan | undefined {
-  if (!existsSync(outboxPath)) return undefined;
-  const stats = statSync(outboxPath);
   const cursor = readCursorBytes(offsetPath);
-  if (cursor >= stats.size) return { messages: [], newCursor: cursor, cursor };
-
-  const remaining = stats.size - cursor;
-  const fd = openSync(outboxPath, "r");
-  const buf = Buffer.alloc(remaining);
+  let fd: number;
   try {
+    fd = openSync(outboxPath, "r");
+  } catch {
+    return undefined;
+  }
+  let buf: Buffer;
+  try {
+    const stats = fstatSync(fd);
+    if (cursor >= stats.size) return { messages: [], newCursor: cursor, cursor };
+
+    const remaining = stats.size - cursor;
+    buf = Buffer.alloc(remaining);
     readSync(fd, buf, 0, remaining, cursor);
   } finally {
     closeSync(fd);

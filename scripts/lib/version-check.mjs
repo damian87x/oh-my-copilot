@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,9 +6,20 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 2000;
 const PACKAGE_NAME = "@damian87/omp";
 const VERSION_OVERRIDE_ENV = "OMP_VERSION_OVERRIDE";
+const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+
+function validVersion(version) {
+  return typeof version === "string" && VERSION_RE.test(version);
+}
+
+function atomicWrite(path, content) {
+  const tmp = `${path}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, content);
+  renameSync(tmp, path);
+}
 
 export function isNewer(latest, current) {
-  if (!latest || !current) return false;
+  if (!validVersion(latest) || !validVersion(current)) return false;
   const [a = 0, b = 0, c = 0] = String(latest).split(".").map((n) => Number.parseInt(n, 10));
   const [x = 0, y = 0, z = 0] = String(current).split(".").map((n) => Number.parseInt(n, 10));
   if ([a, b, c, x, y, z].some(Number.isNaN)) return false;
@@ -60,7 +71,7 @@ export async function checkForUpdate({ stateDir, now = Date.now(), fetchLatest =
   if (existsSync(cachePath)) {
     try {
       const cache = JSON.parse(readFileSync(cachePath, "utf8"));
-      if (cache?.checkedAt && now - cache.checkedAt < CACHE_TTL_MS && typeof cache.latest === "string") {
+      if (cache?.checkedAt && now - cache.checkedAt < CACHE_TTL_MS && validVersion(cache.latest)) {
         latest = cache.latest;
       }
     } catch {
@@ -70,10 +81,11 @@ export async function checkForUpdate({ stateDir, now = Date.now(), fetchLatest =
 
   if (!latest) {
     latest = await fetchLatest();
+    if (!validVersion(latest)) latest = null;
     if (latest) {
       try {
         mkdirSync(stateDir, { recursive: true });
-        writeFileSync(cachePath, JSON.stringify({ checkedAt: now, latest }));
+        atomicWrite(cachePath, JSON.stringify({ checkedAt: now, latest }));
       } catch {
         // best-effort cache write
       }

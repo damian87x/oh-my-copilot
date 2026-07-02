@@ -7,7 +7,7 @@ import {
   resolveWorkerPaths,
   type TeamStatePaths,
 } from "./state-paths.js";
-import { clearAllLocks, listTasks, readTask, taskFilePath, writeTask } from "./task-store.js";
+import { clearAllLocks, listTasks, taskFilePath, writeTask } from "./task-store.js";
 import { writeInbox } from "./inbox.js";
 import { buildInboxMarkdown } from "./worker-bootstrap.js";
 import { peekNewOutbox, readNewOutbox } from "./outbox.js";

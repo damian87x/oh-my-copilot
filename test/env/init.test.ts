@@ -94,8 +94,9 @@ describe("runEnvInit (non-interactive / answers path)", () => {
     const finalPath = join(dir, OMP_ENV_FILENAME);
     expect(statSync(finalPath).mode & 0o777).toBe(0o600);
     // And the file content is the freshly written one, not the stale temp.
-    expect(readFileSync(finalPath, "utf8")).toMatch(/xoxb-a/);
-    expect(readFileSync(finalPath, "utf8")).not.toMatch(/STALE/);
+    const finalText = readFileSync(finalPath, "utf8");
+    expect(finalText).toMatch(/xoxb-a/);
+    expect(finalText).not.toMatch(/STALE/);
   });
 
   it("writes optional COPILOT_TMUX_SESSION / SLACK_ALLOWED_USERS when provided", async () => {
@@ -201,7 +202,7 @@ describe("runEnvInit (interactive / scripted IO)", () => {
     expect(text).toMatch(/SLACK_APP_TOKEN=xapp-app/);
     // Intro printed where-to-get-tokens guidance
     const printed = output.join("\n");
-    expect(printed).toMatch(/api\.slack\.com\/apps/);
+    expect(printed).toContain("api.slack.com/apps");
     expect(printed).toMatch(/Bot User OAuth Token|xoxb/);
     expect(printed).toMatch(/connections:write/);
     // Next-steps printed

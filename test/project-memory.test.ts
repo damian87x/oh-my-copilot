@@ -68,6 +68,18 @@ describe("recentNotes (newest-first, capped)", () => {
     expect(recentNotes(root).length).toBe(3); // no limit = all
   });
 
+
+  it("skips unreadable note entries instead of surfacing placeholder titles", async () => {
+    const { recentNotes } = await import("../src/project-memory.js");
+    const { symlinkSync } = await import("node:fs");
+    const root = cwd();
+    addNote(root, "Keep");
+    const notesDir = path.join(root, ".omp", "memory", "notes");
+    symlinkSync(path.join(notesDir, "missing-target.md"), path.join(notesDir, "broken.md"));
+
+    expect(recentNotes(root).map((n) => n.title)).toEqual(["Keep"]);
+  });
+
   it("returns empty when there are no notes", async () => {
     const { recentNotes } = await import("../src/project-memory.js");
     expect(recentNotes(cwd())).toEqual([]);
