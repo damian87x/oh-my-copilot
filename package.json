@@ -1,6 +1,6 @@
 {
   "name": "@damian87/omp",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Multi-agent orchestration for GitHub Copilot CLI — autonomous loops (Autopilot, Ralph, UltraQA, Ultrawork), parallel tmux agent teams, a weighted-consensus model council, a Slack chat bridge, durable scheduled jobs, and in-session skills + custom agents. Zero learning curve.",
   "type": "module",
   "publishConfig": {
