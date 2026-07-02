@@ -6,10 +6,11 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 2000;
 const PACKAGE_NAME = "@damian87/omp";
 const VERSION_OVERRIDE_ENV = "OMP_VERSION_OVERRIDE";
-const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
-
-function validVersion(version) {
-  return typeof version === "string" && VERSION_RE.test(version);
+function normalizeVersion(version) {
+  if (typeof version !== "string") return null;
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return null;
+  return `${Number.parseInt(match[1], 10)}.${Number.parseInt(match[2], 10)}.${Number.parseInt(match[3], 10)}`;
 }
 
 function atomicWrite(path, content) {
@@ -19,9 +20,11 @@ function atomicWrite(path, content) {
 }
 
 export function isNewer(latest, current) {
-  if (!validVersion(latest) || !validVersion(current)) return false;
-  const [a = 0, b = 0, c = 0] = String(latest).split(".").map((n) => Number.parseInt(n, 10));
-  const [x = 0, y = 0, z = 0] = String(current).split(".").map((n) => Number.parseInt(n, 10));
+  const normalizedLatest = normalizeVersion(latest);
+  const normalizedCurrent = normalizeVersion(current);
+  if (!normalizedLatest || !normalizedCurrent) return false;
+  const [a = 0, b = 0, c = 0] = normalizedLatest.split(".").map((n) => Number.parseInt(n, 10));
+  const [x = 0, y = 0, z = 0] = normalizedCurrent.split(".").map((n) => Number.parseInt(n, 10));
   if ([a, b, c, x, y, z].some(Number.isNaN)) return false;
   if (a !== x) return a > x;
   if (b !== y) return b > y;
@@ -71,8 +74,8 @@ export async function checkForUpdate({ stateDir, now = Date.now(), fetchLatest =
   if (existsSync(cachePath)) {
     try {
       const cache = JSON.parse(readFileSync(cachePath, "utf8"));
-      if (cache?.checkedAt && now - cache.checkedAt < CACHE_TTL_MS && validVersion(cache.latest)) {
-        latest = cache.latest;
+      if (cache?.checkedAt && now - cache.checkedAt < CACHE_TTL_MS && normalizeVersion(cache.latest)) {
+        latest = normalizeVersion(cache.latest);
       }
     } catch {
       // ignore corrupt cache
@@ -81,7 +84,7 @@ export async function checkForUpdate({ stateDir, now = Date.now(), fetchLatest =
 
   if (!latest) {
     latest = await fetchLatest();
-    if (!validVersion(latest)) latest = null;
+    latest = normalizeVersion(latest);
     if (latest) {
       try {
         mkdirSync(stateDir, { recursive: true });

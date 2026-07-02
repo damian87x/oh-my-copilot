@@ -975,7 +975,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
         update: ticket,
         transitionState: flagValue(argv, "--state") ?? "done",
         linkTarget: flagValue(argv, "--link-target"),
-        dryRun: hasFlag(argv, "--dry-run") || config.mode !== "live",
+        dryRun: Boolean(inputPath) || hasFlag(argv, "--dry-run") || config.mode !== "live",
       }, config);
       return json ? { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result } : { ok: result.ok, exitCode: result.ok ? 0 : 1, message: JSON.stringify(result, null, 2) };
     }

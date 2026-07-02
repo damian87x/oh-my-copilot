@@ -92,9 +92,9 @@ describe("runEnvInit (non-interactive / answers path)", () => {
     });
     expect(r.ok).toBe(true);
     const finalPath = join(dir, OMP_ENV_FILENAME);
-    expect(statSync(finalPath).mode & 0o777).toBe(0o600);
     // And the file content is the freshly written one, not the stale temp.
     const finalText = readFileSync(finalPath, "utf8");
+    expect(statSync(finalPath).mode & 0o777).toBe(0o600);
     expect(finalText).toMatch(/xoxb-a/);
     expect(finalText).not.toMatch(/STALE/);
   });
