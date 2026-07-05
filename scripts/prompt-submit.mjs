@@ -76,7 +76,7 @@ export async function handlePromptSubmit(raw) {
   // Count this prompt as session work (signals the SessionEnd nudge logic).
   // Injects nothing — keeps per-turn token cost at zero.
   try {
-    recordPrompt(directory);
+    recordPrompt(directory, { sessionId, prompt, timestamp: input.timestamp });
   } catch {
     // best effort: counting must never block the prompt
   }

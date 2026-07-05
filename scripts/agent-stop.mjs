@@ -3,13 +3,26 @@
 // ultrawork / ultraqa). When a loop is active and not yet complete, returns
 // {decision:"block", reason:"<next-turn prompt>"} so Copilot takes another turn;
 // otherwise {decision:"allow"}. Fail-OPEN (never traps the user in a loop).
-import { existsSync, readFileSync, writeFileSync, statSync, openSync, readSync, closeSync } from "node:fs";
-import { join } from "node:path";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readStdin } from "./lib/stdin.mjs";
-import { hookCwd, buildStopDecisionOutput, appendHookLog, printStopDecision } from "./lib/hook-output.mjs";
+import { buildStopDecisionOutput, appendHookLog, printStopDecision } from "./lib/hook-output.mjs";
 import { decideLoop, LOOP_MODES } from "./lib/loop-driver.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
+import { parseHookInput } from "./lib/hook-input.mjs";
 
 const HOOK_NAME = "agentStop";
 const TRANSCRIPT_TAIL_BYTES = 64 * 1024;
@@ -21,6 +34,76 @@ export function stateFile(directory, mode) {
   return join(root, ".omp", "state", `${mode}.json`);
 }
 
+export function agentStopLocksDir(directory) {
+  return join(ompRoot(directory), ".omp", "state", "locks");
+}
+
+function safePathPart(value) {
+  const safe = String(value ?? "unknown").replace(/[^A-Za-z0-9._-]+/g, "_");
+  return safe || "unknown";
+}
+
+function startedAtMillis(startedAt) {
+  const ms = typeof startedAt === "number" ? startedAt : Date.parse(String(startedAt ?? ""));
+  if (!Number.isFinite(ms)) throw new Error("missing startedAt nonce");
+  return String(Math.trunc(ms));
+}
+
+function agentStopMarkerName(mode, sessionId, startedAt, counterValue) {
+  return [
+    "agentstop",
+    safePathPart(mode),
+    safePathPart(sessionId),
+    startedAtMillis(startedAt),
+    safePathPart(counterValue),
+  ].join("-");
+}
+
+export function clearAgentStopMarkers(directory, mode) {
+  try {
+    const locks = agentStopLocksDir(directory);
+    const prefix = `agentstop-${safePathPart(mode)}-`;
+    for (const name of readdirSync(locks)) {
+      if (name.startsWith(prefix)) unlinkSync(join(locks, name));
+    }
+  } catch {
+    // best effort
+  }
+}
+
+export function claimAgentStopCounter({ directory, mode, sessionId, startedAt, counterValue }) {
+  const locks = agentStopLocksDir(directory);
+  try {
+    mkdirSync(locks, { recursive: true });
+  } catch {
+    return true; // guard errors fail open toward counting
+  }
+
+  let marker;
+  try {
+    marker = join(locks, agentStopMarkerName(mode, sessionId, startedAt, counterValue));
+  } catch {
+    return true; // guard errors fail open toward counting
+  }
+
+  let fd;
+  try {
+    fd = openSync(marker, "wx");
+    return true;
+  } catch (err) {
+    if (err?.code === "EEXIST") return false;
+    return true; // guard errors fail open toward counting
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // best effort
+      }
+    }
+  }
+}
+
 function readState(directory, mode) {
   const p = stateFile(directory, mode);
   if (!existsSync(p)) return undefined;
@@ -29,6 +112,14 @@ function readState(directory, mode) {
   } catch {
     return undefined;
   }
+}
+
+function writeState(directory, mode, state) {
+  const p = stateFile(directory, mode);
+  mkdirSync(dirname(p), { recursive: true });
+  const tmp = `${p}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
+  renameSync(tmp, p);
 }
 
 // Read only the tail of the transcript — it can be large, and a completion
@@ -53,8 +144,9 @@ function readTranscriptTail(path) {
 }
 
 export function handleAgentStop(raw, env = process.env) {
-  const data = raw ? JSON.parse(raw) : {};
-  const directory = hookCwd(data);
+  const input = parseHookInput(raw);
+  const directory = input.cwd;
+  const sessionId = input.sessionId;
 
   // Team workers run inside the parent project and share its `.omp/state`.
   // Without this guard they'd inherit the parent's active ralph/ultrawork/
@@ -69,22 +161,42 @@ export function handleAgentStop(raw, env = process.env) {
   const states = {};
   for (const m of LOOP_MODES) states[m.key] = readState(directory, m.key);
 
-  const transcript = readTranscriptTail(data.transcriptPath ?? data.transcript_path);
+  const transcript = readTranscriptTail(input.transcriptPath);
   const result = decideLoop(states, transcript);
 
   // Persist counter increment (block) or clear the loop (allow on complete/cap).
   if (result.patch) {
     const s = states[result.patch.mode];
     if (s) {
-      s[result.patch.counter] = result.patch.value;
-      try { writeFileSync(stateFile(directory, result.patch.mode), JSON.stringify(s, null, 2)); } catch { /* best effort */ }
+      // Narrow guarantee: concurrent double-fires for the same observed counter
+      // value cannot double-count; sequential double-fires may advance again.
+      const shouldCount = claimAgentStopCounter({
+        directory,
+        mode: result.patch.mode,
+        sessionId,
+        startedAt: s.startedAt,
+        counterValue: result.patch.value,
+      });
+      if (shouldCount) {
+        s[result.patch.counter] = result.patch.value;
+        try {
+          writeState(directory, result.patch.mode, s);
+        } catch {
+          // best effort
+        }
+      }
     }
   } else if (result.clear) {
     const s = states[result.clear];
     if (s) {
       s.active = false;
-      try { writeFileSync(stateFile(directory, result.clear), JSON.stringify(s, null, 2)); } catch { /* best effort */ }
+      try {
+        writeState(directory, result.clear, s);
+      } catch {
+        // best effort
+      }
     }
+    clearAgentStopMarkers(directory, result.clear);
   }
 
   appendHookLog(directory, HOOK_NAME, { decision: result.decision, reason: result.reason });

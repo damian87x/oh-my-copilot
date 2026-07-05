@@ -1,4 +1,4 @@
-import { clearModeState, readModeStateJson, writeModeStateJson } from "./paths.js";
+import { clearAgentStopMarkers, clearModeState, readModeStateJson, writeModeStateJson } from "./paths.js";
 
 export interface RalphState {
   active: boolean;
@@ -19,6 +19,7 @@ export interface StartRalphOptions {
 
 export function startRalph(opts: StartRalphOptions): RalphState {
   const cwd = opts.cwd ?? process.cwd();
+  clearAgentStopMarkers(cwd, "ralph");
   const state: RalphState = {
     active: true,
     iteration: 0,

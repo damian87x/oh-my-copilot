@@ -1,4 +1,4 @@
-import { clearModeState, readModeStateJson, writeModeStateJson } from "./paths.js";
+import { clearAgentStopMarkers, clearModeState, readModeStateJson, writeModeStateJson } from "./paths.js";
 
 export interface UltraqaState {
   active: boolean;
@@ -20,6 +20,7 @@ export interface StartUltraqaOptions {
 
 export function startUltraqa(opts: StartUltraqaOptions): UltraqaState {
   const cwd = opts.cwd ?? process.cwd();
+  clearAgentStopMarkers(cwd, "ultraqa");
   const state: UltraqaState = {
     active: true,
     goal: opts.goal,

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ompRoot } from "./omp-root.mjs";
 
@@ -80,6 +81,70 @@ function statePath(directory) {
   return join(ompRoot(directory), ".omp", "state", "daily-log.json");
 }
 
+function locksDir(directory) {
+  return join(ompRoot(directory), ".omp", "state", "locks");
+}
+
+function safePathPart(value) {
+  const safe = String(value ?? "unknown").replace(/[^A-Za-z0-9._-]+/g, "_");
+  return safe || "unknown";
+}
+
+function promptHash(prompt) {
+  return createHash("sha256").update(String(prompt ?? "")).digest("hex").slice(0, 24);
+}
+
+function timestampMs(timestamp) {
+  if (typeof timestamp === "number" && Number.isFinite(timestamp)) return timestamp;
+  const parsed = Date.parse(String(timestamp ?? ""));
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function minuteBucket(timestamp) {
+  return String(Math.floor(timestampMs(timestamp) / 60000));
+}
+
+function claimPromptRecord(directory, { sessionId = "unknown", prompt = "", timestamp = Date.now() } = {}) {
+  const locks = locksDir(directory);
+  try {
+    mkdirSync(locks, { recursive: true });
+  } catch {
+    return true; // guard errors fail open toward counting
+  }
+
+  let marker;
+  try {
+    marker = join(
+      locks,
+      [
+        "dailylog",
+        safePathPart(sessionId),
+        promptHash(prompt),
+        minuteBucket(timestamp),
+      ].join("-"),
+    );
+  } catch {
+    return true; // guard errors fail open toward counting
+  }
+
+  let fd;
+  try {
+    fd = openSync(marker, "wx");
+    return true;
+  } catch (err) {
+    if (err?.code === "EEXIST") return false;
+    return true; // guard errors fail open toward counting
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // best effort
+      }
+    }
+  }
+}
+
 function readState(directory) {
   const fresh = { date: todayStr(), prompts: 0, entriesAtStart: 0, pendingNudge: false, pendingReason: "" };
   try {
@@ -129,7 +194,8 @@ export function startSession(directory) {
  * Deliberately does NOT reset on day rollover — startSession owns the baseline,
  * so a session that spans midnight still counts all its prompts as one session.
  */
-export function recordPrompt(directory) {
+export function recordPrompt(directory, input = {}) {
+  if (!claimPromptRecord(directory, input)) return;
   const state = readState(directory);
   state.prompts = (state.prompts || 0) + 1;
   writeState(directory, state);

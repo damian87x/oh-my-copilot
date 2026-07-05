@@ -1,4 +1,4 @@
-import { clearModeState, readModeStateJson, writeModeStateJson } from "./paths.js";
+import { clearAgentStopMarkers, clearModeState, readModeStateJson, writeModeStateJson } from "./paths.js";
 
 export interface UltraworkState {
   active: boolean;
@@ -20,6 +20,7 @@ export interface StartUltraworkOptions {
 
 export function startUltrawork(opts: StartUltraworkOptions): UltraworkState {
   const cwd = opts.cwd ?? process.cwd();
+  clearAgentStopMarkers(cwd, "ultrawork");
   const state: UltraworkState = {
     active: true,
     objective: opts.objective,
