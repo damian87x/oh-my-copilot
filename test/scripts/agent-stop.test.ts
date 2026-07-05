@@ -6,7 +6,7 @@ import { agentStopLocksPath } from "../../src/mode-state/paths.js";
 import { cancelRalph, readRalph, startRalph } from "../../src/mode-state/ralph.js";
 import { readUltraqa, recordUltraqaCycle, startUltraqa } from "../../src/mode-state/ultraqa.js";
 // @ts-expect-error - plain .mjs hook script exports are exercised as public hook handlers.
-import { agentStopLocksDir, claimAgentStopCounter, handleAgentStop } from "../../scripts/agent-stop.mjs";
+import { agentStopLocksDir, claimAgentStopCounter, handleAgentStop, releaseAgentStopMarker } from "../../scripts/agent-stop.mjs";
 
 const fixtures: string[] = [];
 
@@ -89,6 +89,21 @@ describe("agent-stop idempotency guard", () => {
     expect(markers).toHaveLength(2);
     expect(markers.join("\n")).toContain("sid_with_slash");
     expect(markers.join("\n")).not.toContain(":");
+  });
+
+  it("releasing a claimed marker lets the same counter value be re-counted (no freeze on write failure)", () => {
+    const { root } = makeFixture();
+    const startedAt = "2026-07-05T01:02:03.004Z";
+    const key = { directory: root, mode: "ralph", sessionId: "sid", startedAt, counterValue: 4 };
+
+    // First fire claims counter value 4.
+    expect(claimAgentStopCounter({ ...key })).toBe(true);
+    // A second fire for the same value is deduped while the marker stands.
+    expect(claimAgentStopCounter({ ...key })).toBe(false);
+    // Simulate the state write failing: the marker is rolled back.
+    releaseAgentStopMarker({ ...key });
+    // The next fire can now re-count value 4 instead of freezing on EEXIST.
+    expect(claimAgentStopCounter({ ...key })).toBe(true);
   });
 
   it("block->patch writes state and markers from repo root and subdirectory payloads", () => {

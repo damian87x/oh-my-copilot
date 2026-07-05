@@ -71,6 +71,18 @@ export function clearAgentStopMarkers(directory, mode) {
   }
 }
 
+// Roll back a single claimed marker. Used when the counter write fails after
+// the marker was created: without this the stale marker would make the next
+// stop hit EEXIST and skip counting, freezing the loop budget.
+export function releaseAgentStopMarker({ directory, mode, sessionId, startedAt, counterValue }) {
+  try {
+    const locks = agentStopLocksDir(directory);
+    unlinkSync(join(locks, agentStopMarkerName(mode, sessionId, startedAt, counterValue)));
+  } catch {
+    // best effort — nothing to roll back if the marker is already gone
+  }
+}
+
 export function claimAgentStopCounter({ directory, mode, sessionId, startedAt, counterValue }) {
   const locks = agentStopLocksDir(directory);
   try {
@@ -182,7 +194,15 @@ export function handleAgentStop(raw, env = process.env) {
         try {
           writeState(directory, result.patch.mode, s);
         } catch {
-          // best effort
+          // Write failed after the marker was claimed — roll back the marker so
+          // the next stop can re-count instead of freezing on a stale EEXIST.
+          releaseAgentStopMarker({
+            directory,
+            mode: result.patch.mode,
+            sessionId,
+            startedAt: s.startedAt,
+            counterValue: result.patch.value,
+          });
         }
       }
     }
