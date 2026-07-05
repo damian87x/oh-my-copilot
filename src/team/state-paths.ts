@@ -1,5 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { ompRoot } from "../omp-root.js";
+import { statePath } from "../utils/paths.js";
 
 export interface TeamStatePaths {
   cwd: string;
@@ -31,8 +33,8 @@ export interface WorkerStatePaths {
 }
 
 export function resolveTeamPaths(cwd: string, teamName: string): TeamStatePaths {
-  const root = resolve(cwd);
-  const teamRoot = join(root, ".omp", "state", "team", teamName);
+  const root = ompRoot(cwd);
+  const teamRoot = statePath(root, "team", teamName);
   return {
     cwd: root,
     teamName,

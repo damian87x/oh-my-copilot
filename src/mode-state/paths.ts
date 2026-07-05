@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname } from "node:path";
+import { statePath } from "../utils/paths.js";
 
 export type LoopMode = "ralph" | "ultrawork" | "ultraqa";
 // State-file keys reusable by the typed path helpers. "ponytail" is a style
@@ -8,7 +9,7 @@ export type LoopMode = "ralph" | "ultrawork" | "ultraqa";
 export type ModeStateKey = LoopMode | "ponytail";
 
 export function modeStatePath(cwd: string, mode: ModeStateKey): string {
-  return join(resolve(cwd), ".omp", "state", `${mode}.json`);
+  return statePath(cwd, `${mode}.json`);
 }
 
 export function readModeStateJson<T>(cwd: string, mode: ModeStateKey): T | undefined {

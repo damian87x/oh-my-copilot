@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -10,7 +10,11 @@ import {
   startUltraqa,
 } from "../../src/mode-state/ultraqa.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-uq-"));
+const cwd = () => {
+  const root = mkdtempSync(path.join(tmpdir(), "omc-uq-"));
+  writeFileSync(path.join(root, "package.json"), "{}\n", "utf8");
+  return root;
+};
 
 describe("ultraqa mode-state", () => {
   it("starts and records a failing cycle", () => {

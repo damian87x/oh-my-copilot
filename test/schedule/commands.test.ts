@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,6 +26,7 @@ const savedBin = process.env.OMP_BIN;
 
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), "omp-sched-cmd-"));
+  writeFileSync(path.join(root, "package.json"), "{}\n", "utf8");
   vi.clearAllMocks();
 });
 afterEach(() => {
@@ -142,6 +143,27 @@ describe("openScheduleResult", () => {
     const r = openScheduleResult(root, "fresh");
     expect(r.ok).toBe(true);
     expect(r.logContent).toBeUndefined();
+  });
+});
+
+describe("listScheduleJobs", () => {
+  it("warns when nested durable schedule jobs would be hidden by root unification", () => {
+    writeFileSync(path.join(root, "package.json"), "{}\n", "utf8");
+    const subdir = path.join(root, "packages", "api");
+    const nestedJobs = path.join(subdir, ".omp", "state", "schedule", "jobs");
+    mkdirSync(nestedJobs, { recursive: true });
+    writeFileSync(path.join(nestedJobs, "stale.json"), JSON.stringify({ id: "stale" }), "utf8");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      expect(listScheduleJobs(subdir)).toEqual([]);
+
+      expect(warn).toHaveBeenCalledOnce();
+      expect(warn.mock.calls[0]?.[0]).toContain(nestedJobs);
+      expect(warn.mock.calls[0]?.[0]).toContain(path.join(root, ".omp", "state", "schedule", "jobs"));
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

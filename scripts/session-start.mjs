@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { readStdin } from "./lib/stdin.mjs";
-import { failOpen, printContinue } from "./lib/hook-output.mjs";
+import { buildContinueHookOutput, failOpen } from "./lib/hook-output.mjs";
 import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
 import { scanScheduleResults } from "./lib/schedule-results.mjs";
 import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
@@ -12,6 +13,59 @@ import { ompRoot } from "./lib/omp-root.mjs";
 import { parseHookInput } from "./lib/hook-input.mjs";
 
 const HOOK_NAME = "SessionStart";
+
+function dirsBetweenCwdAndRoot(directory, root) {
+  const dirs = [];
+  let dir = resolve(directory);
+  const stop = resolve(root);
+  while (dir !== stop) {
+    dirs.push(dir);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return dirs;
+}
+
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isNonEmptyDirectory(path) {
+  try {
+    return statSync(path).isDirectory() && readdirSync(path).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function nestedStateWarnings(directory, root) {
+  const warnings = [];
+  const rootState = join(root, ".omp", "state");
+  for (const dir of dirsBetweenCwdAndRoot(directory, root)) {
+    const stateDir = join(dir, ".omp", "state");
+    if (existsSync(stateDir) && isDirectory(stateDir)) {
+      warnings.push(
+        `[OMP WARNING] Nested .omp/state found at ${stateDir}. ` +
+          `This session uses ${rootState}; nested loop state is ignored. Remove it after confirming it is stale.`,
+      );
+    }
+
+    const jobsDir = join(stateDir, "schedule", "jobs");
+    if (isNonEmptyDirectory(jobsDir)) {
+      warnings.push(
+        `[OMP WARNING] Non-empty nested schedule jobs found at ${jobsDir}. ` +
+          `Schedule management now uses ${join(rootState, "schedule", "jobs")}. ` +
+          "Those nested jobs may still run if an OS scheduler entry pins their old root; review/remove them there and uninstall old scheduler entries if needed.",
+      );
+    }
+  }
+  return warnings;
+}
 
 function buildDailyLogBreadcrumb(directory) {
   try {
@@ -30,69 +84,80 @@ function buildDailyLogBreadcrumb(directory) {
   }
 }
 
-(async () => {
+export async function handleSessionStart(raw) {
+  const input = parseHookInput(raw);
+  const sessionId = input.sessionId;
+  const directory = input.cwd;
+  const root = ompRoot(directory);
+  const stateDir = join(root, ".omp", "state");
+  const logFile = join(stateDir, "hooks.log");
+  mkdirSync(dirname(logFile), { recursive: true });
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    hook: HOOK_NAME,
+    sessionId,
+    directory,
+  });
+  appendFileSync(logFile, `${line}\n`);
+
+  const parts = [];
+  const update = await checkForUpdate({ stateDir });
+  if (update) parts.push(formatUpdateNotice(update.current, update.latest));
+  const warnings = nestedStateWarnings(directory, root);
+  if (warnings.length > 0) parts.push(warnings.join("\n\n"));
+  try {
+    const scheduleBanner = scanScheduleResults(root);
+    if (scheduleBanner) parts.push(scheduleBanner);
+  } catch (e) {
+    // schedule scan is best-effort; never block session start
+    console.error(`[hook ${HOOK_NAME}] schedule scan failed: ${e?.message ?? e}`);
+  }
+  // Directives are must-follow rules — injected unconditionally (never on-demand)
+  // so the agent can't skip a rule by judging it "unrelated". Capped by count +
+  // chars so a bloated directive list can't balloon the start message; overflow
+  // is summarized with a pointer (mirrors OpenClaw's injection budget).
+  const directives = readDirectives(directory);
+  if (directives.length > 0) {
+    const MAX_DIRECTIVES = 12;
+    const MAX_DIRECTIVE_CHARS = 1200;
+    const shown = [];
+    let chars = 0;
+    for (const d of directives) {
+      if (shown.length >= MAX_DIRECTIVES || chars + d.length > MAX_DIRECTIVE_CHARS) break;
+      shown.push(d);
+      chars += d.length;
+    }
+    const more = directives.length - shown.length;
+    const body = shown.map((d) => `- ${d}`).join("\n");
+    const tail = more > 0 ? `\n- (+${more} more — run \`omp project-memory read\` to see all)` : "";
+    parts.push(`[DIRECTIVES] Follow these this session:\n${body}${tail}`);
+  }
+  const repoGoal = readRepoGoal(directory);
+  if (repoGoal) parts.push(`[REPO GOAL] ${repoGoal}`);
+  // Memory-review's gated directive queue is invisible without a nudge.
+  const pendingNudge = pendingDirectivesNudge(directory);
+  if (pendingNudge) parts.push(pendingNudge);
+  const breadcrumb = buildDailyLogBreadcrumb(directory);
+  if (breadcrumb) parts.push(breadcrumb);
+  // Resets the per-session baseline and flushes a nudge when the prior session
+  // did work but logged nothing. startSession never throws.
+  const flush = startSession(directory);
+  if (flush) parts.push(`[DAILY LOG] ${flush}`);
+  const additionalContext = parts.join("\n\n---\n\n");
+
+  return buildContinueHookOutput(HOOK_NAME, additionalContext);
+}
+
+async function main() {
   try {
     const raw = await readStdin();
-    const input = parseHookInput(raw);
-    const sessionId = input.sessionId;
-    const directory = input.cwd;
-    const stateDir = join(ompRoot(directory), ".omp", "state");
-    const logFile = join(stateDir, "hooks.log");
-    mkdirSync(dirname(logFile), { recursive: true });
-    const line = JSON.stringify({
-      ts: new Date().toISOString(),
-      hook: HOOK_NAME,
-      sessionId,
-      directory,
-    });
-    appendFileSync(logFile, `${line}\n`);
-
-    const parts = [];
-    const update = await checkForUpdate({ stateDir });
-    if (update) parts.push(formatUpdateNotice(update.current, update.latest));
-    try {
-      const scheduleBanner = scanScheduleResults(ompRoot(directory));
-      if (scheduleBanner) parts.push(scheduleBanner);
-    } catch (e) {
-      // schedule scan is best-effort; never block session start
-      console.error(`[hook ${HOOK_NAME}] schedule scan failed: ${e?.message ?? e}`);
-    }
-    // Directives are must-follow rules — injected unconditionally (never on-demand)
-    // so the agent can't skip a rule by judging it "unrelated". Capped by count +
-    // chars so a bloated directive list can't balloon the start message; overflow
-    // is summarized with a pointer (mirrors OpenClaw's injection budget).
-    const directives = readDirectives(directory);
-    if (directives.length > 0) {
-      const MAX_DIRECTIVES = 12;
-      const MAX_DIRECTIVE_CHARS = 1200;
-      const shown = [];
-      let chars = 0;
-      for (const d of directives) {
-        if (shown.length >= MAX_DIRECTIVES || chars + d.length > MAX_DIRECTIVE_CHARS) break;
-        shown.push(d);
-        chars += d.length;
-      }
-      const more = directives.length - shown.length;
-      const body = shown.map((d) => `- ${d}`).join("\n");
-      const tail = more > 0 ? `\n- (+${more} more — run \`omp project-memory read\` to see all)` : "";
-      parts.push(`[DIRECTIVES] Follow these this session:\n${body}${tail}`);
-    }
-    const repoGoal = readRepoGoal(directory);
-    if (repoGoal) parts.push(`[REPO GOAL] ${repoGoal}`);
-    // Memory-review's gated directive queue is invisible without a nudge.
-    const pendingNudge = pendingDirectivesNudge(directory);
-    if (pendingNudge) parts.push(pendingNudge);
-    const breadcrumb = buildDailyLogBreadcrumb(directory);
-    if (breadcrumb) parts.push(breadcrumb);
-    // Resets the per-session baseline and flushes a nudge when the prior session
-    // did work but logged nothing. startSession never throws.
-    const flush = startSession(directory);
-    if (flush) parts.push(`[DAILY LOG] ${flush}`);
-    const additionalContext = parts.join("\n\n---\n\n");
-
-    printContinue(HOOK_NAME, additionalContext);
+    console.log(JSON.stringify(await handleSessionStart(raw)));
   } catch (err) {
     console.error(`[hook ${HOOK_NAME}] failed: ${err?.message ?? err}`);
     failOpen();
   }
-})();
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

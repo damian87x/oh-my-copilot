@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildRalphContext, cancelRalph, readRalph, startRalph, tickRalph } from "../../src/mode-state/ralph.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-ralph-"));
+const cwd = () => {
+  const root = mkdtempSync(path.join(tmpdir(), "omc-ralph-"));
+  writeFileSync(path.join(root, "package.json"), "{}\n", "utf8");
+  return root;
+};
 
 describe("ralph mode-state", () => {
   it("startRalph writes the state file at .omp/state/ralph.json", () => {

@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync, unlinkSync } from "node:fs";
-import { basename } from "node:path";
 import { getInstalledStatus, installJob, uninstallJob } from "./installer.js";
 import { deleteJob, listJobs, readJob, writeJob } from "./job-store.js";
 import {
   ensureScheduleDirs,
   jobFilePath,
   jobLockPath,
+  nestedScheduleJobsWarnings,
   resolveSchedulePaths,
 } from "./paths.js";
 import { runScheduledJob } from "./runner.js";
@@ -126,6 +126,7 @@ export interface JobView extends ScheduleJob {
 }
 
 export function listScheduleJobs(stateCwd: string): JobView[] {
+  for (const warning of nestedScheduleJobsWarnings(stateCwd)) console.warn(warning);
   const paths = resolveSchedulePaths(stateCwd);
   return listJobs(paths.jobsDir).map((job) => ({ ...job, osInstalled: getInstalledStatus(job.id, job.backend) }));
 }

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { stateCleanup, stateDelete, stateList, stateRead, stateStatus, stateWrite } from "../src/state.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-state-"));
+const cwd = () => {
+  const root = mkdtempSync(path.join(tmpdir(), "omc-state-"));
+  writeFileSync(path.join(root, "package.json"), "{}\n", "utf8");
+  return root;
+};
 
 describe("state kv (src/state)", () => {
   it("reads null for a missing key", () => {

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { readStdin } from "./lib/stdin.mjs";
-import { failOpen, printContinue } from "./lib/hook-output.mjs";
+import { buildContinueHookOutput, failOpen } from "./lib/hook-output.mjs";
 import { recordPrompt } from "./lib/daily-log.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
 import { parseHookInput } from "./lib/hook-input.mjs";
@@ -10,8 +11,8 @@ import { appendCostRecord, countTokens } from "./lib/cost-ledger.mjs";
 
 const HOOK_NAME = "UserPromptSubmit";
 
-function readModeState(directory, mode) {
-  const p = join(directory, ".omp", "state", `${mode}.json`);
+export function readModeState(directory, mode) {
+  const p = join(ompRoot(directory), ".omp", "state", `${mode}.json`);
   if (!existsSync(p)) return undefined;
   try {
     return JSON.parse(readFileSync(p, "utf8"));
@@ -20,7 +21,7 @@ function readModeState(directory, mode) {
   }
 }
 
-function buildContinuationContext(directory) {
+export function buildContinuationContext(directory) {
   const ralph = readModeState(directory, "ralph");
   const ultrawork = readModeState(directory, "ultrawork");
   const ultraqa = readModeState(directory, "ultraqa");
@@ -61,33 +62,41 @@ function appendLog(directory, payload) {
   }
 }
 
-(async () => {
+export async function handlePromptSubmit(raw) {
+  const input = parseHookInput(raw);
+  const sessionId = input.sessionId;
+  const directory = input.cwd;
+  const prompt = input.prompt;
+  appendLog(directory, { sessionId, promptBytes: String(prompt).length });
+  appendCostRecord(directory, {
+    sessionId,
+    event: "userPromptSubmitted",
+    inTokens: countTokens(prompt),
+  });
+  // Count this prompt as session work (signals the SessionEnd nudge logic).
+  // Injects nothing — keeps per-turn token cost at zero.
+  try {
+    recordPrompt(directory);
+  } catch {
+    // best effort: counting must never block the prompt
+  }
+  const parts = [];
+  const cont = buildContinuationContext(directory);
+  if (cont) parts.push(cont);
+  const additionalContext = parts.join("\n\n---\n\n");
+  return buildContinueHookOutput(HOOK_NAME, additionalContext);
+}
+
+async function main() {
   try {
     const raw = await readStdin();
-    const input = parseHookInput(raw);
-    const sessionId = input.sessionId;
-    const directory = input.cwd;
-    const prompt = input.prompt;
-    appendLog(directory, { sessionId, promptBytes: String(prompt).length });
-    appendCostRecord(directory, {
-      sessionId,
-      event: "userPromptSubmitted",
-      inTokens: countTokens(prompt),
-    });
-    // Count this prompt as session work (signals the SessionEnd nudge logic).
-    // Injects nothing — keeps per-turn token cost at zero.
-    try {
-      recordPrompt(directory);
-    } catch {
-      // best effort: counting must never block the prompt
-    }
-    const parts = [];
-    const cont = buildContinuationContext(directory);
-    if (cont) parts.push(cont);
-    const additionalContext = parts.join("\n\n---\n\n");
-    printContinue(HOOK_NAME, additionalContext);
+    console.log(JSON.stringify(await handlePromptSubmit(raw)));
   } catch (err) {
     console.error(`[hook ${HOOK_NAME}] failed: ${err?.message ?? err}`);
     failOpen();
   }
-})();
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}
