@@ -20,6 +20,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { OMP_ENV_DIRNAME, OMP_ENV_FILENAME } from "./dotenv.js";
+import { SLACK_ALLOWED_USERS_REQUIRED_MESSAGE } from "../slack/config.js";
 
 /** Where to send instructional and prompt text. */
 export interface InitIO {
@@ -133,7 +134,9 @@ const INTRO_LINES = [
   `  • App-level token (xapp-…): "Basic Information" → "App-Level Tokens"`,
   "    → Generate, with scope `connections:write`.",
   "",
-  "Then paste both tokens at the prompts below. Press ENTER on optional ones to skip.",
+  "Then paste both tokens at the prompts below. The Slack user allowlist is required;",
+  "enter `*` only when every workspace user may reach this Copilot session.",
+  "Press ENTER on optional defaults to skip.",
   "",
 ];
 
@@ -189,9 +192,7 @@ export async function runEnvInit(opts: InitOptions): Promise<InitResult> {
     collected.copilotTmuxSession = (await io.ask(
       "Pin Copilot tmux session (optional, e.g. omp-9999): ",
     )) ?? "";
-    collected.slackAllowedUsers = (await io.ask(
-      "Slack user ID allowlist (optional, comma-separated, e.g. U0123ABCD): ",
-    )) ?? "";
+    collected.slackAllowedUsers = await promptForRequiredAllowlist(io);
     collected.slackHomeChannel = (await io.ask(
       "Default Slack target for notifications (optional, channel C…/G…/D… or user U…): ",
     )) ?? "";
@@ -220,6 +221,13 @@ export async function runEnvInit(opts: InitOptions): Promise<InitResult> {
   const session = collected.copilotTmuxSession.trim();
   const users = collected.slackAllowedUsers.trim();
   const homeChannel = collected.slackHomeChannel.trim();
+  if (!users) {
+    return {
+      ok: false,
+      path,
+      reason: SLACK_ALLOWED_USERS_REQUIRED_MESSAGE,
+    };
+  }
 
   // Light validation: looksLikeSlackId catches typos before they cause a
   // bewildering BAD_HOME_CHANNEL error at notify-time.
@@ -238,7 +246,7 @@ export async function runEnvInit(opts: InitOptions): Promise<InitResult> {
     botToken,
     appToken,
     session: session || undefined,
-    users: users || undefined,
+    users,
     homeChannel: homeChannel || undefined,
   });
 
@@ -301,7 +309,7 @@ interface RenderedKeys {
   botToken: string;
   appToken: string;
   session?: string;
-  users?: string;
+  users: string;
   homeChannel?: string;
 }
 
@@ -314,10 +322,21 @@ function renderEnvFile(k: RenderedKeys): string {
     `SLACK_APP_TOKEN=${k.appToken}`,
   ];
   if (k.session) lines.push(`COPILOT_TMUX_SESSION=${k.session}`);
-  if (k.users) lines.push(`SLACK_ALLOWED_USERS=${k.users}`);
+  lines.push(`SLACK_ALLOWED_USERS=${k.users}`);
   if (k.homeChannel) lines.push(`SLACK_HOME_CHANNEL=${k.homeChannel}`);
   lines.push("");
   return lines.join("\n");
+}
+
+async function promptForRequiredAllowlist(io: InitIO): Promise<string> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const value = ((await io.ask(
+      "Slack user ID allowlist (required, comma-separated, or * to allow all): ",
+    )) ?? "").trim();
+    if (value) return value;
+    io.print(`  ${SLACK_ALLOWED_USERS_REQUIRED_MESSAGE}`);
+  }
+  return "";
 }
 
 async function promptForToken(io: InitIO, label: string, prefix: string): Promise<string> {

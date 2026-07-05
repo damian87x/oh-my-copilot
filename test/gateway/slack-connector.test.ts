@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createSlackConnector } from "../../src/gateway/connectors/slack.js";
+import { createSlackConnector, slackDoctor } from "../../src/gateway/connectors/slack.js";
 import type { BoltLike, SaySig, SlackMessage } from "../../src/gateway/connectors/slack.js";
 import type { SlackConfig } from "../../src/slack/config.js";
 
@@ -7,7 +7,7 @@ function makeConfig(over: Partial<SlackConfig> = {}): SlackConfig {
   return {
     botToken: "xoxb-test",
     appToken: "xapp-test",
-    allowedUsers: [],
+    allowedUsers: ["U1"],
     requireMention: true,
     sessionEnv: undefined,
     ...over,
@@ -55,6 +55,42 @@ describe("createSlackConnector", () => {
     const c = createSlackConnector({ config: makeConfig(), appFactory: () => makeBolt().app, log: () => {} });
     expect(c.name).toBe("slack");
     expect(c.status()).toEqual({ ready: false, detail: "not started" });
+  });
+
+  it("refuses to start when the allowlist is empty", async () => {
+    let appFactoryCalled = false;
+    const c = createSlackConnector({
+      config: makeConfig({ allowedUsers: [] }),
+      appFactory: () => {
+        appFactoryCalled = true;
+        return makeBolt().app;
+      },
+      log: () => {},
+    });
+    await expect(c.start()).rejects.toThrow(/SLACK_ALLOWED_USERS=.*\*/);
+    expect(appFactoryCalled).toBe(false);
+    expect(c.status().detail).toMatch(/SLACK_ALLOWED_USERS=.*\*/);
+  });
+
+  it("starts with a warning when wildcard allow-all is explicit", async () => {
+    const bolt = makeBolt();
+    const logs: string[] = [];
+    const c = createSlackConnector({
+      config: makeConfig({ allowedUsers: ["*"] }),
+      appFactory: () => bolt.app,
+      log: (msg) => logs.push(msg),
+    });
+    await c.start();
+    expect(c.status()).toEqual({ ready: true });
+    expect(bolt.startCalls).toBe(1);
+    expect(logs.some((msg) => msg.includes("SLACK_ALLOWED_USERS=*"))).toBe(true);
+  });
+
+  it("doctor reports an empty allowlist as not ready", () => {
+    const doctor = slackDoctor(makeConfig({ allowedUsers: [] }));
+    const status = doctor.doctor();
+    expect(status.ready).toBe(false);
+    expect(status.detail).toMatch(/SLACK_ALLOWED_USERS=.*\*/);
   });
 
   it("status becomes ready after a successful start()", async () => {
@@ -193,7 +229,7 @@ describe("createSlackConnector", () => {
     const bolt = makeBolt({ authUserId: "B1" });
     let asked = "";
     const c = createSlackConnector({
-      config: makeConfig(),
+      config: makeConfig({ allowedUsers: ["U2"] }),
       appFactory: () => bolt.app,
       log: () => {},
       handlerDeps: {

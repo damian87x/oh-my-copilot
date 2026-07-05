@@ -12,7 +12,11 @@
  *   status()→ derived from internal state; never opens sockets.
  */
 import type { Connector, ConnectorDoctor, ConnectorStatus } from "../connector.js";
-import type { SlackConfig } from "../../slack/config.js";
+import {
+  ensureSlackAllowedUsersConfigured,
+  isSlackAllowAll,
+  type SlackConfig,
+} from "../../slack/config.js";
 import {
   handleSlackMessage,
   type SlackHandlerDeps,
@@ -116,6 +120,11 @@ export function createSlackConnector(opts: SlackConnectorOptions): Connector {
     async start(): Promise<void> {
       if (started) return;
       try {
+        ensureSlackAllowedUsersConfigured(config.allowedUsers);
+        if (isSlackAllowAll(config.allowedUsers)) {
+          log("omp slack: WARNING: SLACK_ALLOWED_USERS=* allows every Slack workspace user to reach this Copilot session.");
+        }
+
         app = appFactory ? appFactory(config) : await defaultAppFactory(config);
         const auth = await app.client.auth.test();
         botUserId = auth.user_id;
@@ -209,6 +218,11 @@ export function slackDoctor(config: SlackConfig | null, errorIfNoConfig?: string
     name: SLACK_CONNECTOR_NAME,
     doctor(): ConnectorStatus {
       if (!config) return { ready: false, detail: errorIfNoConfig ?? "missing slack tokens" };
+      try {
+        ensureSlackAllowedUsersConfigured(config.allowedUsers);
+      } catch (err) {
+        return { ready: false, detail: err instanceof Error ? err.message : String(err) };
+      }
       const resolved = resolveSession({ env: config.sessionEnv });
       if (!resolved.ok) return { ready: false, detail: resolved.error };
       return { ready: true, detail: `session=${resolved.session}` };

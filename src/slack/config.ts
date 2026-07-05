@@ -6,8 +6,8 @@
  * - SLACK_BOT_TOKEN  (xoxb-…)  — bot user OAuth token
  * - SLACK_APP_TOKEN  (xapp-…)  — app-level token with `connections:write` (Socket Mode)
  *
- * Policy (optional):
- * - SLACK_ALLOWED_USERS  csv of user IDs; `*` or unset/empty = allow everyone
+ * Policy (required):
+ * - SLACK_ALLOWED_USERS  csv of user IDs; `*` = explicit allow everyone opt-in
  * - SLACK_REQUIRE_MENTION  "true"/"false" (default true) — require @mention in channels
  * - COPILOT_TMUX_SESSION  passthrough to comms session resolution
  */
@@ -15,7 +15,7 @@
 export interface SlackConfig {
   botToken: string;
   appToken: string;
-  /** [] means allow all; ["*"] also means allow all. */
+  /** Non-empty; ["*"] means explicit allow all. */
   allowedUsers: string[];
   /** require an @mention to respond in channels (DMs always respond). */
   requireMention: boolean;
@@ -26,6 +26,19 @@ export interface SlackConfig {
 export interface SlackConfigOverrides {
   botToken?: string;
   appToken?: string;
+}
+
+export const SLACK_ALLOWED_USERS_REQUIRED_MESSAGE =
+  "SLACK_ALLOWED_USERS is required. Set it to a comma-separated Slack user ID allowlist, or set SLACK_ALLOWED_USERS=* to explicitly allow all Slack users.";
+
+export function ensureSlackAllowedUsersConfigured(allowedUsers: readonly string[]): void {
+  if (allowedUsers.length === 0) {
+    throw new Error(SLACK_ALLOWED_USERS_REQUIRED_MESSAGE);
+  }
+}
+
+export function isSlackAllowAll(allowedUsers: readonly string[]): boolean {
+  return allowedUsers.includes("*");
 }
 
 function parseBool(value: string | undefined, fallback: boolean): boolean {
@@ -62,10 +75,12 @@ export function loadSlackConfig(
   if (!appToken.startsWith("xapp-")) {
     throw new Error("SLACK_APP_TOKEN looks wrong — expected an app-level token starting with 'xapp-'");
   }
+  const allowedUsers = parseCsv(env.SLACK_ALLOWED_USERS);
+  ensureSlackAllowedUsersConfigured(allowedUsers);
   return {
     botToken,
     appToken,
-    allowedUsers: parseCsv(env.SLACK_ALLOWED_USERS),
+    allowedUsers,
     requireMention: parseBool(env.SLACK_REQUIRE_MENTION, true),
     sessionEnv: env.COPILOT_TMUX_SESSION,
   };

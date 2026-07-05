@@ -325,7 +325,7 @@ omp gateway notify --text "<msg>" [--target slack:C…|G…|D…|U… [:thread_t
                                             # one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL
 omp slack serve                             # deprecated alias of `gateway serve --only slack`
 omp slack doctor [--json]                   # deprecated alias of `gateway status --only slack`
-omp env init [--force]                      # write ~/.omp/.env (interactive Slack token setup)
+omp env init [--force]                      # write ~/.omp/.env (Slack tokens + required allowlist)
 omp schedule add --id <id> --cron "*/15 * * * *" --prompt "<text>" [--allow-all-tools] [--cwd <dir>] [--model <m>] [--timeout <ms>] [--max-runs N] [--ttl-hours H] [--notify-target slack:U0123ABCD] [--notify-desktop] [--notify-open-omp] [--dry-run]
 omp schedule list                           # registered jobs + OS-install status
 omp schedule status <id>                    # last run + result summary
@@ -387,6 +387,7 @@ tmux new-session -d -s omp-9999
 # 2. interactive setup — explains where to grab each token and writes
 #    ~/.omp/.env (chmod 600). Re-runnable; masks existing values.
 #    `omp` auto-loads ~/.omp/.env every invocation; shell exports still win.
+#    SLACK_ALLOWED_USERS is required; use `*` only as an explicit allow-all.
 omp env init
 
 # 3. preflight, then run
@@ -395,6 +396,10 @@ omp gateway serve               # blocks; ^C stops cleanly
 ```
 
 Full Slack-app setup (manifest + scopes) lives in [`docs/slack-setup.md`](docs/slack-setup.md).
+
+Inbound Slack is default-deny. Set `SLACK_ALLOWED_USERS` to a comma-separated
+list of Slack user IDs that may drive your local Copilot session, or set
+`SLACK_ALLOWED_USERS=*` to explicitly allow every Slack user in the workspace.
 
 ---
 

@@ -47,6 +47,7 @@ describe("omp env init (runCli surface)", () => {
     delete process.env.OMP_INIT_USERS;
     delete process.env.OMP_INIT_HOME_CHANNEL;
     delete process.env.OMP_INIT_NO_WARN;
+    process.env.OMP_INIT_USERS = "*";
     errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   });
@@ -67,6 +68,7 @@ describe("omp env init (runCli surface)", () => {
     expect((r.output as { ok: boolean; path: string }).path).toBe(path);
     expect(existsSync(path)).toBe(true);
     expect(readFileSync(path, "utf8")).toMatch(/SLACK_BOT_TOKEN=xoxb-env-bot/);
+    expect(readFileSync(path, "utf8")).toMatch(/^SLACK_ALLOWED_USERS=\*$/m);
     // No warning emitted when using env vars (the safe path).
     expect(errSpy.mock.calls.some((c) => String(c[0]).includes("warning:"))).toBe(false);
   });
@@ -116,6 +118,16 @@ describe("omp env init (runCli surface)", () => {
     expect(r.ok).toBe(false);
     expect(r.exitCode).toBe(1);
     expect((r.output as { reason: string }).reason).toMatch(/BOT token/);
+  });
+
+  it("rejects with exit 1 + reason when SLACK_ALLOWED_USERS is missing", async () => {
+    process.env.OMP_INIT_BOT_TOKEN = "xoxb-ok";
+    process.env.OMP_INIT_APP_TOKEN = "xapp-ok";
+    delete process.env.OMP_INIT_USERS;
+    const r = await runCli(["env", "init", "--json"]);
+    expect(r.ok).toBe(false);
+    expect(r.exitCode).toBe(1);
+    expect((r.output as { reason: string }).reason).toMatch(/SLACK_ALLOWED_USERS=.*\*/);
   });
 
   it("refuses to overwrite without --force; --force succeeds", async () => {
