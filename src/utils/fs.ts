@@ -55,10 +55,13 @@ export function readFilePrefixWithStat(path: string, maxBytes: number): { text: 
   }
   try {
     const stat = fstatSync(fd);
+    if (!stat.isFile()) return undefined;
     const len = Math.max(0, Math.min(stat.size, maxBytes));
     const buffer = Buffer.alloc(len);
     if (len > 0) readSync(fd, buffer, 0, len, 0);
     return { text: buffer.toString("utf8"), mtimeMs: stat.mtimeMs };
+  } catch {
+    return undefined;
   } finally {
     closeSync(fd);
   }

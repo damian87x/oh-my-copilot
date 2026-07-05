@@ -20,6 +20,10 @@ import {
 const ID_RE = /^[a-zA-Z0-9_-]+$/;
 const CRON_RE = /^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/; // exactly 5 whitespace-separated fields
 
+export function validateScheduleId(id: string): boolean {
+  return ID_RE.test(id);
+}
+
 /**
  * Resolve the absolute path of the `omp` wrapper to write into OS entries.
  * The dist `.js` (process.argv[1]) is a last resort because launchd/cron need
@@ -47,7 +51,7 @@ export interface AddResult {
 
 export function addScheduleJob(stateCwd: string, opts: ScheduleAddOptions): AddResult {
   const messages: string[] = [];
-  if (!ID_RE.test(opts.id)) {
+  if (!validateScheduleId(opts.id)) {
     return { ok: false, messages, error: `invalid --id "${opts.id}" (use letters, digits, _ or -)` };
   }
   if (!CRON_RE.test(opts.cron)) {

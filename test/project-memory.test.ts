@@ -80,6 +80,17 @@ describe("recentNotes (newest-first, capped)", () => {
     expect(recentNotes(root).map((n) => n.title)).toEqual(["Keep"]);
   });
 
+  it("skips non-file note entries instead of crashing memory sync", async () => {
+    const { recentNotes } = await import("../src/project-memory.js");
+    const { mkdirSync } = await import("node:fs");
+    const root = cwd();
+    addNote(root, "Keep");
+    const notesDir = path.join(root, ".omp", "memory", "notes");
+    mkdirSync(path.join(notesDir, "dir.md"));
+
+    expect(recentNotes(root).map((n) => n.title)).toEqual(["Keep"]);
+  });
+
   it("returns empty when there are no notes", async () => {
     const { recentNotes } = await import("../src/project-memory.js");
     expect(recentNotes(cwd())).toEqual([]);
