@@ -1,7 +1,9 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import { parseFrontmatter, resolveProjectPaths } from './project.js';
+
+const SAFE_SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 
 export interface SkillInstallOptions {
   cwd?: string;
@@ -9,6 +11,7 @@ export interface SkillInstallOptions {
   source: string;
   scope?: 'project' | 'user';
   dryRun?: boolean;
+  userSkillsRoot?: string;
 }
 
 export interface SkillInstallResult {
@@ -37,6 +40,20 @@ function listFiles(dir: string, base = dir): string[] {
   }).sort();
 }
 
+function assertSafeSkillName(skillName: string, skillFile: string): void {
+  if (!SAFE_SKILL_NAME.test(skillName)) {
+    throw new Error(`invalid skill name in ${skillFile}: ${JSON.stringify(skillName)} (must match ${SAFE_SKILL_NAME})`);
+  }
+}
+
+function assertTargetInsideRoot(targetRoot: string, targetDir: string): void {
+  const resolvedRoot = resolve(targetRoot);
+  const resolvedTarget = resolve(targetDir);
+  if (!resolvedTarget.startsWith(resolvedRoot + sep)) {
+    throw new Error(`skill target must stay inside skills root: ${resolvedTarget}`);
+  }
+}
+
 export function installSkill(options: SkillInstallOptions): SkillInstallResult {
   const cwd = resolve(options.cwd ?? process.cwd());
   const sourceDir = findSkillDir(options.source, cwd);
@@ -45,12 +62,14 @@ export function installSkill(options: SkillInstallOptions): SkillInstallResult {
   const skillName = frontmatter.name || basename(sourceDir);
   if (!frontmatter.name) throw new Error(`missing skill name in ${skillFile}`);
   if (!frontmatter.description) throw new Error(`missing skill description in ${skillFile}`);
+  assertSafeSkillName(skillName, skillFile);
 
   const scope = options.scope ?? 'project';
   const targetRoot = scope === 'user'
-    ? join(homedir(), '.copilot', 'skills')
+    ? resolve(options.userSkillsRoot ?? join(homedir(), '.copilot', 'skills'))
     : join(resolveProjectPaths({ cwd, packageRoot: options.root }).packageRoot, '.github', 'skills');
   const targetDir = join(targetRoot, skillName);
+  assertTargetInsideRoot(targetRoot, targetDir);
   const files = listFiles(sourceDir);
 
   if (!options.dryRun) {
