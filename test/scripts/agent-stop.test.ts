@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentStopLocksPath } from "../../src/mode-state/paths.js";
 import { cancelRalph, readRalph, startRalph } from "../../src/mode-state/ralph.js";
+import { readUltraqa, recordUltraqaCycle, startUltraqa } from "../../src/mode-state/ultraqa.js";
 // @ts-expect-error - plain .mjs hook script exports are exercised as public hook handlers.
 import { agentStopLocksDir, claimAgentStopCounter, handleAgentStop } from "../../scripts/agent-stop.mjs";
 
@@ -28,6 +29,10 @@ function readJson(file: string) {
 
 function ralphFile(root: string) {
   return path.join(root, ".omp", "state", "ralph.json");
+}
+
+function ultraqaFile(root: string) {
+  return path.join(root, ".omp", "state", "ultraqa.json");
 }
 
 function markerNames(root: string) {
@@ -127,15 +132,44 @@ describe("agent-stop idempotency guard", () => {
     expect(ralphMarkers(sentinel.root)).toHaveLength(0);
 
     const capped = makeFixture();
-    startRalph({ cwd: capped.root, prompt: "finish hardening", maxIterations: 2 });
-    expect(runAgentStop({ cwd: capped.root, sessionId: "s1" }).decision).toBe("block");
-    expect(ralphMarkers(capped.root)).toHaveLength(1);
+    startRalph({ cwd: capped.root, prompt: "finish hardening", maxIterations: 4 });
+    const decisions: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      decisions.push(runAgentStop({ cwd: capped.root, sessionId: "s1" }).decision);
+      expect(readJson(ralphFile(capped.root)).iteration).toBe(i + 1);
+    }
+    expect(decisions).toEqual(["block", "block", "block", "block"]);
+    expect(ralphMarkers(capped.root)).toHaveLength(4);
 
     const capOut = runAgentStop({ cwd: capped.root, sessionId: "s1" });
 
     expect(capOut.decision).toBe("allow");
     expect(readJson(ralphFile(capped.root)).active).toBe(false);
     expect(ralphMarkers(capped.root)).toHaveLength(0);
+  });
+
+  it("ultraqa maxCycles=4 grants four hook-driven cycles despite interleaved fail records", () => {
+    const { root } = makeFixture();
+    startUltraqa({ cwd: root, goal: "finish hardening QA", maxCycles: 4 });
+
+    const decisions: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const out = runAgentStop({ cwd: root, sessionId: "s1" });
+      decisions.push(out.decision);
+      expect(readJson(ultraqaFile(root)).cycleCount).toBe(i + 1);
+
+      const cycle = recordUltraqaCycle(root, "fail");
+      expect(cycle.ok).toBe(true);
+      expect(cycle.state).toMatchObject({ cycleCount: i + 1, lastVerdict: "fail" });
+      expect(readJson(ultraqaFile(root))).toMatchObject({ active: true, cycleCount: i + 1, lastVerdict: "fail" });
+    }
+
+    expect(decisions).toEqual(["block", "block", "block", "block"]);
+    const capOut = runAgentStop({ cwd: root, sessionId: "s1" });
+
+    expect(capOut.decision).toBe("allow");
+    expect(readUltraqa(root)?.active).toBe(false);
+    expect(readJson(ultraqaFile(root))).toMatchObject({ active: false, cycleCount: 4, lastVerdict: "fail" });
   });
 
   it("OMP_TEAM_WORKER skips loop injection and does not advance counters", () => {

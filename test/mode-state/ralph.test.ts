@@ -21,15 +21,12 @@ describe("ralph mode-state", () => {
     expect(reloaded?.prompt).toBe("fix auth");
   });
 
-  it("tickRalph increments iteration and stops at max", () => {
+  it("tickRalph records completed slices without advancing the loop counter", () => {
     const root = cwd();
     startRalph({ cwd: root, prompt: "loop", maxIterations: 2 });
-    expect(tickRalph(root).state?.iteration).toBe(1);
-    expect(tickRalph(root).state?.iteration).toBe(2);
-    const third = tickRalph(root);
-    expect(third.ok).toBe(false);
-    expect(third.reason).toContain("max iterations");
-    expect(readRalph(root)).toBeUndefined();
+    expect(tickRalph(root).state).toMatchObject({ iteration: 0, completedSlices: 1 });
+    expect(tickRalph(root).state).toMatchObject({ iteration: 0, completedSlices: 2 });
+    expect(readRalph(root)).toMatchObject({ active: true, iteration: 0, completedSlices: 2 });
   });
 
   it("cancelRalph clears the state", () => {
@@ -44,11 +41,13 @@ describe("ralph mode-state", () => {
       active: true,
       iteration: 3,
       maxIterations: 10,
+      completedSlices: 2,
       startedAt: new Date().toISOString(),
       prompt: "implement X",
       projectPath: "/tmp/x",
     });
     expect(text).toContain("3/10");
+    expect(text).toContain("Completed slices: 2");
     expect(text).toContain("implement X");
   });
 });

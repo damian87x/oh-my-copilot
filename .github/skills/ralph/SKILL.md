@@ -29,7 +29,7 @@ Accept a plan from `/ralplan`, a ticket, or a concrete task description. If a `/
 2. **Implement** one slice at a time, in plan order.
 3. **Verify after each slice** — run tests, lint, type-check. Do not batch verification to the end.
 4. **Fix** any failures immediately before moving to the next slice.
-5. **Tick the loop** — run `omp ralph tick` after each slice. If it reports the iteration cap is reached, stop and report.
+5. **Record slice completion** — after a verified slice, `omp ralph tick` may be used for completed-slice bookkeeping only. The agent-stop hook is the sole writer of the loop iteration counter and enforces the cap.
 6. **Repeat** until all slices complete with evidence, or a blocker is hit.
 7. **Final verification** — run the full test suite one last time after all slices.
 8. **End the loop** — run `omp ralph cancel` once done or blocked, so the tracked state is cleared.

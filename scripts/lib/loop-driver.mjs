@@ -27,8 +27,8 @@ export function decideLoop(states = {}, transcriptText = "") {
 
     const cur = Number(s[m.counter] ?? 0);
     const max = Number(s[m.max] ?? m.defMax);
-    // Safety cap: never loop past the configured maximum, even without a sentinel.
-    if (cur + 1 >= max) {
+    // Safety cap: max=N grants exactly N hook-driven continuation turns.
+    if (cur >= max) {
       return { decision: "allow", clear: m.key, reason: `${m.key} reached max (${max})` };
     }
 
