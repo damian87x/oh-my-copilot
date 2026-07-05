@@ -110,6 +110,20 @@ describe("runCli: bare-flag launch routing", () => {
     }
   });
 
+  it("forwards bare -p headless prompts to launchCopilot", async () => {
+    const original = process.env.OMP_COPILOT_BIN;
+    process.env.OMP_COPILOT_BIN = "/bin/echo";
+    try {
+      const result = await runCli(["-p", "smoke"]);
+      expect(result.ok).toBe(true);
+      expect(result.exitCode).toBe(0);
+      expect(result.message ?? "").toMatch(/launch \/bin\/echo exit=0/);
+    } finally {
+      if (original === undefined) delete process.env.OMP_COPILOT_BIN;
+      else process.env.OMP_COPILOT_BIN = original;
+    }
+  });
+
   it("does not forward unknown leading flags — falls through to Unknown-command", async () => {
     const result = await runCli(["--definitely-not-a-real-flag"]);
     expect(result.ok).toBe(false);
@@ -219,5 +233,13 @@ describe("runCli: schedule subcommands", () => {
     expect(result.ok).toBe(true); // missing-job no-op exits 0 (no crash-restart)
     expect(result.message ?? "").toContain("ghost");
     expect(result.message ?? "").not.toContain('"--id"');
+  });
+
+  it.each(["status", "open", "remove", "run-now"])("rejects invalid schedule ids for %s before path construction", async (cmd) => {
+    const result = await runCli(["schedule", cmd, "../escape", "--root", dir]);
+
+    expect(result.ok).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message ?? "").toMatch(/invalid schedule id/);
   });
 });

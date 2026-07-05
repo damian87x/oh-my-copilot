@@ -142,7 +142,7 @@ async function resolveExistingInputPath(value: string): Promise<string> {
   return direct;
 }
 
-const BARE_LAUNCH_FLAGS = new Set(["--madmax", "--yolo"]);
+const BARE_LAUNCH_FLAGS = new Set(["--madmax", "--yolo", "-p", "--prompt"]);
 
 // Snapshot existing Copilot session dirs BEFORE launch, so after a headless run
 // we can identify the exact session it created (instead of guessing "latest").
@@ -967,12 +967,31 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
       if (operation === "create" && !ticket) {
         return { ok: false, exitCode: 1, output: json ? { ok: false, error: "jira apply create requires a readable plan/ticket file" } : undefined, message: "jira apply create requires a readable plan/ticket file" };
       }
+      if (inputPath && ticket) {
+        const transitionState = flagValue(argv, "--state") ?? "done";
+        const linkTarget = flagValue(argv, "--link-target");
+        const target = operation === "create" ? "new issue" : inputPath;
+        const payload = operation === "create"
+          ? jira.renderCreateIssue(ticket, config).payload
+          : operation === "comment"
+            ? jira.renderComment(ticket.summary)
+            : operation === "update"
+              ? jira.renderSafeUpdate(ticket, config)
+              : operation === "transition"
+                ? { transition: { logicalState: transitionState, configuredName: config.transitions[transitionState] } }
+                : { type: { name: config.linkType ?? "<discover>" }, inwardIssue: { key: target }, outwardIssue: { key: linkTarget } };
+        const result = {
+          ok: true,
+          live: false,
+          operation,
+          fallback: jira.makeFallback(operation, "file-backed Jira apply is dry-run only; no live Jira write was attempted", target, payload),
+        };
+        return json ? { ok: true, output: result } : { ok: true, message: JSON.stringify(result, null, 2) };
+      }
       const result = await jira.applyJiraOperation({
         operation,
-        target: inputPath ? undefined : value,
-        ticket,
-        comment: ticket ? ticket.summary : "Verification evidence goes here.",
-        update: ticket,
+        target: value,
+        comment: "Verification evidence goes here.",
         transitionState: flagValue(argv, "--state") ?? "done",
         linkTarget: flagValue(argv, "--link-target"),
         dryRun: hasFlag(argv, "--dry-run") || config.mode !== "live",
@@ -1770,6 +1789,16 @@ async function handleScheduleCommand(argv: string[], json: boolean): Promise<Cli
   // the --id flag; fall back to the positional form for human-typed commands.
   const targetId = flagValue(argv, "--id") ?? (value && !value.startsWith("--") ? value : undefined);
   const mod = await import("./schedule/commands.js");
+  const rejectInvalidTargetId = (): CliResult | undefined => {
+    if (targetId && !mod.validateScheduleId(targetId)) {
+      return {
+        ok: false,
+        exitCode: 1,
+        message: `invalid schedule id "${targetId}" (use letters, digits, _ or -)`,
+      };
+    }
+    return undefined;
+  };
 
   if (command === "add") {
     const id = flagValue(argv, "--id");
@@ -1830,6 +1859,8 @@ async function handleScheduleCommand(argv: string[], json: boolean): Promise<Cli
   }
 
   if (command === "status" && targetId) {
+    const invalid = rejectInvalidTargetId();
+    if (invalid) return invalid;
     const st = mod.getScheduleStatus(cwd, targetId);
     if (!st.job) return { ok: false, exitCode: 1, output: json ? st : undefined, message: `no schedule job "${targetId}"` };
     return json
@@ -1838,6 +1869,8 @@ async function handleScheduleCommand(argv: string[], json: boolean): Promise<Cli
   }
 
   if (command === "remove" && targetId) {
+    const invalid = rejectInvalidTargetId();
+    if (invalid) return invalid;
     const result = mod.removeScheduleJob(cwd, targetId);
     return json
       ? { ok: result.removed, exitCode: result.removed ? 0 : 1, output: result }
@@ -1845,6 +1878,8 @@ async function handleScheduleCommand(argv: string[], json: boolean): Promise<Cli
   }
 
   if ((command === "run" || command === "run-now") && targetId) {
+    const invalid = rejectInvalidTargetId();
+    if (invalid) return invalid;
     const result = await mod.runScheduleById(cwd, targetId);
     return json
       ? { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result }
@@ -1852,6 +1887,8 @@ async function handleScheduleCommand(argv: string[], json: boolean): Promise<Cli
   }
 
   if (command === "open" && targetId) {
+    const invalid = rejectInvalidTargetId();
+    if (invalid) return invalid;
     const r = mod.openScheduleResult(cwd, targetId);
     if (!r.ok) return { ok: false, exitCode: 1, output: json ? r : undefined, message: r.error };
     // --tmux: drop into an interactive omp session (auto-wrapped in tmux by

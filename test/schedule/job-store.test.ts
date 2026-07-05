@@ -77,13 +77,12 @@ describe("schedule job-store", () => {
     const paths = resolveSchedulePaths(root);
     const rp = resultsFilePath(paths.resultsDir, "x");
     appendRunResult(rp, sampleResult(1));
-    const afterFirst = statSync(rp).size;
     const firstBytes = readFileSync(rp);
     appendRunResult(rp, sampleResult(2));
-    const afterSecond = statSync(rp).size;
-    expect(afterSecond).toBeGreaterThan(afterFirst);
+    const fullBytes = readFileSync(rp);
+    expect(fullBytes.length).toBeGreaterThan(firstBytes.length);
     // first line's bytes are unchanged (pure append)
-    expect(readFileSync(rp).subarray(0, firstBytes.length).equals(firstBytes)).toBe(true);
+    expect(fullBytes.subarray(0, firstBytes.length).equals(firstBytes)).toBe(true);
   });
 
   it("readResultsFrom reads only entries past the cursor and advances monotonically", () => {

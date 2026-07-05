@@ -119,6 +119,18 @@ describe("mailbox", () => {
     expect(readNewMailbox(dir, "worker-2").map((m) => m.id)).toEqual(["m4"]);
   });
 
+
+  it("markDelivered skips malformed lines while finding existing messages", () => {
+    const dir = tempDir();
+    appendFileSync(path.join(dir, "worker-2.jsonl"), '{"not valid"\n');
+    appendMailbox(dir, msg("worker-2", { id: "a" }));
+
+    expect(markDelivered(dir, "worker-2", "a")).toBe(true);
+
+    const lines = readFileSync(path.join(dir, "worker-2.jsonl"), "utf8").trim().split("\n");
+    expect(lines.some((line) => line.includes('"delivery-receipt"'))).toBe(true);
+  });
+
   it("markDelivered returns false for unknown messageId and writes nothing", () => {
     const dir = tempDir();
     appendMailbox(dir, msg("worker-2", { id: "a" }));

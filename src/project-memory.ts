@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ompRoot } from "./omp-root.js";
+import { readFilePrefixWithStat } from "./utils/fs.js";
 
 // Durable project memory, split by how it's surfaced:
 //  - directives (rules)  -> .omp/project-memory.json, injected every session
@@ -121,20 +122,16 @@ export function recentNotes(cwd: string, limit?: number): NoteMeta[] {
   if (!existsSync(dir)) return [];
   const entries = readdirSync(dir)
     .filter((f) => f.endsWith(".md"))
-    .map((f) => {
+    .map((f): (NoteMeta & { mtime: number }) | undefined => {
       const id = f.replace(/\.md$/, "");
-      let title = id;
-      let mtime = 0;
-      try {
-        const full = join(dir, f);
-        mtime = statSync(full).mtimeMs;
-        const first = readFileSync(full, "utf8").split("\n")[0] ?? "";
-        title = first.replace(/^#\s*/, "").trim() || id;
-      } catch {
-        // keep defaults
-      }
-      return { id, title, mtime };
+      const full = join(dir, f);
+      const meta = readFilePrefixWithStat(full, 4096);
+      if (!meta) return undefined;
+      const first = meta.text.split("\n")[0] ?? "";
+      const title = first.replace(/^#\s*/, "").trim() || id;
+      return { id, title, mtime: meta.mtimeMs };
     })
+    .filter((entry): entry is NoteMeta & { mtime: number } => Boolean(entry))
     .sort((a, b) => b.mtime - a.mtime);
   const capped = typeof limit === "number" ? entries.slice(0, limit) : entries;
   return capped.map(({ id, title }) => ({ id, title }));

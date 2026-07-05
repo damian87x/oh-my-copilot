@@ -7,10 +7,11 @@
  * `npm i -g @damian87/omp@latest` for them. Non-TTY / `--json` / CI callers
  * fall back to the passive notice and are never blocked.
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ompRoot } from "../omp-root.js";
+import { atomicWrite } from "../utils/fs.js";
 import { packageRootFromImportMeta } from "../project.js";
 
 const PACKAGE_NAME = "@damian87/omp";
@@ -199,7 +200,7 @@ export function maybeWelcome(options: MaybeWelcomeOptions): void {
   options.io.print(gettingStartedHint());
   try {
     mkdirSync(stateDir, { recursive: true });
-    writeFileSync(marker, new Date().toISOString());
+    atomicWrite(marker, new Date().toISOString());
   } catch {
     // best-effort marker write
   }

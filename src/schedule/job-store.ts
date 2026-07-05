@@ -8,7 +8,7 @@ import {
   readSync,
   readdirSync,
   renameSync,
-  statSync,
+  fstatSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -88,15 +88,20 @@ export function readResultsFrom(
   maxBytes = 16_384,
 ): ResultsScan {
   let cursor = readCursorBytes(cursorPath);
-  if (!existsSync(resultsPath)) return { results: [], newCursor: cursor, cursor };
-  const stats = statSync(resultsPath);
-  if (cursor > stats.size) cursor = 0; // file truncated/rotated → re-read from start
-  if (cursor >= stats.size) return { results: [], newCursor: cursor, cursor };
-
-  const remaining = Math.min(stats.size - cursor, maxBytes);
-  const fd = openSync(resultsPath, "r");
-  const buf = Buffer.alloc(remaining);
+  let fd: number;
   try {
+    fd = openSync(resultsPath, "r");
+  } catch {
+    return { results: [], newCursor: cursor, cursor };
+  }
+  let buf: Buffer;
+  try {
+    const stats = fstatSync(fd);
+    if (cursor > stats.size) cursor = 0; // file truncated/rotated → re-read from start
+    if (cursor >= stats.size) return { results: [], newCursor: cursor, cursor };
+
+    const remaining = Math.min(stats.size - cursor, maxBytes);
+    buf = Buffer.alloc(remaining);
     readSync(fd, buf, 0, remaining, cursor);
   } finally {
     closeSync(fd);

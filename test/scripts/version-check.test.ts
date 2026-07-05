@@ -95,6 +95,18 @@ describe("checkForUpdate", () => {
     expect(result).toMatchObject({ latest: "999.0.0" });
   });
 
+
+  it("ignores and does not cache malformed remote versions", async () => {
+    process.env.OMP_VERSION_OVERRIDE = "1.0.0";
+    const result = await checkForUpdate({
+      stateDir,
+      now: 1000,
+      fetchLatest: async () => "999.0.0\nmalicious",
+    });
+    expect(result).toBeNull();
+    expect(() => readFileSync(join(stateDir, "version-check.json"), "utf8")).toThrow();
+  });
+
   it("uses OMP_VERSION_OVERRIDE as the current version", async () => {
     process.env.OMP_VERSION_OVERRIDE = "0.0.0";
     const result = await checkForUpdate({
