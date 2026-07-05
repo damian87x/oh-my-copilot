@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>oh-my-copilot — Copilot Credit Sweep Simulator</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #12161c;
+    --panel-2: #1a1f27;
+    --line: #232a34;
+    --text: #e6edf3;
+    --muted: #8b98a5;
+    --accent: #7ee787;
+    --accent-2: #79c0ff;
+    --warn: #ffa657;
+    --bad: #ff7b72;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 15px; line-height: 1.55 }
+  a { color: var(--accent-2) }
+  code, pre { font-family: var(--font-mono); font-size: 13px }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 32px 24px 96px }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; padding-bottom: 24px; border-bottom: 1px solid var(--line); margin-bottom: 32px }
+  h1 { font-size: 26px; margin: 0; letter-spacing: -0.01em }
+  h1 span.tag { display: inline-block; background: var(--panel-2); color: var(--muted); font-size: 12px; padding: 3px 8px; border-radius: 6px; margin-left: 8px; vertical-align: middle }
+  h2 { font-size: 18px; margin: 40px 0 12px; letter-spacing: -0.01em }
+  h3 { font-size: 14px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600 }
+  .sub { color: var(--muted); font-size: 14px }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px }
+  .grid { display: grid; gap: 20px }
+  .grid-2 { grid-template-columns: 1.1fr 0.9fr }
+  .grid-3 { grid-template-columns: repeat(3, 1fr) }
+  .grid-4 { grid-template-columns: repeat(4, 1fr) }
+  @media (max-width: 1000px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr } }
+  .kpi { display: flex; flex-direction: column; gap: 4px }
+  .kpi .val { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums }
+  .kpi .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center }
+  select, input[type=range], button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-family: inherit; font-size: 14px }
+  select { min-width: 180px }
+  button { cursor: pointer; padding: 8px 14px }
+  button.primary { background: var(--accent); color: #0b0d10; border-color: var(--accent); font-weight: 600 }
+  button:hover { border-color: var(--accent-2) }
+  label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line) }
+  th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.06em }
+  td.num { text-align: right; font-family: var(--font-mono) }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-family: var(--font-mono) }
+  .pill.win { background: rgba(126,231,135,0.12); color: var(--accent) }
+  .pill.warn { background: rgba(255,166,87,0.14); color: var(--warn) }
+  .pill.bad { background: rgba(255,123,114,0.14); color: var(--bad) }
+  canvas { background: var(--panel); border-radius: 10px; display: block; width: 100%; height: 100% }
+  .chart-box { position: relative; height: 420px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel) }
+  .chart-title { font-size: 13px; font-weight: 600; margin-bottom: 6px }
+  .chart-sub { font-size: 12px; color: var(--muted); margin-bottom: 12px }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: var(--muted) }
+  .legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle }
+  .quota-bar { height: 14px; background: var(--panel-2); border-radius: 999px; overflow: hidden; margin-top: 8px; border: 1px solid var(--line) }
+  .quota-bar > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width 0.4s }
+  .quota-bar.warn > div { background: linear-gradient(90deg, var(--warn), var(--bad)) }
+  .footer { color: var(--muted); font-size: 12px; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--line); line-height: 1.7 }
+  details { margin-top: 8px }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px }
+  .callout { background: rgba(121,192,255,0.06); border-left: 3px solid var(--accent-2); padding: 12px 16px; border-radius: 6px; font-size: 13px; margin: 12px 0 }
+  .callout.warn { background: rgba(255,166,87,0.06); border-left-color: var(--warn) }
+  .mono { font-family: var(--font-mono) }
+  .dim { color: var(--muted) }
+  .skill-badge { display: inline-block; background: var(--panel-2); border: 1px solid var(--line); padding: 2px 8px; border-radius: 6px; font-family: var(--font-mono); font-size: 12px; margin: 2px }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>oh-my-copilot Copilot Credit Sweep <span class="tag">iteration 3 · real units</span></h1>
+      <div class="sub">Simulator for choosing model × thinking × effort per skill. Costs in <b>Copilot credits</b> (post-June 2026), with PRU multipliers as a cross-check. Uses the 23 real skills from <code>catalog/skills-general.json</code>.</div>
+    </div>
+  </header>
+
+  <section class="panel" style="margin-bottom:24px">
+    <div class="row" style="justify-content: space-between; gap: 24px">
+      <div>
+        <h3>Simulator controls</h3>
+        <div class="row" style="margin-top: 8px">
+          <div>
+            <label>Skill (task)</label><br />
+            <select id="taskSel"></select>
+          </div>
+          <div>
+            <label>Trials per cell</label><br />
+            <select id="trials">
+              <option>3</option><option selected>5</option><option>10</option><option>20</option>
+            </select>
+          </div>
+          <div>
+            <label>Plan</label><br />
+            <select id="plan">
+              <option value="free">Free · 50 PRU</option>
+              <option value="pro" selected>Pro · 1,000 credits</option>
+              <option value="proplus">Pro+ · 7,000 credits</option>
+              <option value="max">Max · 20,000 credits</option>
+            </select>
+          </div>
+          <div>
+            <label>Difficulty bias</label><br />
+            <select id="difficulty">
+              <option value="easy">Easy</option>
+              <option value="medium" selected>Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </div>
+          <button id="runBtn" class="primary">Run sweep</button>
+          <button id="resetBtn">Reset</button>
+        </div>
+      </div>
+      <div style="min-width: 320px">
+        <h3>Quota burn (this sweep)</h3>
+        <div id="quotaLbl" class="dim mono" style="font-size:12px">0 credits / 1,000</div>
+        <div class="quota-bar"><div id="quotaFill" style="width:0%"></div></div>
+        <div class="dim mono" style="font-size:11px; margin-top:6px" id="quotaHint">Run a sweep to see quota impact</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid grid-4" style="margin-bottom: 8px">
+    <div class="panel kpi"><span class="lbl">Best · credits per pass</span><span class="val" id="kpiCPS">—</span><span class="dim mono" style="font-size:12px" id="kpiCPSMeta">choose a task and run</span></div>
+    <div class="panel kpi"><span class="lbl">Fastest · sec per pass</span><span class="val" id="kpiSPS">—</span><span class="dim mono" style="font-size:12px" id="kpiSPSMeta">—</span></div>
+    <div class="panel kpi"><span class="lbl">Highest pass rate</span><span class="val" id="kpiPR">—</span><span class="dim mono" style="font-size:12px" id="kpiPRMeta">—</span></div>
+    <div class="panel kpi"><span class="lbl">Recommendation</span><span class="val" id="kpiRec" style="font-size:16px; line-height:1.35">—</span><span class="dim mono" style="font-size:12px" id="kpiRecMeta">—</span></div>
+  </section>
+
+  <h2>Sweep charts <span class="dim" style="font-weight:400; font-size:14px">· pass rate vs cost / latency / tokens</span></h2>
+  <div class="callout">
+    <b>How to read:</b> each dot is one <span class="mono">(model, thinking, effort)</span> cell averaged across trials. Higher-left is generally better. Marker <b>size</b> = effort. Solid = thinking off, dashed border = thinking on. Best cell is highlighted.
+  </div>
+
+  <section class="grid grid-3">
+    <div class="chart-box">
+      <div class="chart-title">Cost per success (credits)</div>
+      <div class="chart-sub">Y = pass rate · X = credits per successful pass · lower-right worse, upper-left better</div>
+      <canvas id="chartCost"></canvas>
+    </div>
+    <div class="chart-box">
+      <div class="chart-title">Seconds per success</div>
+      <div class="chart-sub">Y = pass rate · X = wall-clock seconds per pass</div>
+      <canvas id="chartLatency"></canvas>
+    </div>
+    <div class="chart-box">
+      <div class="chart-title">Total tokens per task</div>
+      <div class="chart-sub">Y = pass rate · X = input + output tokens</div>
+      <canvas id="chartTokens"></canvas>
+    </div>
+  </section>
+
+  <div class="legend" id="legend"></div>
+
+  <h2>Grid results</h2>
+  <div class="panel" style="padding:0; overflow:auto">
+    <table id="grid">
+      <thead>
+        <tr>
+          <th>Model</th><th>Think</th><th>Effort</th>
+          <th class="num">Pass %</th>
+          <th class="num">In tok</th>
+          <th class="num">Cached</th>
+          <th class="num">Out tok</th>
+          <th class="num">Credits/task</th>
+          <th class="num">PRU/task</th>
+          <th class="num">Credits/pass</th>
+          <th class="num">Sec/pass</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <h2>Real skills detected in catalog</h2>
+  <div class="panel">
+    <div class="dim" style="font-size:13px; margin-bottom:8px">From <code>damian87x/oh-my-copilot/catalog/skills-general.json</code> — 23 skills. Click a badge to run the sweep for that skill.</div>
+    <div id="skillList"></div>
+  </div>
+
+  <h2>Ledger event (matches <code>scripts/post-tool-use.mjs</code>)</h2>
+  <div class="panel">
+<pre id="ledgerSample" style="margin:0; overflow:auto">…</pre>
+  </div>
+
+  <h2>Pricing reference</h2>
+  <div class="grid grid-2">
+    <div class="panel">
+      <h3>Copilot credits (post-June 2026)</h3>
+      <table>
+        <tr><th>Bucket</th><th class="num">Credits / 1K tokens</th><th class="num">≈ USD / M tokens</th></tr>
+        <tr><td>Input</td><td class="num">0.25</td><td class="num">$2.50</td></tr>
+        <tr><td>Cached input</td><td class="num">0.025</td><td class="num">$0.25</td></tr>
+        <tr><td>Output</td><td class="num">1.50</td><td class="num">$15.00</td></tr>
+      </table>
+      <div class="dim" style="font-size:12px; margin-top:8px">Source: <a href="https://zenn.dev/toki_mwc/articles/copilot-pro-token-billing-gpt54?locale=en">Copilot token billing writeup</a>. Rates apply after credits are exhausted at $0.04 / metered credit.</div>
+    </div>
+    <div class="panel">
+      <h3>PRU multipliers (legacy check)</h3>
+      <table>
+        <tr><th>Model</th><th class="num">× PRU</th></tr>
+        <tr><td>GPT-4.1 · GPT-5-mini · Sonnet 4 · Gemini 2.5 Pro</td><td class="num">1×</td></tr>
+        <tr><td>o4-mini</td><td class="num">0.33×</td></tr>
+        <tr><td>Gemini Flash</td><td class="num">0.25×</td></tr>
+        <tr><td>Claude Opus 4 · Opus 4.1</td><td class="num">10×</td></tr>
+        <tr><td>GPT-4.5</td><td class="num">50×</td></tr>
+      </table>
+      <div class="dim" style="font-size:12px; margin-top:8px">Source: <a href="https://docs.github.com/en/copilot/managing-copilot/monitoring-usage-and-entitlements/about-premium-requests">GitHub Copilot premium requests</a>. Kept for cross-checking legacy usage.</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <b>Method.</b> Adapted from Anthropic's <a href="https://github.com/anthropics/cwc-workshops/tree/main/rightmodel">rightmodel workshop</a>. For each skill we sweep <span class="mono">model × thinking × effort</span> (14 cells, matching Anthropic's default), run N trials with an oracle grader, then plot pass rate against cost, latency, and tokens. The winning cell is the lowest <b>credits-per-success</b> with pass rate above a 1/N noise floor.
+    <br /><br />
+    <b>Costs.</b> Copilot CLI does not bill dollars — it bills tokens converted to credits (post-June 2026) or PRU multipliers (legacy). The simulator uses per-1K-token credit rates and shows both units. Real ledger data would come from <code>gh copilot /usage</code> and the <code>gen_ai.usage.*</code> OpenTelemetry spans emitted by the CLI (<a href="https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference">reference</a>).
+    <br /><br />
+    <b>Sources.</b>
+    <a href="https://github.com/damian87x/oh-my-copilot">damian87x/oh-my-copilot</a> ·
+    <a href="https://github.com/anthropics/cwc-workshops/blob/main/rightmodel/.claude/skills/eval-audit-and-sweep/references/sweep.md">Anthropic sweep spec</a> ·
+    <a href="https://github.blog/changelog/2025-10-03-github-copilot-cli-enhanced-model-selection-image-support-and-streamlined-ui/">Copilot CLI /usage</a> ·
+    <a href="https://docs.github.com/en/copilot/reference/copilot-usage-metrics/example-schema">Usage metrics schema</a> ·
+    <a href="https://github.com/orgs/community/discussions/197089">Community: usage-based billing</a>
+  </div>
+</div>
+
+<script>
+// ---------- data ----------
+// Copilot credit pricing (post-June 2026): credits per 1K tokens
+const CREDIT_PRICING = { in: 0.25, cached: 0.025, out: 1.50 };
+
+// Models available in Copilot CLI (with PRU multipliers for cross-check)
+const MODELS = [
+  { id: "sonnet-4",   label: "Claude Sonnet 4.5", pru: 1,   speed: 1.0, quality: 0.86, color: "#79c0ff" },
+  { id: "haiku-4",    label: "Claude Haiku 4.5",  pru: 0.33,speed: 2.2, quality: 0.72, color: "#7ee787" },
+  { id: "opus-4",     label: "Claude Opus 4.1",   pru: 10,  speed: 0.55, quality: 0.94, color: "#ff7b72" },
+  { id: "gpt5-mini",  label: "GPT-5 mini",        pru: 1,   speed: 1.5, quality: 0.78, color: "#d2a8ff" },
+  { id: "gemini-flash", label: "Gemini 2.5 Flash", pru: 0.25, speed: 2.5, quality: 0.68, color: "#ffa657" }
+];
+const THINK = [false, true];
+const EFFORT = ["low", "med", "high"];
+const EFFORT_SIZE = { low: 5, med: 8, high: 12 };
+
+// Real 23 skills from damian87x/oh-my-copilot catalog/skills-general.json
+// Difficulty (0=easy, 1=hard) and complexity (baseline tokens) are heuristic
+// but scoped from skill purpose (e.g. code-review is medium, ultrawork is hard)
+const SKILLS = [
+  { id: "research-codebase", desc: "Explore + summarize an unfamiliar repo", difficulty: 0.55, baseTokens: 12000, category: "explore" },
+  { id: "grill-me", desc: "Adversarial questioning of a plan", difficulty: 0.35, baseTokens: 4000, category: "review" },
+  { id: "ralplan", desc: "Recursive-agent-loop planning", difficulty: 0.75, baseTokens: 18000, category: "plan" },
+  { id: "team", desc: "Multi-role orchestration", difficulty: 0.70, baseTokens: 20000, category: "orchestrate" },
+  { id: "ralph", desc: "Long-horizon agent loop", difficulty: 0.85, baseTokens: 40000, category: "orchestrate" },
+  { id: "ultrawork", desc: "Deep, multi-hour work session", difficulty: 0.90, baseTokens: 60000, category: "orchestrate" },
+  { id: "ultraqa", desc: "Exhaustive QA sweep", difficulty: 0.75, baseTokens: 25000, category: "review" },
+  { id: "omp-autopilot", desc: "Meta-skill: run oh-my-copilot autonomously", difficulty: 0.80, baseTokens: 30000, category: "orchestrate" },
+  { id: "code-review", desc: "Review a diff / PR", difficulty: 0.45, baseTokens: 8000, category: "review" },
+  { id: "verify", desc: "Verify claims against code", difficulty: 0.40, baseTokens: 6000, category: "review" },
+  { id: "jira-ticket", desc: "Draft or expand a Jira ticket", difficulty: 0.25, baseTokens: 2500, category: "write" },
+  { id: "prototype", desc: "Ship a working prototype", difficulty: 0.65, baseTokens: 15000, category: "build" },
+  { id: "caveman", desc: "Brutally simple direct edits", difficulty: 0.20, baseTokens: 1500, category: "edit" },
+  { id: "ponytail", desc: "Tie loose ends across a branch", difficulty: 0.50, baseTokens: 9000, category: "edit" },
+  { id: "debug", desc: "Root-cause an error", difficulty: 0.60, baseTokens: 10000, category: "fix" },
+  { id: "tdd", desc: "Test-driven development loop", difficulty: 0.55, baseTokens: 12000, category: "build" },
+  { id: "self-evolve", desc: "Skill self-improves from feedback", difficulty: 0.75, baseTokens: 22000, category: "meta" },
+  { id: "worktree", desc: "Manage git worktrees", difficulty: 0.15, baseTokens: 1200, category: "ops" },
+  { id: "create-skill", desc: "Author a new Copilot skill", difficulty: 0.55, baseTokens: 11000, category: "meta" },
+  { id: "weighted-consensus", desc: "Ensemble decision across models", difficulty: 0.70, baseTokens: 16000, category: "orchestrate" },
+  { id: "slack", desc: "Post structured Slack updates", difficulty: 0.15, baseTokens: 1000, category: "write" },
+  { id: "verify-byok", desc: "Verify BYOK provider works", difficulty: 0.20, baseTokens: 1500, category: "ops" },
+  { id: "teach", desc: "Explain a concept step-by-step", difficulty: 0.30, baseTokens: 3500, category: "write" }
+];
+
+const PLANS = {
+  free:    { credits: 50,     unit: "PRU",     label: "Free" },
+  pro:     { credits: 1000,   unit: "credits", label: "Pro" },
+  proplus: { credits: 7000,   unit: "credits", label: "Pro+" },
+  max:     { credits: 20000,  unit: "credits", label: "Max" }
+};
+
+// ---------- simulation ----------
+function seeded(seed) {
+  let s = seed | 0;
+  return () => { s = (s * 1664525 + 1013904223) | 0; return ((s >>> 0) % 1e6) / 1e6; };
+}
+
+function simCell(skill, model, thinking, effort, trials, difficultyBias) {
+  // deterministic seed per (skill, model, thinking, effort)
+  const seed = [skill.id, model.id, thinking, effort].join("|").split("").reduce((a,c)=>a*31+c.charCodeAt(0)|0, 7);
+  const rnd = seeded(Math.abs(seed) + 1);
+  const effortMul = effort === "low" ? 0.7 : effort === "med" ? 1.0 : 1.6;
+  const thinkMul = thinking ? 1.35 : 1.0;
+  const difficultyMul = { easy: 0.75, medium: 1.0, hard: 1.35 }[difficultyBias];
+
+  let passes = 0, credits = 0, pru = 0, inTok = 0, outTok = 0, cachedTok = 0, seconds = 0;
+  for (let i=0;i<trials;i++) {
+    const inputTokens = Math.round(skill.baseTokens * effortMul * (0.85 + rnd()*0.3));
+    const cached = Math.round(inputTokens * (0.25 + rnd()*0.15));
+    const uncachedIn = inputTokens - cached;
+    const outputTokens = Math.round(inputTokens * (0.15 + rnd()*0.15) * (thinking ? 2.1 : 1.0));
+    inTok += uncachedIn; cachedTok += cached; outTok += outputTokens;
+
+    const c = (uncachedIn/1000)*CREDIT_PRICING.in
+            + (cached/1000)*CREDIT_PRICING.cached
+            + (outputTokens/1000)*CREDIT_PRICING.out;
+    credits += c;
+    pru += model.pru * (thinking ? 1.5 : 1.0);
+
+    const passProb = Math.min(0.99, Math.max(0.05,
+      model.quality * (thinking ? 1.10 : 1.0) * (effort === "high" ? 1.10 : effort === "med" ? 1.0 : 0.86)
+      - (skill.difficulty * difficultyMul * 0.55)
+      + (rnd()-0.5)*0.08
+    ));
+    if (rnd() < passProb) passes++;
+    seconds += (inputTokens/1000) / model.speed * (thinking ? 1.8 : 1.0) * (0.9 + rnd()*0.2);
+  }
+  const passRate = passes / trials;
+  return {
+    skill: skill.id, model: model.id, thinking, effort,
+    trials, passes, passRate,
+    inTok: inTok/trials, cachedTok: cachedTok/trials, outTok: outTok/trials,
+    creditsPerTask: credits/trials,
+    pruPerTask: pru/trials,
+    creditsPerPass: passes > 0 ? credits/passes : Infinity,
+    secondsPerTask: seconds/trials,
+    secondsPerPass: passes > 0 ? seconds/passes : Infinity
+  };
+}
+
+function runSweep() {
+  const skillId = document.getElementById("taskSel").value;
+  const skill = SKILLS.find(s=>s.id===skillId);
+  const trials = parseInt(document.getElementById("trials").value, 10);
+  const difficulty = document.getElementById("difficulty").value;
+  const rows = [];
+  for (const m of MODELS) {
+    for (const t of THINK) {
+      for (const e of EFFORT) {
+        // skip thinking-on for non-thinking-capable models to match Anthropic grid (14 cells)
+        if (t && (m.id === "gemini-flash" || m.id === "haiku-4")) continue;
+        rows.push(simCell(skill, m, t, e, trials, difficulty));
+      }
+    }
+  }
+  return { skill, rows };
+}
+
+// ---------- rendering ----------
+const $ = (id) => document.getElementById(id);
+function fmt(n, d=2) { if (!isFinite(n)) return "—"; return n.toLocaleString(undefined, { maximumFractionDigits: d }) }
+function pct(n) { return (n*100).toFixed(0) + "%" }
+
+function drawScatter(canvas, rows, xKey, xLabel, best) {
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  ctx.clearRect(0,0,W,H);
+
+  const padL = 50, padB = 42, padT = 12, padR = 12;
+  const xs = rows.map(r=>r[xKey]).filter(isFinite);
+  const xMax = Math.max(...xs) * 1.15;
+  const xMin = 0;
+  const yMax = 1, yMin = 0;
+
+  // axes
+  ctx.strokeStyle = "#232a34"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, H-padB); ctx.lineTo(W-padR, H-padB); ctx.stroke();
+
+  // gridlines
+  ctx.fillStyle = "#8b98a5"; ctx.font = "11px ui-monospace, monospace";
+  for (let i=0;i<=5;i++) {
+    const y = padT + (H-padT-padB)*(i/5);
+    ctx.strokeStyle = "#1a1f27"; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W-padR, y); ctx.stroke();
+    ctx.fillText(pct(1 - i/5), 6, y+3);
+  }
+  for (let i=0;i<=5;i++) {
+    const x = padL + (W-padL-padR)*(i/5);
+    ctx.strokeStyle = "#1a1f27"; ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, H-padB); ctx.stroke();
+    const val = xMin + (xMax-xMin)*(i/5);
+    ctx.fillText(fmt(val, val < 10 ? 2 : 0), x-14, H-padB+16);
+  }
+
+  ctx.fillStyle = "#8b98a5"; ctx.font = "12px ui-sans-serif, system-ui";
+  ctx.fillText(xLabel, W/2 - 40, H-6);
+  ctx.save(); ctx.translate(14, H/2+30); ctx.rotate(-Math.PI/2); ctx.fillText("Pass rate", 0, 0); ctx.restore();
+
+  // points
+  for (const r of rows) {
+    const model = MODELS.find(m=>m.id===r.model);
+    const x = padL + (W-padL-padR) * (r[xKey] / xMax);
+    const y = padT + (H-padT-padB) * (1 - r.passRate);
+    const size = EFFORT_SIZE[r.effort];
+    if (!isFinite(x)||!isFinite(y)) continue;
+
+    ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI*2);
+    ctx.fillStyle = model.color + (r.thinking ? "aa" : "ff");
+    ctx.fill();
+    if (r.thinking) {
+      ctx.setLineDash([3, 2]); ctx.lineWidth = 2; ctx.strokeStyle = model.color; ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (best && r.model===best.model && r.thinking===best.thinking && r.effort===best.effort) {
+      ctx.beginPath(); ctx.arc(x, y, size+5, 0, Math.PI*2);
+      ctx.strokeStyle = "#7ee787"; ctx.lineWidth = 2.5; ctx.stroke();
+    }
+  }
+}
+
+function drawLegend() {
+  const el = $("legend");
+  el.innerHTML = MODELS.map(m => `<span><span class="swatch" style="background:${m.color}"></span>${m.label} <span class="dim">(${m.pru}× PRU)</span></span>`).join("")
+    + `<span><span class="swatch" style="background:transparent; border:2px dashed #8b98a5"></span>thinking on</span>`
+    + `<span class="dim">marker size = effort (low/med/high)</span>`;
+}
+
+function pickBest(rows) {
+  const viable = rows.filter(r => r.passRate >= 1.0/r.trials + 0.1 && isFinite(r.creditsPerPass));
+  if (viable.length === 0) return rows[0];
+  return viable.reduce((a,b) => a.creditsPerPass < b.creditsPerPass ? a : b);
+}
+function pickFastest(rows) {
+  const viable = rows.filter(r => r.passRate >= 1.0/r.trials + 0.1 && isFinite(r.secondsPerPass));
+  return viable.reduce((a,b)=> a.secondsPerPass < b.secondsPerPass ? a : b, viable[0] || rows[0]);
+}
+function pickAccurate(rows) {
+  return rows.reduce((a,b)=> a.passRate > b.passRate ? a : b);
+}
+
+function renderResults(skill, rows) {
+  const best = pickBest(rows);
+  const fast = pickFastest(rows);
+  const acc  = pickAccurate(rows);
+
+  const bestModel = MODELS.find(m=>m.id===best.model);
+  const totalCredits = rows.reduce((s,r)=>s+r.creditsPerTask*r.trials, 0);
+  const plan = PLANS[$("plan").value];
+  const pctUsed = plan.unit === "credits" ? (totalCredits / plan.credits) * 100 : (rows.reduce((s,r)=>s+r.pruPerTask*r.trials,0) / plan.credits) * 100;
+
+  $("kpiCPS").textContent = fmt(best.creditsPerPass, 2) + " cr";
+  $("kpiCPSMeta").textContent = `${bestModel.label} · think ${best.thinking?"on":"off"} · effort ${best.effort} · ${pct(best.passRate)} pass`;
+  $("kpiSPS").textContent = fmt(fast.secondsPerPass, 1) + "s";
+  $("kpiSPSMeta").textContent = `${MODELS.find(m=>m.id===fast.model).label} · think ${fast.thinking?"on":"off"} · effort ${fast.effort}`;
+  $("kpiPR").textContent = pct(acc.passRate);
+  $("kpiPRMeta").textContent = `${MODELS.find(m=>m.id===acc.model).label} · think ${acc.thinking?"on":"off"} · effort ${acc.effort} · ${fmt(acc.creditsPerPass,2)} cr/pass`;
+  $("kpiRec").textContent = `${bestModel.label}, think ${best.thinking?"on":"off"}, effort ${best.effort}`;
+  const ratio = acc.creditsPerPass > 0 ? (best.creditsPerPass / acc.creditsPerPass) : 1;
+  $("kpiRecMeta").textContent = `${fmt(1/ratio, 2)}× cheaper than best-accuracy option`;
+
+  $("quotaLbl").textContent = plan.unit === "credits"
+    ? `${fmt(totalCredits, 1)} credits / ${plan.credits}`
+    : `${fmt(rows.reduce((s,r)=>s+r.pruPerTask*r.trials,0),1)} PRU / ${plan.credits}`;
+  const qFill = $("quotaFill");
+  const qBar = qFill.parentElement;
+  qFill.style.width = Math.min(100, pctUsed).toFixed(1) + "%";
+  qBar.classList.toggle("warn", pctUsed > 70);
+  $("quotaHint").textContent = pctUsed > 100
+    ? `⚠️ Sweep exceeds monthly ${plan.label} quota by ${(pctUsed-100).toFixed(0)}%. Overage: $0.04/req.`
+    : `Sweep uses ${pctUsed.toFixed(1)}% of monthly ${plan.label} plan.`;
+
+  // table
+  const rowsSorted = [...rows].sort((a,b)=> a.creditsPerPass - b.creditsPerPass);
+  $("grid").querySelector("tbody").innerHTML = rowsSorted.map(r => {
+    const m = MODELS.find(x=>x.id===r.model);
+    const isBest = r === best;
+    const cls = isBest ? "win" : r.passRate < 0.35 ? "bad" : r.passRate < 0.6 ? "warn" : "";
+    return `<tr>
+      <td><span style="display:inline-block;width:8px;height:8px;background:${m.color};border-radius:2px;margin-right:6px"></span>${m.label}</td>
+      <td>${r.thinking ? "on" : "off"}</td>
+      <td>${r.effort}</td>
+      <td class="num"><span class="pill ${cls||""}">${pct(r.passRate)}</span></td>
+      <td class="num">${fmt(r.inTok, 0)}</td>
+      <td class="num">${fmt(r.cachedTok, 0)}</td>
+      <td class="num">${fmt(r.outTok, 0)}</td>
+      <td class="num">${fmt(r.creditsPerTask, 2)}</td>
+      <td class="num">${fmt(r.pruPerTask, 2)}</td>
+      <td class="num"><b>${fmt(r.creditsPerPass, 2)}</b></td>
+      <td class="num">${fmt(r.secondsPerPass, 1)}</td>
+    </tr>`;
+  }).join("");
+
+  // charts
+  drawScatter($("chartCost"), rows, "creditsPerPass", "Credits per success", best);
+  drawScatter($("chartLatency"), rows, "secondsPerPass", "Seconds per success", fast);
+  drawScatter($("chartTokens"), rows, "inTok", "Input tokens per task", best);
+
+  // ledger sample
+  const sampleModel = MODELS.find(m=>m.id===best.model);
+  $("ledgerSample").textContent = JSON.stringify({
+    event: "postToolUse",
+    timestamp: new Date().toISOString(),
+    skill: skill.id,
+    tool: "Task",
+    model: {
+      id: best.model,
+      label: sampleModel.label,
+      thinking: best.thinking,
+      effort: best.effort,
+      pru_multiplier: sampleModel.pru
+    },
+    tokens: {
+      "gen_ai.usage.input_tokens": Math.round(best.inTok),
+      "gen_ai.usage.cache_read.input_tokens": Math.round(best.cachedTok),
+      "gen_ai.usage.output_tokens": Math.round(best.outTok)
+    },
+    cost: {
+      credits: +best.creditsPerTask.toFixed(3),
+      pru: +best.pruPerTask.toFixed(3),
+      usd_equivalent: +(best.creditsPerTask * 0.01).toFixed(4)
+    },
+    result: { pass_rate: +best.passRate.toFixed(2), seconds: +best.secondsPerTask.toFixed(2) },
+    note: "shape mirrors scripts/post-tool-use.mjs; countTokens = ceil(len/4) (estimated)"
+  }, null, 2);
+}
+
+// ---------- init ----------
+function init() {
+  const sel = $("taskSel");
+  sel.innerHTML = SKILLS.map(s => `<option value="${s.id}">${s.id} — ${s.desc}</option>`).join("");
+  sel.value = "code-review";
+
+  $("skillList").innerHTML = SKILLS.map(s =>
+    `<span class="skill-badge" data-skill="${s.id}" style="cursor:pointer" title="${s.desc}">${s.id}</span>`
+  ).join("");
+  $("skillList").addEventListener("click", (e) => {
+    const id = e.target?.dataset?.skill;
+    if (id) { sel.value = id; go(); }
+  });
+
+  drawLegend();
+  $("runBtn").addEventListener("click", go);
+  $("resetBtn").addEventListener("click", () => { sel.value = "code-review"; go(); });
+  ["taskSel","trials","plan","difficulty"].forEach(id => $(id).addEventListener("change", go));
+  window.addEventListener("resize", () => { if (lastRun) renderResults(lastRun.skill, lastRun.rows) });
+  go();
+}
+let lastRun = null;
+function go() {
+  const { skill, rows } = runSweep();
+  lastRun = { skill, rows };
+  renderResults(skill, rows);
+}
+init();
+</script>
+</body>
+</html>
