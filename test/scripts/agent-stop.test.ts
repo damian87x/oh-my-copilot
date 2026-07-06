@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -104,6 +104,33 @@ describe("agent-stop idempotency guard", () => {
     releaseAgentStopMarker({ ...key });
     // The next fire can now re-count value 4 instead of freezing on EEXIST.
     expect(claimAgentStopCounter({ ...key })).toBe(true);
+  });
+
+  it("handleAgentStop rolls back the marker when the counter write fails, so the retry recovers (no freeze)", () => {
+    // root bypasses chmod permission bits, so this cannot exercise a write failure there.
+    if (typeof process.getuid === "function" && process.getuid() === 0) return;
+
+    const { root } = makeFixture();
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 4, sessionId: "s1" });
+    // Pre-create the locks dir so the marker claim still succeeds while only the
+    // counter write is blocked — this reproduces the exact write-failure window.
+    mkdirSync(agentStopLocksDir(root), { recursive: true });
+    const stateDir = path.join(root, ".omp", "state");
+    chmodSync(stateDir, 0o500); // read-only: writeState's tmp write throws EACCES
+
+    try {
+      const out = runAgentStop({ cwd: root, sessionId: "s1" });
+      expect(out.decision).toBe("block"); // still injects the next-turn prompt
+      expect(readJson(ralphFile(root)).iteration).toBe(0); // write failed → not advanced
+      expect(ralphMarkers(root)).toHaveLength(0); // marker rolled back — no stale EEXIST
+    } finally {
+      chmodSync(stateDir, 0o700); // restore so the retry + cleanup can write
+    }
+
+    // With the marker rolled back, the retry re-counts instead of freezing at 0.
+    const recovered = runAgentStop({ cwd: root, sessionId: "s1" });
+    expect(recovered.decision).toBe("block");
+    expect(readJson(ralphFile(root)).iteration).toBe(1);
   });
 
   it("block->patch writes state and markers from repo root and subdirectory payloads", () => {
