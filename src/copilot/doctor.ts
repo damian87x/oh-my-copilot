@@ -361,6 +361,24 @@ function checkMemoryReviewModel(cwd: string | undefined, bin: string): DoctorChe
   });
 }
 
+// A leftover copy under ~/.copilot/installed-plugins registers omp hooks a
+// SECOND time next to the hooks file (~/.copilot/hooks/omp.json). Every hook
+// then fires twice per event, and the stale copy runs old code — its agentStop
+// races the current one and can kill persistence loops early (issue #76).
+function checkDuplicateHookRegistration(paths: CopilotPaths): DoctorCheck {
+  const stalePlugin = join(paths.userScope, "installed-plugins", "oh-my-copilot");
+  if (!existsSync(stalePlugin)) {
+    return { name: "duplicate-hook-registration", status: "pass", detail: "no stale installed-plugin copy" };
+  }
+  return {
+    name: "duplicate-hook-registration",
+    status: "fail",
+    detail:
+      `${stalePlugin} registers omp hooks a second time with stale code (double-fires every hook, ` +
+      `old agentStop can kill loops early) — remove it; hooks are delivered via the hooks file`,
+  };
+}
+
 export function runDoctor(options: DoctorOptions = {}): DoctorReport {
   const paths = resolveCopilotPaths(options);
   const checks: DoctorCheck[] = [
@@ -369,6 +387,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorReport {
     checkInstructions(paths),
     checkSkillsDiscovery(paths),
     checkHooksManifest(paths),
+    checkDuplicateHookRegistration(paths),
   ];
   if (options.checkHooks) {
     checks.push(checkHooksSmoke(paths));

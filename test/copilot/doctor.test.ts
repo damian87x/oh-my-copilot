@@ -18,7 +18,7 @@ function tempProjectWithPlugin() {
 describe("runDoctor", () => {
   it("reports warnings for missing optional pieces in a fresh project", () => {
     const root = tempProjectWithPlugin();
-    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true });
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, copilotHome: root });
     const names = report.checks.map((c) => c.name);
     expect(names).toContain("node-version");
     expect(names).toContain("plugin-manifest");
@@ -51,7 +51,7 @@ describe("runDoctor", () => {
       }),
     );
 
-    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true });
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, copilotHome: root });
     const passing = report.checks.filter((c) => c.status === "pass").map((c) => c.name);
     expect(passing).toContain("plugin-manifest");
     expect(passing).toContain("copilot-instructions");
@@ -65,7 +65,7 @@ describe("runDoctor", () => {
     mkdirSync(path.join(root, "hooks"), { recursive: true });
     writeFileSync(path.join(root, "hooks", "hooks.json"), JSON.stringify({ SessionStart: [] }));
 
-    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true });
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, copilotHome: root });
     const hooks = report.checks.find((c) => c.name === "hooks-manifest");
 
     expect(hooks?.status).toBe("fail");
@@ -79,7 +79,7 @@ describe("runDoctor", () => {
     mkdirSync(path.join(root, "hooks"), { recursive: true });
     writeFileSync(path.join(root, "hooks", "hooks.json"), JSON.stringify({ version: 1, hooks: { Error: [] } }));
 
-    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true });
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, copilotHome: root });
     const hooks = report.checks.find((c) => c.name === "hooks-manifest");
 
     expect(hooks?.status).toBe("fail");
@@ -107,7 +107,7 @@ console.log(JSON.stringify({}));
       JSON.stringify({ version: 1, hooks: { preToolUse: [{ type: "command", bash: `node ${JSON.stringify(hookScript)}` }] } }),
     );
 
-    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, checkHooks: true });
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, checkHooks: true, copilotHome: root });
     const smoke = report.checks.find((c) => c.name === "hooks-smoke");
 
     expect(smoke?.status).toBe("pass");
@@ -138,7 +138,7 @@ console.log(JSON.stringify({}));
       JSON.stringify({ version: 1, hooks: { sessionStart: [{ type: "command", bash: command }] } }),
     );
 
-    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, checkHooks: true });
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, checkHooks: true, copilotHome: root });
     const markerJson = JSON.parse(readFileSync(marker, "utf8"));
 
     expect(report.checks.find((c) => c.name === "hooks-smoke")?.status).toBe("pass");
@@ -156,7 +156,7 @@ console.log(JSON.stringify({}));
       JSON.stringify({ version: 1, hooks: { preToolUse: [{ type: "command", bash: `node ${JSON.stringify(hookScript)}` }] } }),
     );
 
-    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, checkHooks: true });
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, checkHooks: true, copilotHome: root });
     const smoke = report.checks.find((c) => c.name === "hooks-smoke");
 
     expect(smoke?.status).toBe("fail");
@@ -167,10 +167,35 @@ console.log(JSON.stringify({}));
   it("fails when plugin manifest is missing", () => {
     const project = mkdtempSync(path.join(tmpdir(), "omc-copilot-doctor-noplugin-"));
     writeFileSync(path.join(project, "package.json"), '{"name":"tmp"}');
-    const report = runDoctor({ cwd: project, pluginRoot: project, skipCopilot: true });
+    const report = runDoctor({ cwd: project, pluginRoot: project, skipCopilot: true, copilotHome: project });
     const manifest = report.checks.find((c) => c.name === "plugin-manifest");
     expect(manifest?.status).toBe("fail");
     expect(report.ok).toBe(false);
+  });
+
+  // Issue #76 root cause: a stale copy under ~/.copilot/installed-plugins
+  // registers omp hooks a second time — every hook fires twice and the old
+  // agentStop code kills loops early.
+  it("fails when a stale installed-plugins copy registers hooks a second time", () => {
+    const root = tempProjectWithPlugin();
+    const home = mkdtempSync(path.join(tmpdir(), "omc-copilot-home-"));
+    mkdirSync(path.join(home, "installed-plugins", "oh-my-copilot", "oh-my-copilot"), { recursive: true });
+
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, copilotHome: home });
+
+    const check = report.checks.find((c) => c.name === "duplicate-hook-registration");
+    expect(check?.status).toBe("fail");
+    expect(check?.detail).toContain("installed-plugins");
+    expect(report.ok).toBe(false);
+  });
+
+  it("passes duplicate-hook-registration when no installed-plugins copy exists", () => {
+    const root = tempProjectWithPlugin();
+    const home = mkdtempSync(path.join(tmpdir(), "omc-copilot-home-"));
+
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, copilotHome: home });
+
+    expect(report.checks.find((c) => c.name === "duplicate-hook-registration")?.status).toBe("pass");
   });
 
   it("reports failure when copilot binary is unavailable", () => {
@@ -179,6 +204,7 @@ console.log(JSON.stringify({}));
       cwd: root,
       pluginRoot: root,
       copilotBin: "definitely-not-a-real-binary-xyz",
+      copilotHome: root,
     });
     const copilot = report.checks.find((c) => c.name === "copilot-cli");
     expect(copilot?.status).toBe("fail");
@@ -202,14 +228,14 @@ describe("memory-review-model deep check", () => {
 
   it("is absent without --deep", () => {
     const root = tempProjectWithPlugin();
-    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true });
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, copilotHome: root });
     expect(report.checks.map((c) => c.name)).not.toContain("memory-review-model");
   });
 
   it("is skipped (pass) when memory-mode is off", async () => {
     await withHome(() => {
       const root = tempProjectWithPlugin();
-      const report = runDoctor({ cwd: root, pluginRoot: root, deepCheck: true, copilotBin: "definitely-not-real-xyz" });
+      const report = runDoctor({ cwd: root, pluginRoot: root, deepCheck: true, copilotBin: "definitely-not-real-xyz", copilotHome: root });
       const check = report.checks.find((c) => c.name === "memory-review-model");
       expect(check?.status).toBe("pass");
       expect(check?.detail).toContain("skipped");
@@ -220,7 +246,7 @@ describe("memory-review-model deep check", () => {
     await withHome((home) => {
       const root = tempProjectWithPlugin();
       setMemoryConfigValue(root, "memoryMode", "on", { scope: "global", homeDir: home });
-      const report = runDoctor({ cwd: root, pluginRoot: root, deepCheck: true, copilotBin: "definitely-not-real-xyz" });
+      const report = runDoctor({ cwd: root, pluginRoot: root, deepCheck: true, copilotBin: "definitely-not-real-xyz", copilotHome: root });
       const check = report.checks.find((c) => c.name === "memory-review-model");
       // The model probe never hard-fails (warn, not fail), so it alone never
       // flips report.ok. (copilot-cli fails separately on the fake bin here.)
