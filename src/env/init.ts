@@ -221,7 +221,11 @@ export async function runEnvInit(opts: InitOptions): Promise<InitResult> {
   const session = collected.copilotTmuxSession.trim();
   const users = collected.slackAllowedUsers.trim();
   const homeChannel = collected.slackHomeChannel.trim();
-  if (!users) {
+  // Reject allowlists that are non-empty as typed but parse to nothing (e.g. ",,,"
+  // or " , "), which would otherwise be written to .env only for loadSlackConfig to
+  // reject at gateway start — misleading the operator into thinking access is set up.
+  const parsedUsers = users === "*" ? ["*"] : users.split(",").map((s) => s.trim()).filter(Boolean);
+  if (parsedUsers.length === 0) {
     return {
       ok: false,
       path,

@@ -162,6 +162,24 @@ describe("runEnvInit (non-interactive / answers path)", () => {
     expect(r.reason).toMatch(/SLACK_ALLOWED_USERS=.*\*/);
   });
 
+  it("rejects a semantically-empty SLACK_ALLOWED_USERS that parses to nothing", async () => {
+    const io: InitIO = { print: () => {}, ask: async () => undefined };
+    for (const allow of [",,,", " , "]) {
+      const r = await runEnvInit({
+        io,
+        homeDir: home,
+        answers: {
+          slackBotToken: "xoxb-x",
+          slackAppToken: "xapp-x",
+          copilotTmuxSession: "",
+          slackAllowedUsers: allow,
+        },
+      });
+      expect(r.ok).toBe(false);
+      expect(r.reason).toMatch(/SLACK_ALLOWED_USERS=.*\*/);
+    }
+  });
+
   it("non-interactive: refuses to overwrite an existing file without --force", async () => {
     const io: InitIO = { print: () => {}, ask: async () => undefined };
     const first = await runEnvInit({
