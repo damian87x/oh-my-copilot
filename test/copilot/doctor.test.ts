@@ -179,7 +179,9 @@ console.log(JSON.stringify({}));
   it("fails when a stale installed-plugins copy registers hooks a second time", () => {
     const root = tempProjectWithPlugin();
     const home = mkdtempSync(path.join(tmpdir(), "omc-copilot-home-"));
-    mkdirSync(path.join(home, "installed-plugins", "oh-my-copilot", "oh-my-copilot"), { recursive: true });
+    const nested = path.join(home, "installed-plugins", "oh-my-copilot", "oh-my-copilot", "hooks");
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(path.join(nested, "hooks.json"), '{"version":1,"hooks":{}}');
 
     const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, copilotHome: home });
 
@@ -187,6 +189,18 @@ console.log(JSON.stringify({}));
     expect(check?.status).toBe("fail");
     expect(check?.detail).toContain("installed-plugins");
     expect(report.ok).toBe(false);
+  });
+
+  it("warns (not fails) on an inert installed-plugins leftover with no hooks manifest", () => {
+    const root = tempProjectWithPlugin();
+    const home = mkdtempSync(path.join(tmpdir(), "omc-copilot-home-"));
+    mkdirSync(path.join(home, "installed-plugins", "oh-my-copilot", "leftover"), { recursive: true });
+
+    const report = runDoctor({ cwd: root, pluginRoot: root, skipCopilot: true, copilotHome: home });
+
+    const check = report.checks.find((c) => c.name === "duplicate-hook-registration");
+    expect(check?.status).toBe("warn");
+    expect(report.ok).toBe(true);
   });
 
   it("passes duplicate-hook-registration when no installed-plugins copy exists", () => {

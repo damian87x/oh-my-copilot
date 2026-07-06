@@ -208,7 +208,11 @@ export function handleAgentStop(raw, env = process.env) {
   }
 
   const dedupeRaw = Number(env.OMP_AGENTSTOP_DEDUPE_MS ?? DEDUPE_WINDOW_MS_DEFAULT);
-  const dedupeWindowMs = Number.isFinite(dedupeRaw) && dedupeRaw >= 0 ? dedupeRaw : DEDUPE_WINDOW_MS_DEFAULT;
+  const windowMs = Number.isFinite(dedupeRaw) && dedupeRaw >= 0 ? dedupeRaw : DEDUPE_WINDOW_MS_DEFAULT;
+  // No replay without a real session identity: parseHookInput defaults a missing
+  // sessionId to "unknown", and two anonymous stops in the same project must not
+  // replay each other's decision.
+  const dedupeWindowMs = sessionId && sessionId !== "unknown" ? windowMs : 0;
   if (dedupeWindowMs > 0) {
     const replay = readRecentDecision(directory, sessionId, dedupeWindowMs);
     if (replay) {

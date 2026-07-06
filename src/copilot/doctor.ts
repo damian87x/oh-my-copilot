@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -369,6 +369,21 @@ function checkDuplicateHookRegistration(paths: CopilotPaths): DoctorCheck {
   const stalePlugin = join(paths.userScope, "installed-plugins", "oh-my-copilot");
   if (!existsSync(stalePlugin)) {
     return { name: "duplicate-hook-registration", status: "pass", detail: "no stale installed-plugin copy" };
+  }
+  // Only a copy that ships a hooks manifest actually re-registers hooks; an
+  // inert leftover directory just deserves cleanup guidance, not a hard fail.
+  const manifests = [join(stalePlugin, "hooks", "hooks.json")];
+  try {
+    for (const name of readdirSync(stalePlugin)) manifests.push(join(stalePlugin, name, "hooks", "hooks.json"));
+  } catch {
+    // unreadable — treat as inert
+  }
+  if (!manifests.some((p) => existsSync(p))) {
+    return {
+      name: "duplicate-hook-registration",
+      status: "warn",
+      detail: `${stalePlugin} is a leftover directory (no hooks manifest inside) — safe to remove`,
+    };
   }
   return {
     name: "duplicate-hook-registration",

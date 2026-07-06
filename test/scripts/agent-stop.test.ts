@@ -448,6 +448,16 @@ describe("agent-stop duplicate-fire dedupe", () => {
     }
   });
 
+  it("does not replay for a missing/unknown sessionId (two anonymous stops both compute)", () => {
+    const { root } = makeFixture();
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 4 });
+
+    expect(runAgentStop({ cwd: root }, DEDUPE_ENV).decision).toBe("block");
+    expect(runAgentStop({ cwd: root }, DEDUPE_ENV).decision).toBe("block");
+
+    expect(readJson(ralphFile(root)).iteration).toBe(2);
+  });
+
   it("a corrupt decision cache fails open to normal processing", () => {
     const { root } = makeFixture();
     startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 4, sessionId: "s1" });
