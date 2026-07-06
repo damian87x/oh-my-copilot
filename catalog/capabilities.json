@@ -1000,6 +1000,29 @@
           "notes": "Use /teach from .github/skills/teach/SKILL.md."
         }
       }
+    },
+    {
+      "id": "routing-bench",
+      "name": "routing-bench",
+      "title": "Skill-routing benchmark",
+      "category": "meta",
+      "summary": "Build or refresh the skill-routing benchmark dataset and score routing accuracy.",
+      "notes": "Flexible sourcing: real usage history when present; repository-derived prompts on new installs (asks the user which repo).",
+      "defaultCommand": "routing-bench",
+      "phase1": true,
+      "sourceSkill": "routing-bench",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /routing-bench from .github/skills/routing-bench/SKILL.md."
+        }
+      }
     }
   ]
 }

@@ -604,6 +604,31 @@
       },
       "projection": "project-skill",
       "phase1": true
+    },
+    {
+      "name": "routing-bench",
+      "capabilityId": "routing-bench",
+      "capabilityIds": [
+        "routing-bench"
+      ],
+      "source": ".github/skills/routing-bench/SKILL.md",
+      "sourcePath": ".github/skills/routing-bench/SKILL.md",
+      "canonicalPath": ".github/skills/routing-bench/SKILL.md",
+      "description": "Build or refresh the skill-routing benchmark dataset and score routing accuracy.",
+      "summary": "Build or refresh the skill-routing benchmark dataset and score routing accuracy.",
+      "support": "project-skill",
+      "aliases": [],
+      "slashCommands": [
+        "routing-bench"
+      ],
+      "projections": {
+        "copilot": {
+          "command": "/routing-bench",
+          "state": "supported"
+        }
+      },
+      "projection": "project-skill",
+      "phase1": true
     }
   ]
 }

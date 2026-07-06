@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "description": "Labeled routing prompts: expected = skill that should handle the prompt ('none' = no skill should fire). kind: direct = obvious phrasing, paraphrase = no signature keywords, ambiguous = plausibly matches a sibling skill (hardest). Improvised corpus — no real usage history existed when authored (2026-07-05).",
+  "cases": [
+    { "id": "caveman-1", "kind": "direct", "expected": "caveman", "prompt": "answer in as few tokens as possible from now on" },
+    { "id": "caveman-2", "kind": "paraphrase", "expected": "caveman", "prompt": "stop being wordy, compress every reply" },
+    { "id": "caveman-3", "kind": "ambiguous", "expected": "caveman", "prompt": "keep your responses short" },
+
+    { "id": "code-review-1", "kind": "direct", "expected": "code-review", "prompt": "review this PR before I merge it" },
+    { "id": "code-review-2", "kind": "paraphrase", "expected": "code-review", "prompt": "look over my diff and flag anything risky or out of scope" },
+    { "id": "code-review-3", "kind": "ambiguous", "expected": "code-review", "prompt": "can you check my changes" },
+
+    { "id": "create-skill-1", "kind": "direct", "expected": "create-skill", "prompt": "create a new skill that formats SQL files" },
+    { "id": "create-skill-2", "kind": "paraphrase", "expected": "create-skill", "prompt": "I want to add a custom slash command that scaffolds React components" },
+    { "id": "create-skill-3", "kind": "ambiguous", "expected": "create-skill", "prompt": "extend the agent with a reusable capability" },
+
+    { "id": "daily-log-1", "kind": "direct", "expected": "daily-log", "prompt": "log what we did today in the daily log" },
+    { "id": "daily-log-2", "kind": "paraphrase", "expected": "daily-log", "prompt": "note today's progress in the project journal" },
+    { "id": "daily-log-3", "kind": "ambiguous", "expected": "daily-log", "prompt": "let's wrap up — record where we got to" },
+
+    { "id": "debug-1", "kind": "direct", "expected": "debug", "prompt": "this test is failing, figure out why and fix it" },
+    { "id": "debug-2", "kind": "paraphrase", "expected": "debug", "prompt": "the app crashes on startup since yesterday" },
+    { "id": "debug-3", "kind": "ambiguous", "expected": "debug", "prompt": "something is off with the output, it used to work" },
+
+    { "id": "goal-1", "kind": "direct", "expected": "goal", "prompt": "set the north star goal for this repo" },
+    { "id": "goal-2", "kind": "paraphrase", "expected": "goal", "prompt": "what are we trying to achieve in this project" },
+    { "id": "goal-3", "kind": "ambiguous", "expected": "goal", "prompt": "define our long-term objective" },
+
+    { "id": "grill-me-1", "kind": "direct", "expected": "grill-me", "prompt": "grill me with clarifying questions before you start" },
+    { "id": "grill-me-2", "kind": "paraphrase", "expected": "grill-me", "prompt": "interview me about this idea until the ambiguity is gone" },
+    { "id": "grill-me-3", "kind": "ambiguous", "expected": "grill-me", "prompt": "make sure you actually understand what I want first" },
+
+    { "id": "jira-ticket-1", "kind": "direct", "expected": "jira-ticket", "prompt": "create a jira ticket for this work" },
+    { "id": "jira-ticket-2", "kind": "paraphrase", "expected": "jira-ticket", "prompt": "prepare a payload for the sprint board with a safe dry run" },
+    { "id": "jira-ticket-3", "kind": "ambiguous", "expected": "jira-ticket", "prompt": "we need to track this for handoff" },
+
+    { "id": "omp-autopilot-1", "kind": "direct", "expected": "omp-autopilot", "prompt": "take this feature from research to verified implementation autonomously" },
+    { "id": "omp-autopilot-2", "kind": "paraphrase", "expected": "omp-autopilot", "prompt": "handle the whole thing end to end: research, plan, build, review, verify" },
+    { "id": "omp-autopilot-3", "kind": "ambiguous", "expected": "omp-autopilot", "prompt": "just build the whole feature for me" },
+
+    { "id": "ponytail-1", "kind": "direct", "expected": "ponytail", "prompt": "stop over-engineering, give me the simplest thing that works" },
+    { "id": "ponytail-2", "kind": "paraphrase", "expected": "ponytail", "prompt": "yagni — do less, no extra abstractions" },
+    { "id": "ponytail-3", "kind": "ambiguous", "expected": "ponytail", "prompt": "this solution feels bloated" },
+
+    { "id": "prototype-1", "kind": "direct", "expected": "prototype", "prompt": "build a disposable prototype to test whether this data model holds up" },
+    { "id": "prototype-2", "kind": "paraphrase", "expected": "prototype", "prompt": "spike something throwaway so we can answer the layout question" },
+    { "id": "prototype-3", "kind": "ambiguous", "expected": "prototype", "prompt": "try something quick before we commit to the design" },
+
+    { "id": "qa-browse-1", "kind": "direct", "expected": "qa-browse", "prompt": "open the site in a real browser and check the signup flow works" },
+    { "id": "qa-browse-2", "kind": "paraphrase", "expected": "qa-browse", "prompt": "click through checkout and confirm each page loads" },
+    { "id": "qa-browse-3", "kind": "ambiguous", "expected": "qa-browse", "prompt": "QA the web app for me" },
+
+    { "id": "ralph-1", "kind": "direct", "expected": "ralph", "prompt": "keep working on this one task in a loop until it is actually done" },
+    { "id": "ralph-2", "kind": "paraphrase", "expected": "ralph", "prompt": "iterate on the fix until the tests pass, do not stop at the first attempt" },
+    { "id": "ralph-3", "kind": "ambiguous", "expected": "ralph", "prompt": "just get it done, whatever it takes" },
+
+    { "id": "ralplan-1", "kind": "direct", "expected": "ralplan", "prompt": "write an implementation-ready plan with risks and acceptance criteria" },
+    { "id": "ralplan-2", "kind": "paraphrase", "expected": "ralplan", "prompt": "break this down into ordered slices before we touch code" },
+    { "id": "ralplan-3", "kind": "ambiguous", "expected": "ralplan", "prompt": "how should we approach this change" },
+
+    { "id": "research-codebase-1", "kind": "direct", "expected": "research-codebase", "prompt": "research how auth works in this codebase and write up a document" },
+    { "id": "research-codebase-2", "kind": "paraphrase", "expected": "research-codebase", "prompt": "do a deep dive into the payment module and document the architecture" },
+    { "id": "research-codebase-3", "kind": "ambiguous", "expected": "research-codebase", "prompt": "figure out how this subsystem actually works" },
+
+    { "id": "schedule-1", "kind": "direct", "expected": "schedule", "prompt": "check the PR status every 15 minutes on a schedule" },
+    { "id": "schedule-2", "kind": "paraphrase", "expected": "schedule", "prompt": "re-run this prompt every morning even after a reboot" },
+    { "id": "schedule-3", "kind": "ambiguous", "expected": "schedule", "prompt": "keep an eye on the deploy for me" },
+
+    { "id": "self-evolve-1", "kind": "direct", "expected": "self-evolve", "prompt": "capture the correction patterns from this session and draft a skill from them" },
+    { "id": "self-evolve-2", "kind": "paraphrase", "expected": "self-evolve", "prompt": "turn the feedback I kept giving you into a reusable project skill" },
+    { "id": "self-evolve-3", "kind": "ambiguous", "expected": "self-evolve", "prompt": "remember how I like things done for next time" },
+
+    { "id": "slack-1", "kind": "direct", "expected": "slack", "prompt": "/slack deploy finished, all green" },
+    { "id": "slack-neg-1", "kind": "ambiguous", "expected": "none", "prompt": "tell slack the deploy finished" },
+
+    { "id": "tdd-1", "kind": "direct", "expected": "tdd", "prompt": "add this feature test-first with red-green-refactor" },
+    { "id": "tdd-2", "kind": "paraphrase", "expected": "tdd", "prompt": "write the failing tests first, then make them pass" },
+    { "id": "tdd-3", "kind": "ambiguous", "expected": "tdd", "prompt": "make sure the new behavior is properly tested" },
+
+    { "id": "teach-1", "kind": "direct", "expected": "teach", "prompt": "teach me rust over the next few weeks in short lessons" },
+    { "id": "teach-2", "kind": "paraphrase", "expected": "teach", "prompt": "I want ongoing multi-session lessons on distributed systems" },
+    { "id": "teach-3", "kind": "ambiguous", "expected": "teach", "prompt": "help me learn this topic over time" },
+
+    { "id": "team-1", "kind": "direct", "expected": "team", "prompt": "split the approved plan across parallel tmux panes so I can watch the agents" },
+    { "id": "team-2", "kind": "paraphrase", "expected": "team", "prompt": "run these workstreams concurrently where I can see each worker" },
+    { "id": "team-3", "kind": "ambiguous", "expected": "team", "prompt": "divide and conquer this plan" },
+
+    { "id": "ultraqa-1", "kind": "direct", "expected": "ultraqa", "prompt": "run an adversarial QA pass for regressions and edge cases" },
+    { "id": "ultraqa-2", "kind": "paraphrase", "expected": "ultraqa", "prompt": "try to break what I just built" },
+    { "id": "ultraqa-3", "kind": "ambiguous", "expected": "ultraqa", "prompt": "is this actually solid?" },
+
+    { "id": "ultrawork-1", "kind": "direct", "expected": "ultrawork", "prompt": "fix all 200 lint errors across the repo as a batch" },
+    { "id": "ultrawork-2", "kind": "paraphrase", "expected": "ultrawork", "prompt": "apply the same small change to many files" },
+    { "id": "ultrawork-3", "kind": "ambiguous", "expected": "ultrawork", "prompt": "there are lots of little independent tasks piled up" },
+
+    { "id": "verify-1", "kind": "direct", "expected": "verify", "prompt": "prove the thing you just claimed is done, with fresh evidence" },
+    { "id": "verify-2", "kind": "paraphrase", "expected": "verify", "prompt": "show me it actually works before you say done" },
+    { "id": "verify-3", "kind": "ambiguous", "expected": "verify", "prompt": "done? really?" },
+
+    { "id": "verify-byok-1", "kind": "direct", "expected": "verify-byok", "prompt": "run the live BYOK end-to-end check before merging this hooks PR" },
+    { "id": "verify-byok-2", "kind": "paraphrase", "expected": "verify-byok", "prompt": "drive the omp change on a real model and capture evidence" },
+    { "id": "verify-byok-3", "kind": "ambiguous", "expected": "verify-byok", "prompt": "do a full end-to-end check of the change" },
+
+    { "id": "weighted-consensus-1", "kind": "direct", "expected": "weighted-consensus", "prompt": "fan this question out to several models and synthesize a weighted verdict" },
+    { "id": "weighted-consensus-2", "kind": "paraphrase", "expected": "weighted-consensus", "prompt": "get a multi-model second opinion with a minority report" },
+    { "id": "weighted-consensus-3", "kind": "ambiguous", "expected": "weighted-consensus", "prompt": "which of these two options should we pick" },
+
+    { "id": "worktree-1", "kind": "direct", "expected": "worktree", "prompt": "set up a git worktree so I can work on both branches at once" },
+    { "id": "worktree-2", "kind": "paraphrase", "expected": "worktree", "prompt": "start the new ticket without switching my current branch" },
+    { "id": "worktree-3", "kind": "ambiguous", "expected": "worktree", "prompt": "check out that PR locally so I can poke at it" },
+
+    { "id": "none-1", "kind": "ambiguous", "expected": "none", "prompt": "what time is it in Tokyo" },
+    { "id": "none-2", "kind": "ambiguous", "expected": "none", "prompt": "rename this variable to snake_case" }
+  ]
+}
