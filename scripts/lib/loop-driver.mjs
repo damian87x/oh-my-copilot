@@ -10,6 +10,38 @@ export const LOOP_MODES = [
   { key: "ultrawork", sentinel: "ULTRAWORK_COMPLETE", counter: "iteration", max: "maxIterations", defMax: 20, unit: "ITERATION" },
 ];
 
+// Copilot transcripts are events.jsonl; only assistant.message content is the
+// model's own output. The hook's injected continuation prompt flows back inside
+// user.message events and must not be scanned for completion sentinels (#75).
+// Plain-text transcripts (no parseable events) pass through unchanged.
+export function extractAssistantText(tailText = "") {
+  let sawEvent = false;
+  const chunks = [];
+  for (const line of String(tailText).split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    let event;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue; // tail read can cut the first line mid-JSON — skip it
+    }
+    if (!event || typeof event.type !== "string") continue;
+    sawEvent = true;
+    if (event.type === "assistant.message" && typeof event.data?.content === "string") {
+      chunks.push(event.data.content);
+    }
+  }
+  return sawEvent ? chunks.join("\n") : String(tailText);
+}
+
+// The sentinel counts only on its own line: the injected continuation prompt
+// quotes it mid-sentence ("output the exact token RALPH_COMPLETE on its own
+// line") and would otherwise match itself on the next stop (#75).
+function sentinelSeen(transcriptText, sentinel) {
+  return new RegExp(`^\\s*${sentinel}\\s*$`, "m").test(transcriptText);
+}
+
 /**
  * @param {Record<string, any>} states  e.g. { ralph: {active, iteration, maxIterations}, ... }
  * @param {string} transcriptText        recent transcript text to scan for a completion sentinel
@@ -21,7 +53,7 @@ export function decideLoop(states = {}, transcriptText = "") {
     if (!s || !s.active) continue;
 
     // The model signals completion by emitting the sentinel token — let it stop.
-    if (transcriptText.includes(m.sentinel)) {
+    if (sentinelSeen(transcriptText, m.sentinel)) {
       return { decision: "allow", clear: m.key, reason: `${m.key} complete (sentinel seen)` };
     }
 

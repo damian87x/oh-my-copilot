@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 // @ts-expect-error — plain .mjs hook helper, no types
-import { decideLoop } from "../../scripts/lib/loop-driver.mjs";
+import { decideLoop, extractAssistantText } from "../../scripts/lib/loop-driver.mjs";
 
 describe("decideLoop", () => {
   it("allows a normal stop when no loop is active", () => {
@@ -84,5 +84,64 @@ describe("decideLoop", () => {
       "",
     );
     expect(r.reason).toContain("RALPH");
+  });
+
+  // Issue #75: the hook's own injected continuation prompt quotes the sentinel
+  // mid-sentence and flows back through the transcript on the next stop — it
+  // must never count as completion.
+  it("does not treat the injected continuation instruction as completion", () => {
+    const injected =
+      "[RALPH ITERATION 1/3] Not finished. Continue the task. " +
+      "When ALL acceptance criteria pass, output the exact token RALPH_COMPLETE on its own line.";
+    const r = decideLoop({ ralph: { active: true, iteration: 1, maxIterations: 3 } }, injected);
+    expect(r.decision).toBe("block");
+    expect(r.patch).toEqual({ mode: "ralph", counter: "iteration", value: 2 });
+  });
+
+  it("matches the sentinel only on its own line", () => {
+    const state = () => ({ ralph: { active: true, iteration: 1, maxIterations: 10 } });
+    expect(decideLoop(state(), "mentioning RALPH_COMPLETE mid-sentence").decision).toBe("block");
+    expect(decideLoop(state(), "prefix RALPH_COMPLETED\n").decision).toBe("block");
+    expect(decideLoop(state(), "done\n  RALPH_COMPLETE  \nmore").decision).toBe("allow");
+    expect(decideLoop(state(), "RALPH_COMPLETE").decision).toBe("allow");
+  });
+});
+
+describe("extractAssistantText", () => {
+  it("returns only assistant.message content from an events.jsonl tail", () => {
+    const tail = [
+      JSON.stringify({
+        type: "user.message",
+        data: {
+          content: "go",
+          transformedContent:
+            "[RALPH ITERATION 1/3] output the exact token RALPH_COMPLETE on its own line.",
+        },
+      }),
+      JSON.stringify({ type: "assistant.message", data: { content: "step one done" } }),
+      JSON.stringify({ type: "assistant.turn_end", data: {} }),
+      JSON.stringify({ type: "assistant.message", data: { content: "all good\nRALPH_COMPLETE" } }),
+    ].join("\n");
+    expect(extractAssistantText(tail)).toBe("step one done\nall good\nRALPH_COMPLETE");
+  });
+
+  it("passes plain-text transcripts through unchanged", () => {
+    expect(extractAssistantText("did the work\nRALPH_COMPLETE\n")).toBe("did the work\nRALPH_COMPLETE\n");
+  });
+
+  it("skips a partial first line from the tail cut and non-JSON noise", () => {
+    const tail =
+      '"content": "truncated head"}\n' +
+      "not json\n" +
+      JSON.stringify({ type: "assistant.message", data: { content: "hello" } });
+    expect(extractAssistantText(tail)).toBe("hello");
+  });
+
+  it("returns empty text when events exist but none are assistant messages", () => {
+    const tail = JSON.stringify({
+      type: "user.message",
+      data: { content: "go", transformedContent: "RALPH_COMPLETE" },
+    });
+    expect(extractAssistantText(tail)).toBe("");
   });
 });

@@ -20,7 +20,12 @@ function makeFixture() {
 }
 
 function runAgentStop(payload: Record<string, unknown>, env: Record<string, string> = {}) {
-  return handleAgentStop(JSON.stringify(payload), env) as { decision: "allow" | "block"; reason?: string };
+  // Tests fire stops back-to-back to simulate whole turns, so the duplicate-fire
+  // dedupe window is disabled by default; dedupe tests opt back in explicitly.
+  return handleAgentStop(JSON.stringify(payload), { OMP_AGENTSTOP_DEDUPE_MS: "0", ...env }) as {
+    decision: "allow" | "block";
+    reason?: string;
+  };
 }
 
 function readJson(file: string) {
@@ -274,5 +279,137 @@ describe("agent-stop idempotency guard", () => {
 
     expect(markerNames(root)).not.toContain("agentstop-ralph-stale-1-1");
     expect(markerNames(root)).toContain("agentstop-ultraqa-stale-1-1");
+  });
+});
+
+// Issue #75: the transcript is Copilot's events.jsonl; the injected continuation
+// prompt flows back inside user.message events and must not read as completion.
+describe("agent-stop transcript sentinel scanning", () => {
+  function writeEvents(root: string, events: Array<Record<string, unknown>>) {
+    const transcript = path.join(root, "events.jsonl");
+    writeFileSync(transcript, events.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
+    return transcript;
+  }
+
+  it("ignores the injected instruction inside user.message events and keeps looping", () => {
+    const { root } = makeFixture();
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 3, sessionId: "s1" });
+    const transcript = writeEvents(root, [
+      {
+        type: "user.message",
+        data: {
+          content: "go",
+          transformedContent:
+            "[RALPH ITERATION 1/3] Not finished. Continue the task. " +
+            "When ALL acceptance criteria pass, output the exact token RALPH_COMPLETE on its own line.",
+        },
+      },
+      { type: "assistant.message", data: { content: "still working on step 2" } },
+    ]);
+
+    const out = runAgentStop({ cwd: root, sessionId: "s1", transcriptPath: transcript });
+
+    expect(out.decision).toBe("block");
+    expect(readJson(ralphFile(root))).toMatchObject({ active: true, iteration: 1 });
+  });
+
+  it("clears the loop when the assistant outputs the sentinel on its own line", () => {
+    const { root } = makeFixture();
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 3, sessionId: "s1" });
+    const transcript = writeEvents(root, [
+      { type: "assistant.message", data: { content: "all criteria pass\nRALPH_COMPLETE" } },
+    ]);
+
+    const out = runAgentStop({ cwd: root, sessionId: "s1", transcriptPath: transcript });
+
+    expect(out.decision).toBe("allow");
+    expect(readJson(ralphFile(root)).active).toBe(false);
+  });
+
+  it("does not clear when the assistant only mentions the sentinel mid-sentence", () => {
+    const { root } = makeFixture();
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 3, sessionId: "s1" });
+    const transcript = writeEvents(root, [
+      { type: "assistant.message", data: { content: "I will output RALPH_COMPLETE when done" } },
+    ]);
+
+    const out = runAgentStop({ cwd: root, sessionId: "s1", transcriptPath: transcript });
+
+    expect(out.decision).toBe("block");
+    expect(readJson(ralphFile(root))).toMatchObject({ active: true, iteration: 1 });
+  });
+});
+
+// Issue #76: Copilot 1.0.68 fires every hook twice (~50ms apart, same session).
+// A duplicate fire inside the dedupe window must replay the first decision
+// verbatim instead of recomputing against already-advanced state.
+describe("agent-stop duplicate-fire dedupe", () => {
+  const DEDUPE_ENV = { OMP_AGENTSTOP_DEDUPE_MS: "3000" };
+
+  it("replays the first decision for a duplicate fire within the window", () => {
+    const { root } = makeFixture();
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 4, sessionId: "s1" });
+
+    const first = runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV);
+    const second = runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV);
+
+    expect(first.decision).toBe("block");
+    expect(second).toEqual(first); // identical decision AND injected reason
+    expect(readJson(ralphFile(root)).iteration).toBe(1); // counted once, not twice
+    const log = readFileSync(path.join(root, ".omp", "state", "hooks.log"), "utf8");
+    expect(log).toContain('"deduped":true');
+  });
+
+  it("replays an allow decision too, so a duplicate cannot resurrect or re-drive the loop", () => {
+    const { root } = makeFixture();
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 3, sessionId: "s1" });
+    const transcript = path.join(root, "events.jsonl");
+    writeFileSync(
+      transcript,
+      JSON.stringify({ type: "assistant.message", data: { content: "RALPH_COMPLETE" } }) + "\n",
+      "utf8",
+    );
+
+    const first = runAgentStop({ cwd: root, sessionId: "s1", transcriptPath: transcript }, DEDUPE_ENV);
+    const second = runAgentStop({ cwd: root, sessionId: "s1", transcriptPath: transcript }, DEDUPE_ENV);
+
+    expect(first.decision).toBe("allow");
+    expect(second.decision).toBe("allow");
+    expect(readJson(ralphFile(root)).active).toBe(false);
+  });
+
+  it("does not dedupe distinct stops outside the window", () => {
+    vi.useFakeTimers();
+    const { root } = makeFixture();
+    vi.setSystemTime(new Date("2026-07-06T00:00:00.000Z"));
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 4, sessionId: "s1" });
+
+    expect(runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV).decision).toBe("block");
+    vi.setSystemTime(new Date("2026-07-06T00:00:10.000Z"));
+    expect(runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV).decision).toBe("block");
+
+    expect(readJson(ralphFile(root)).iteration).toBe(2);
+  });
+
+  it("does not dedupe across different sessions", () => {
+    const { root } = makeFixture();
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 4, sessionId: "s1" });
+
+    expect(runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV).decision).toBe("block");
+    expect(runAgentStop({ cwd: root, sessionId: "s2" }, DEDUPE_ENV).decision).toBe("block");
+
+    expect(readJson(ralphFile(root)).iteration).toBe(2);
+  });
+
+  it("a corrupt decision cache fails open to normal processing", () => {
+    const { root } = makeFixture();
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 4, sessionId: "s1" });
+    mkdirSync(agentStopLocksDir(root), { recursive: true });
+    writeFileSync(path.join(agentStopLocksDir(root), "agentstop-decision-s1.json"), "not json", "utf8");
+
+    const out = runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV);
+
+    expect(out.decision).toBe("block");
+    expect(readJson(ralphFile(root)).iteration).toBe(1);
   });
 });

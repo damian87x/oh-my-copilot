@@ -20,12 +20,16 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readStdin } from "./lib/stdin.mjs";
 import { buildStopDecisionOutput, appendHookLog, printStopDecision } from "./lib/hook-output.mjs";
-import { decideLoop, LOOP_MODES } from "./lib/loop-driver.mjs";
+import { decideLoop, extractAssistantText, LOOP_MODES } from "./lib/loop-driver.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
 import { parseHookInput } from "./lib/hook-input.mjs";
 
 const HOOK_NAME = "agentStop";
 const TRANSCRIPT_TAIL_BYTES = 64 * 1024;
+// Copilot CLI 1.0.68 fires every hook twice ~50ms apart (#76). Real consecutive
+// stops are separated by a full model turn (seconds), so a short replay window
+// distinguishes duplicates from genuine next stops.
+const DEDUPE_WINDOW_MS_DEFAULT = 3000;
 
 // Unified-root invariant: loop state is always read/written under ompRoot(cwd)
 // so the CLI and hooks patch the same counter file from repository subdirs.
@@ -116,6 +120,37 @@ export function claimAgentStopCounter({ directory, mode, sessionId, startedAt, c
   }
 }
 
+function decisionCachePath(directory, sessionId) {
+  return join(agentStopLocksDir(directory), `agentstop-decision-${safePathPart(sessionId)}.json`);
+}
+
+// Duplicate-fire guard (#76): the second concurrent fire must return the SAME
+// decision (and block reason) as the first instead of recomputing against
+// already-advanced loop state — recomputation can flip block→allow and kill
+// the loop. Fail-open: any cache error falls back to normal processing.
+function readRecentDecision(directory, sessionId, windowMs) {
+  try {
+    const cached = JSON.parse(readFileSync(decisionCachePath(directory, sessionId), "utf8"));
+    const age = Date.now() - Number(cached.ts);
+    if (Number.isFinite(age) && age >= 0 && age < windowMs) return cached;
+  } catch {
+    // no cache or unreadable — compute normally
+  }
+  return undefined;
+}
+
+function cacheDecision(directory, sessionId, decision, reason) {
+  try {
+    const p = decisionCachePath(directory, sessionId);
+    mkdirSync(dirname(p), { recursive: true });
+    const tmp = `${p}.tmp.${process.pid}.${Date.now()}`;
+    writeFileSync(tmp, JSON.stringify({ ts: Date.now(), decision, reason }), "utf8");
+    renameSync(tmp, p);
+  } catch {
+    // best effort
+  }
+}
+
 function readState(directory, mode) {
   const p = stateFile(directory, mode);
   if (!existsSync(p)) return undefined;
@@ -170,10 +205,20 @@ export function handleAgentStop(raw, env = process.env) {
     return buildStopDecisionOutput("allow");
   }
 
+  const dedupeRaw = Number(env.OMP_AGENTSTOP_DEDUPE_MS ?? DEDUPE_WINDOW_MS_DEFAULT);
+  const dedupeWindowMs = Number.isFinite(dedupeRaw) && dedupeRaw >= 0 ? dedupeRaw : DEDUPE_WINDOW_MS_DEFAULT;
+  if (dedupeWindowMs > 0) {
+    const replay = readRecentDecision(directory, sessionId, dedupeWindowMs);
+    if (replay) {
+      appendHookLog(directory, HOOK_NAME, { decision: replay.decision, reason: replay.reason, deduped: true });
+      return buildStopDecisionOutput(replay.decision, replay.decision === "block" ? (replay.reason ?? "") : "");
+    }
+  }
+
   const states = {};
   for (const m of LOOP_MODES) states[m.key] = readState(directory, m.key);
 
-  const transcript = readTranscriptTail(input.transcriptPath);
+  const transcript = extractAssistantText(readTranscriptTail(input.transcriptPath));
   const result = decideLoop(states, transcript);
 
   // Persist counter increment (block) or clear the loop (allow on complete/cap).
@@ -219,6 +264,7 @@ export function handleAgentStop(raw, env = process.env) {
     clearAgentStopMarkers(directory, result.clear);
   }
 
+  if (dedupeWindowMs > 0) cacheDecision(directory, sessionId, result.decision, result.reason);
   appendHookLog(directory, HOOK_NAME, { decision: result.decision, reason: result.reason });
   return buildStopDecisionOutput(result.decision, result.decision === "block" ? result.reason : "");
 }
