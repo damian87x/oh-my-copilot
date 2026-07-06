@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -361,6 +361,39 @@ function checkMemoryReviewModel(cwd: string | undefined, bin: string): DoctorChe
   });
 }
 
+// A leftover copy under ~/.copilot/installed-plugins registers omp hooks a
+// SECOND time next to the hooks file (~/.copilot/hooks/omp.json). Every hook
+// then fires twice per event, and the stale copy runs old code — its agentStop
+// races the current one and can kill persistence loops early (issue #76).
+function checkDuplicateHookRegistration(paths: CopilotPaths): DoctorCheck {
+  const stalePlugin = join(paths.userScope, "installed-plugins", "oh-my-copilot");
+  if (!existsSync(stalePlugin)) {
+    return { name: "duplicate-hook-registration", status: "pass", detail: "no stale installed-plugin copy" };
+  }
+  // Only a copy that ships a hooks manifest actually re-registers hooks; an
+  // inert leftover directory just deserves cleanup guidance, not a hard fail.
+  const manifests = [join(stalePlugin, "hooks", "hooks.json")];
+  try {
+    for (const name of readdirSync(stalePlugin)) manifests.push(join(stalePlugin, name, "hooks", "hooks.json"));
+  } catch {
+    // unreadable — treat as inert
+  }
+  if (!manifests.some((p) => existsSync(p))) {
+    return {
+      name: "duplicate-hook-registration",
+      status: "warn",
+      detail: `${stalePlugin} is a leftover directory (no hooks manifest inside) — safe to remove`,
+    };
+  }
+  return {
+    name: "duplicate-hook-registration",
+    status: "fail",
+    detail:
+      `${stalePlugin} registers omp hooks a second time with stale code (double-fires every hook, ` +
+      `old agentStop can kill loops early) — remove it; hooks are delivered via the hooks file`,
+  };
+}
+
 export function runDoctor(options: DoctorOptions = {}): DoctorReport {
   const paths = resolveCopilotPaths(options);
   const checks: DoctorCheck[] = [
@@ -369,6 +402,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorReport {
     checkInstructions(paths),
     checkSkillsDiscovery(paths),
     checkHooksManifest(paths),
+    checkDuplicateHookRegistration(paths),
   ];
   if (options.checkHooks) {
     checks.push(checkHooksSmoke(paths));

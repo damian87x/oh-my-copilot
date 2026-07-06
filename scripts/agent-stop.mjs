@@ -20,12 +20,18 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { readStdin } from "./lib/stdin.mjs";
 import { buildStopDecisionOutput, appendHookLog, printStopDecision } from "./lib/hook-output.mjs";
-import { decideLoop, LOOP_MODES } from "./lib/loop-driver.mjs";
+import { decideLoop, extractAssistantText, LOOP_MODES } from "./lib/loop-driver.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
 import { parseHookInput } from "./lib/hook-input.mjs";
 
 const HOOK_NAME = "agentStop";
 const TRANSCRIPT_TAIL_BYTES = 64 * 1024;
+// Duplicate hook fires arrive ~50ms after the original (#76). The window must
+// stay well below a real model turn: live testing measured fast no-tool turns
+// completing in ~2.5s, and a 3s window replayed (ate) one of those genuine
+// stops. 1000ms keeps 20x margin over true duplicates while never suppressing
+// the fastest observed real stop.
+const DEDUPE_WINDOW_MS_DEFAULT = 1000;
 
 // Unified-root invariant: loop state is always read/written under ompRoot(cwd)
 // so the CLI and hooks patch the same counter file from repository subdirs.
@@ -116,6 +122,37 @@ export function claimAgentStopCounter({ directory, mode, sessionId, startedAt, c
   }
 }
 
+function decisionCachePath(directory, sessionId) {
+  return join(agentStopLocksDir(directory), `agentstop-decision-${safePathPart(sessionId)}.json`);
+}
+
+// Duplicate-fire guard (#76): the second concurrent fire must return the SAME
+// decision (and block reason) as the first instead of recomputing against
+// already-advanced loop state — recomputation can flip block→allow and kill
+// the loop. Fail-open: any cache error falls back to normal processing.
+function readRecentDecision(directory, sessionId, windowMs) {
+  try {
+    const cached = JSON.parse(readFileSync(decisionCachePath(directory, sessionId), "utf8"));
+    const age = Date.now() - Number(cached.ts);
+    if (Number.isFinite(age) && age >= 0 && age < windowMs) return cached;
+  } catch {
+    // no cache or unreadable — compute normally
+  }
+  return undefined;
+}
+
+function cacheDecision(directory, sessionId, decision, reason) {
+  try {
+    const p = decisionCachePath(directory, sessionId);
+    mkdirSync(dirname(p), { recursive: true });
+    const tmp = `${p}.tmp.${process.pid}.${Date.now()}`;
+    writeFileSync(tmp, JSON.stringify({ ts: Date.now(), decision, reason }), "utf8");
+    renameSync(tmp, p);
+  } catch {
+    // best effort
+  }
+}
+
 function readState(directory, mode) {
   const p = stateFile(directory, mode);
   if (!existsSync(p)) return undefined;
@@ -170,11 +207,31 @@ export function handleAgentStop(raw, env = process.env) {
     return buildStopDecisionOutput("allow");
   }
 
+  const dedupeRaw = Number(env.OMP_AGENTSTOP_DEDUPE_MS ?? DEDUPE_WINDOW_MS_DEFAULT);
+  const windowMs = Number.isFinite(dedupeRaw) && dedupeRaw >= 0 ? dedupeRaw : DEDUPE_WINDOW_MS_DEFAULT;
+  // No replay without a real session identity: parseHookInput defaults a missing
+  // sessionId to "unknown", and two anonymous stops in the same project must not
+  // replay each other's decision.
+  const dedupeWindowMs = sessionId && sessionId !== "unknown" ? windowMs : 0;
+  if (dedupeWindowMs > 0) {
+    const replay = readRecentDecision(directory, sessionId, dedupeWindowMs);
+    if (replay) {
+      appendHookLog(directory, HOOK_NAME, { decision: replay.decision, reason: replay.reason, deduped: true });
+      return buildStopDecisionOutput(replay.decision, replay.decision === "block" ? (replay.reason ?? "") : "");
+    }
+  }
+
   const states = {};
   for (const m of LOOP_MODES) states[m.key] = readState(directory, m.key);
 
-  const transcript = readTranscriptTail(input.transcriptPath);
+  const transcript = extractAssistantText(readTranscriptTail(input.transcriptPath));
   const result = decideLoop(states, transcript);
+
+  // Cache BEFORE mutating state: a duplicate that misses the cache then still
+  // reads pre-advance state and is deduped by the counter marker. Caching after
+  // the write would let it observe advanced state with no replay record and
+  // recompute a divergent decision (e.g. a premature allow at the cap).
+  if (dedupeWindowMs > 0) cacheDecision(directory, sessionId, result.decision, result.reason);
 
   // Persist counter increment (block) or clear the loop (allow on complete/cap).
   if (result.patch) {
