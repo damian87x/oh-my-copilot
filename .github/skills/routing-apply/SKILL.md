@@ -22,13 +22,13 @@ Write the three artifacts that make routing actually happen inside Copilot CLI s
 ## Inputs
 
 - `.omp/routing/rules.json` (required)
-- Existing `.github/copilot-instructions.md` (edit-in-place with markers)
-- Existing `.github/skills/skills/*/SKILL.md` files (enrich in place with markers)
+- Existing project instructions file `copilot-instructions.md` (edit-in-place with markers)
+- Existing `SKILL.md` files under the project skills directory (enrich in place with markers)
 - Existing `scripts/prompt-submit.mjs` (extend)
 
 ## Three artifacts
 
-### 1. `.github/copilot-instructions.md` — router block
+### 1. `copilot-instructions.md` — router block
 
 Insert or replace content between markers:
 
