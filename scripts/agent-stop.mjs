@@ -26,10 +26,12 @@ import { parseHookInput } from "./lib/hook-input.mjs";
 
 const HOOK_NAME = "agentStop";
 const TRANSCRIPT_TAIL_BYTES = 64 * 1024;
-// Copilot CLI 1.0.68 fires every hook twice ~50ms apart (#76). Real consecutive
-// stops are separated by a full model turn (seconds), so a short replay window
-// distinguishes duplicates from genuine next stops.
-const DEDUPE_WINDOW_MS_DEFAULT = 3000;
+// Duplicate hook fires arrive ~50ms after the original (#76). The window must
+// stay well below a real model turn: live testing measured fast no-tool turns
+// completing in ~2.5s, and a 3s window replayed (ate) one of those genuine
+// stops. 1000ms keeps 20x margin over true duplicates while never suppressing
+// the fastest observed real stop.
+const DEDUPE_WINDOW_MS_DEFAULT = 1000;
 
 // Unified-root invariant: loop state is always read/written under ompRoot(cwd)
 // so the CLI and hooks patch the same counter file from repository subdirs.
