@@ -401,6 +401,53 @@ describe("agent-stop duplicate-fire dedupe", () => {
     expect(readJson(ralphFile(root)).iteration).toBe(2);
   });
 
+  it("a loop started inside the window is not suppressed by a stale cached allow", () => {
+    const { root } = makeFixture();
+    // No loop active: this stop caches an allow decision.
+    expect(runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV).decision).toBe("allow");
+
+    // A loop starting immediately afterwards must wipe the cache, so its first
+    // stop is computed fresh instead of replaying the stale allow.
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 4, sessionId: "s1" });
+    const out = runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV);
+
+    expect(out.decision).toBe("block");
+    expect(readJson(ralphFile(root)).iteration).toBe(1);
+  });
+
+  it("a cancelled loop is not resurrected by a stale cached block", () => {
+    const { root } = makeFixture();
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 4, sessionId: "s1" });
+    expect(runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV).decision).toBe("block");
+
+    cancelRalph(root);
+    const out = runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV);
+
+    expect(out.decision).toBe("allow");
+  });
+
+  it("caches the decision before the state write, so a duplicate replays it even when the write fails", () => {
+    if (typeof process.getuid === "function" && process.getuid() === 0) return;
+
+    const { root } = makeFixture();
+    startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 4, sessionId: "s1" });
+    // Locks stays writable (cache + markers land there); only the state dir is
+    // locked so the counter write fails after the decision was cached.
+    mkdirSync(agentStopLocksDir(root), { recursive: true });
+    const stateDir = path.join(root, ".omp", "state");
+    chmodSync(stateDir, 0o500);
+
+    try {
+      const first = runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV);
+      const second = runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV);
+      expect(first.decision).toBe("block");
+      expect(second).toEqual(first);
+      expect(readJson(ralphFile(root)).iteration).toBe(0); // write failed, not advanced
+    } finally {
+      chmodSync(stateDir, 0o700);
+    }
+  });
+
   it("a corrupt decision cache fails open to normal processing", () => {
     const { root } = makeFixture();
     startRalph({ cwd: root, prompt: "finish hardening", maxIterations: 4, sessionId: "s1" });

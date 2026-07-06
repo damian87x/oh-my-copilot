@@ -30,7 +30,9 @@ export function clearAgentStopMarkers(cwd: string, mode: LoopMode): void {
     const locks = agentStopLocksPath(cwd);
     const prefix = `agentstop-${safePathPart(mode)}-`;
     for (const name of readdirSync(locks)) {
-      if (name.startsWith(prefix)) unlinkSync(join(locks, name));
+      // Decision caches (#76 dedupe) go too: a stale cached allow/block must
+      // not replay into a loop that was just started or cancelled.
+      if (name.startsWith(prefix) || name.startsWith("agentstop-decision-")) unlinkSync(join(locks, name));
     }
   } catch {
     // best effort

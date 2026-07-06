@@ -221,6 +221,12 @@ export function handleAgentStop(raw, env = process.env) {
   const transcript = extractAssistantText(readTranscriptTail(input.transcriptPath));
   const result = decideLoop(states, transcript);
 
+  // Cache BEFORE mutating state: a duplicate that misses the cache then still
+  // reads pre-advance state and is deduped by the counter marker. Caching after
+  // the write would let it observe advanced state with no replay record and
+  // recompute a divergent decision (e.g. a premature allow at the cap).
+  if (dedupeWindowMs > 0) cacheDecision(directory, sessionId, result.decision, result.reason);
+
   // Persist counter increment (block) or clear the loop (allow on complete/cap).
   if (result.patch) {
     const s = states[result.patch.mode];
@@ -264,7 +270,6 @@ export function handleAgentStop(raw, env = process.env) {
     clearAgentStopMarkers(directory, result.clear);
   }
 
-  if (dedupeWindowMs > 0) cacheDecision(directory, sessionId, result.decision, result.reason);
   appendHookLog(directory, HOOK_NAME, { decision: result.decision, reason: result.reason });
   return buildStopDecisionOutput(result.decision, result.decision === "block" ? result.reason : "");
 }
