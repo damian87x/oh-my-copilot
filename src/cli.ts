@@ -1700,7 +1700,7 @@ async function handleModeCommand(mode: LoopMode, argv: string[], json: boolean):
         : {
             ok: result.ok,
             message: result.ok
-              ? `ralph tick → iter=${result.state?.iteration}/${result.state?.maxIterations}`
+              ? `ralph tick → completedSlices=${result.state?.completedSlices} (iter ${result.state?.iteration}/${result.state?.maxIterations} is hook-owned)`
               : `ralph tick failed: ${result.reason}`,
           };
     }

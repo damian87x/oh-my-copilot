@@ -12,7 +12,11 @@
  *   status()→ derived from internal state; never opens sockets.
  */
 import type { Connector, ConnectorDoctor, ConnectorStatus } from "../connector.js";
-import type { SlackConfig } from "../../slack/config.js";
+import {
+  ensureSlackAllowedUsersConfigured,
+  isSlackAllowAll,
+  type SlackConfig,
+} from "../../slack/config.js";
 import {
   handleSlackMessage,
   type SlackHandlerDeps,
@@ -59,6 +63,16 @@ export interface SlackConnectorOptions {
 }
 
 export const SLACK_CONNECTOR_NAME = "slack";
+const MAX_PENDING_PER_SESSION = 3;
+const SESSION_QUEUE_CAPACITY = 1 + MAX_PENDING_PER_SESSION;
+const BUSY_ERROR = "worker busy, try again shortly";
+
+interface SessionQueue {
+  /** Promise chain for accepted requests; rejections are swallowed here so the chain advances. */
+  tail: Promise<void>;
+  /** Accepted requests that have not settled yet: one in-flight plus pending items. */
+  depth: number;
+}
 
 async function defaultAppFactory(config: SlackConfig): Promise<BoltLike> {
   const bolt = await import("@slack/bolt");
@@ -86,10 +100,42 @@ export function createSlackConnector(opts: SlackConnectorOptions): Connector {
   let stopping = false;
   let botUserId: string | undefined;
   let lastError: string | undefined;
+  const sessionQueues = new Map<string, SessionQueue>();
+
+  const baseAsk = handlerDeps?.ask ?? ((session: string, text: string) => commsAsk(session, text));
+
+  function enqueueAsk(session: string, text: string): ReturnType<SlackHandlerDeps["ask"]> {
+    let queue = sessionQueues.get(session);
+    if (!queue) {
+      queue = { tail: Promise.resolve(), depth: 0 };
+      sessionQueues.set(session, queue);
+    }
+
+    if (queue.depth >= SESSION_QUEUE_CAPACITY) {
+      return Promise.resolve({ ok: false, session, sent: false, error: BUSY_ERROR });
+    }
+
+    queue.depth++;
+    const run = queue.tail.then(() => baseAsk(session, text));
+    const settled = run.finally(() => {
+      queue.depth--;
+    });
+    let tail: Promise<void> = Promise.resolve();
+    tail = settled.then(
+      () => undefined,
+      () => undefined,
+    ).finally(() => {
+      if (queue.depth === 0 && sessionQueues.get(session) === queue && queue.tail === tail) {
+        sessionQueues.delete(session);
+      }
+    });
+    queue.tail = tail;
+    return settled;
+  }
 
   const baseDeps: SlackHandlerDeps = {
     resolve: handlerDeps?.resolve ?? ((o) => resolveSession(o)),
-    ask: handlerDeps?.ask ?? ((session, text) => commsAsk(session, text)),
+    ask: enqueueAsk,
     allowedUsers: config.allowedUsers,
     requireMention: config.requireMention,
     sessionEnv: config.sessionEnv,
@@ -116,6 +162,11 @@ export function createSlackConnector(opts: SlackConnectorOptions): Connector {
     async start(): Promise<void> {
       if (started) return;
       try {
+        ensureSlackAllowedUsersConfigured(config.allowedUsers);
+        if (isSlackAllowAll(config.allowedUsers)) {
+          log("omp slack: WARNING: SLACK_ALLOWED_USERS=* allows every Slack workspace user to reach this Copilot session.");
+        }
+
         app = appFactory ? appFactory(config) : await defaultAppFactory(config);
         const auth = await app.client.auth.test();
         botUserId = auth.user_id;
@@ -209,6 +260,11 @@ export function slackDoctor(config: SlackConfig | null, errorIfNoConfig?: string
     name: SLACK_CONNECTOR_NAME,
     doctor(): ConnectorStatus {
       if (!config) return { ready: false, detail: errorIfNoConfig ?? "missing slack tokens" };
+      try {
+        ensureSlackAllowedUsersConfigured(config.allowedUsers);
+      } catch (err) {
+        return { ready: false, detail: err instanceof Error ? err.message : String(err) };
+      }
       const resolved = resolveSession({ env: config.sessionEnv });
       if (!resolved.ok) return { ready: false, detail: resolved.error };
       return { ready: true, detail: `session=${resolved.session}` };

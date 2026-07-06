@@ -18,7 +18,7 @@
     "preToolUse": [
       {
         "type": "command",
-        "bash": "node \"${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}}}}\"/scripts/pre-tool-use.mjs",
+        "bash": "node \"${COPILOT_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-${OMP_PLUGIN_ROOT:-$OMC_PLUGIN_ROOT}}}}\"/scripts/pre-tool-use.mjs || echo '{}'",
         "timeoutSec": 5
       }
     ],

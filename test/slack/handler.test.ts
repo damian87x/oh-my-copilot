@@ -24,6 +24,7 @@ function deps(over: Partial<SlackHandlerDeps> = {}): SlackHandlerDeps {
   return {
     resolve: () => okResolve(),
     ask: async () => okAsk("4"),
+    allowedUsers: ["U1"],
     ...over,
   };
 }
@@ -38,10 +39,10 @@ const dm = (over: Partial<SlackMessageInput> = {}): SlackMessageInput => ({
 });
 
 describe("isUserAllowed", () => {
-  it("allows everyone when list is empty/unset", () => {
-    expect(isUserAllowed("U1", [])).toBe(true);
-    expect(isUserAllowed("U1", undefined)).toBe(true);
-    expect(isUserAllowed(undefined, null)).toBe(true);
+  it("denies everyone when list is empty/unset", () => {
+    expect(isUserAllowed("U1", [])).toBe(false);
+    expect(isUserAllowed("U1", undefined)).toBe(false);
+    expect(isUserAllowed(undefined, null)).toBe(false);
   });
   it("allows everyone with wildcard", () => {
     expect(isUserAllowed("U9", ["*"])).toBe(true);
@@ -108,6 +109,11 @@ describe("handleSlackMessage", () => {
 
   it("allows allowlisted users", async () => {
     const r = await handleSlackMessage(dm({ userId: "U1" }), deps({ allowedUsers: ["U1"] }));
+    expect(r.reply).toBe("4");
+  });
+
+  it("allows any user only when the wildcard opt-in is explicit", async () => {
+    const r = await handleSlackMessage(dm({ userId: "U9" }), deps({ allowedUsers: ["*"] }));
     expect(r.reply).toBe("4");
   });
 

@@ -3,30 +3,135 @@
 // ultrawork / ultraqa). When a loop is active and not yet complete, returns
 // {decision:"block", reason:"<next-turn prompt>"} so Copilot takes another turn;
 // otherwise {decision:"allow"}. Fail-OPEN (never traps the user in a loop).
-import { existsSync, readFileSync, writeFileSync, fstatSync, openSync, readSync, closeSync } from "node:fs";
-import { join, resolve } from "node:path";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { readStdin } from "./lib/stdin.mjs";
-import { hookCwd, printStopDecision, appendHookLog } from "./lib/hook-output.mjs";
+import { buildStopDecisionOutput, appendHookLog, printStopDecision } from "./lib/hook-output.mjs";
 import { decideLoop, LOOP_MODES } from "./lib/loop-driver.mjs";
+import { ompRoot } from "./lib/omp-root.mjs";
+import { parseHookInput } from "./lib/hook-input.mjs";
 
 const HOOK_NAME = "agentStop";
 const TRANSCRIPT_TAIL_BYTES = 64 * 1024;
 
-// Match the omp CLI's modeStatePath (src/mode-state/paths.ts): literal resolved
-// cwd, NOT ompRoot — so the hook reads/writes the exact files `omp ralph start`
-// wrote, even when invoked from a subdirectory.
-function stateFile(root, mode) {
+// Unified-root invariant: loop state is always read/written under ompRoot(cwd)
+// so the CLI and hooks patch the same counter file from repository subdirs.
+export function stateFile(directory, mode) {
+  const root = ompRoot(directory);
   return join(root, ".omp", "state", `${mode}.json`);
 }
 
-function readState(root, mode) {
-  const p = stateFile(root, mode);
+export function agentStopLocksDir(directory) {
+  return join(ompRoot(directory), ".omp", "state", "locks");
+}
+
+function safePathPart(value) {
+  const safe = String(value ?? "unknown").replace(/[^A-Za-z0-9._-]+/g, "_");
+  return safe || "unknown";
+}
+
+function startedAtMillis(startedAt) {
+  const ms = typeof startedAt === "number" ? startedAt : Date.parse(String(startedAt ?? ""));
+  if (!Number.isFinite(ms)) throw new Error("missing startedAt nonce");
+  return String(Math.trunc(ms));
+}
+
+function agentStopMarkerName(mode, sessionId, startedAt, counterValue) {
+  return [
+    "agentstop",
+    safePathPart(mode),
+    safePathPart(sessionId),
+    startedAtMillis(startedAt),
+    safePathPart(counterValue),
+  ].join("-");
+}
+
+export function clearAgentStopMarkers(directory, mode) {
+  try {
+    const locks = agentStopLocksDir(directory);
+    const prefix = `agentstop-${safePathPart(mode)}-`;
+    for (const name of readdirSync(locks)) {
+      if (name.startsWith(prefix)) unlinkSync(join(locks, name));
+    }
+  } catch {
+    // best effort
+  }
+}
+
+// Roll back a single claimed marker. Used when the counter write fails after
+// the marker was created: without this the stale marker would make the next
+// stop hit EEXIST and skip counting, freezing the loop budget.
+export function releaseAgentStopMarker({ directory, mode, sessionId, startedAt, counterValue }) {
+  try {
+    const locks = agentStopLocksDir(directory);
+    unlinkSync(join(locks, agentStopMarkerName(mode, sessionId, startedAt, counterValue)));
+  } catch {
+    // best effort — nothing to roll back if the marker is already gone
+  }
+}
+
+export function claimAgentStopCounter({ directory, mode, sessionId, startedAt, counterValue }) {
+  const locks = agentStopLocksDir(directory);
+  try {
+    mkdirSync(locks, { recursive: true });
+  } catch {
+    return true; // guard errors fail open toward counting
+  }
+
+  let marker;
+  try {
+    marker = join(locks, agentStopMarkerName(mode, sessionId, startedAt, counterValue));
+  } catch {
+    return true; // guard errors fail open toward counting
+  }
+
+  let fd;
+  try {
+    fd = openSync(marker, "wx");
+    return true;
+  } catch (err) {
+    if (err?.code === "EEXIST") return false;
+    return true; // guard errors fail open toward counting
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // best effort
+      }
+    }
+  }
+}
+
+function readState(directory, mode) {
+  const p = stateFile(directory, mode);
   if (!existsSync(p)) return undefined;
   try {
     return JSON.parse(readFileSync(p, "utf8"));
   } catch {
     return undefined;
   }
+}
+
+function writeState(directory, mode, state) {
+  const p = stateFile(directory, mode);
+  mkdirSync(dirname(p), { recursive: true });
+  const tmp = `${p}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
+  renameSync(tmp, p);
 }
 
 // Read only the tail of the transcript — it can be large, and a completion
@@ -50,50 +155,84 @@ function readTranscriptTail(path) {
   }
 }
 
-(async () => {
+export function handleAgentStop(raw, env = process.env) {
+  const input = parseHookInput(raw);
+  const directory = input.cwd;
+  const sessionId = input.sessionId;
+
+  // Team workers run inside the parent project and share its `.omp/state`.
+  // Without this guard they'd inherit the parent's active ralph/ultrawork/
+  // ultraqa loop and the hook would inject "[RALPH ITERATION N]" into a worker
+  // that has no loop context (it hijacks the worker's assigned lane task). The
+  // team launcher tags workers with OMP_TEAM_WORKER so they always stop normally.
+  if (env.OMP_TEAM_WORKER) {
+    appendHookLog(directory, HOOK_NAME, { decision: "allow", reason: "team worker — loop injection skipped" });
+    return buildStopDecisionOutput("allow");
+  }
+
+  const states = {};
+  for (const m of LOOP_MODES) states[m.key] = readState(directory, m.key);
+
+  const transcript = readTranscriptTail(input.transcriptPath);
+  const result = decideLoop(states, transcript);
+
+  // Persist counter increment (block) or clear the loop (allow on complete/cap).
+  if (result.patch) {
+    const s = states[result.patch.mode];
+    if (s) {
+      // Narrow guarantee: concurrent double-fires for the same observed counter
+      // value cannot double-count; sequential double-fires may advance again.
+      const shouldCount = claimAgentStopCounter({
+        directory,
+        mode: result.patch.mode,
+        sessionId,
+        startedAt: s.startedAt,
+        counterValue: result.patch.value,
+      });
+      if (shouldCount) {
+        s[result.patch.counter] = result.patch.value;
+        try {
+          writeState(directory, result.patch.mode, s);
+        } catch {
+          // Write failed after the marker was claimed — roll back the marker so
+          // the next stop can re-count instead of freezing on a stale EEXIST.
+          releaseAgentStopMarker({
+            directory,
+            mode: result.patch.mode,
+            sessionId,
+            startedAt: s.startedAt,
+            counterValue: result.patch.value,
+          });
+        }
+      }
+    }
+  } else if (result.clear) {
+    const s = states[result.clear];
+    if (s) {
+      s.active = false;
+      try {
+        writeState(directory, result.clear, s);
+      } catch {
+        // best effort
+      }
+    }
+    clearAgentStopMarkers(directory, result.clear);
+  }
+
+  appendHookLog(directory, HOOK_NAME, { decision: result.decision, reason: result.reason });
+  return buildStopDecisionOutput(result.decision, result.decision === "block" ? result.reason : "");
+}
+
+async function main() {
   try {
     const raw = await readStdin();
-    const data = raw ? JSON.parse(raw) : {};
-    const directory = hookCwd(data);
-
-    // Team workers run inside the parent project and share its `.omp/state`.
-    // Without this guard they'd inherit the parent's active ralph/ultrawork/
-    // ultraqa loop and the hook would inject "[RALPH ITERATION N]" into a worker
-    // that has no loop context (it hijacks the worker's assigned lane task). The
-    // team launcher tags workers with OMP_TEAM_WORKER so they always stop normally.
-    if (process.env.OMP_TEAM_WORKER) {
-      appendHookLog(directory, HOOK_NAME, { decision: "allow", reason: "team worker — loop injection skipped" });
-      printStopDecision("allow");
-      return;
-    }
-
-    const root = resolve(directory);
-
-    const states = {};
-    for (const m of LOOP_MODES) states[m.key] = readState(root, m.key);
-
-    const transcript = readTranscriptTail(data.transcriptPath ?? data.transcript_path);
-    const result = decideLoop(states, transcript);
-
-    // Persist counter increment (block) or clear the loop (allow on complete/cap).
-    if (result.patch) {
-      const s = states[result.patch.mode];
-      if (s) {
-        s[result.patch.counter] = result.patch.value;
-        try { writeFileSync(stateFile(root, result.patch.mode), JSON.stringify(s, null, 2)); } catch { /* best effort */ }
-      }
-    } else if (result.clear) {
-      const s = states[result.clear];
-      if (s) {
-        s.active = false;
-        try { writeFileSync(stateFile(root, result.clear), JSON.stringify(s, null, 2)); } catch { /* best effort */ }
-      }
-    }
-
-    appendHookLog(directory, HOOK_NAME, { decision: result.decision, reason: result.reason });
-    printStopDecision(result.decision, result.decision === "block" ? result.reason : "");
+    console.log(JSON.stringify(handleAgentStop(raw)));
   } catch (err) {
     console.error(`[hook ${HOOK_NAME}] failed: ${err?.message ?? err}`);
     printStopDecision("allow"); // fail-open: never trap the loop on an error
   }
-})();
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

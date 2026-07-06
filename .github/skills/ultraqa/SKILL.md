@@ -35,14 +35,14 @@ Number every cycle explicitly: "Cycle 1", "Cycle 2", etc.
 
 ### After each cycle
 
-- Record the outcome: `omp ultraqa cycle fail` (issues found) or `omp ultraqa cycle pass` (clean). This increments the counter and reports when the cap is reached.
+- Record the outcome: `omp ultraqa cycle fail` (issues found) or `omp ultraqa cycle pass` (clean). This records the verdict only; the agent-stop hook is the sole writer of the cycle counter and enforces the cap.
 - If issues found → fix and start next cycle
 - If clean → report PASS and run `omp ultraqa cancel` to clear the run
 - Track which issues were found and fixed per cycle
 
 ## Early exit conditions
 
-- **5 cycles reached** (enforced by `omp ultraqa cycle`) — stop, report remaining issues as known gaps
+- **5 cycles reached** (enforced by the agent-stop hook) — stop, report remaining issues as known gaps
 - **Same failure 3 consecutive cycles** — stop, this is a design issue not a bug. Report it for `/ralplan`
 - **Critical regression found** — stop immediately, report before fixing anything else
 

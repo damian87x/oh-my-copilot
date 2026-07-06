@@ -36,7 +36,7 @@ describe("runEnvInit (non-interactive / answers path)", () => {
         slackBotToken: "xoxb-abc",
         slackAppToken: "xapp-def",
         copilotTmuxSession: "",
-        slackAllowedUsers: "",
+        slackAllowedUsers: "*",
       },
     });
     expect(r.ok).toBe(true);
@@ -47,7 +47,7 @@ describe("runEnvInit (non-interactive / answers path)", () => {
     expect(text).toMatch(/^SLACK_BOT_TOKEN=xoxb-abc$/m);
     expect(text).toMatch(/^SLACK_APP_TOKEN=xapp-def$/m);
     expect(text).not.toMatch(/COPILOT_TMUX_SESSION=/);
-    expect(text).not.toMatch(/SLACK_ALLOWED_USERS=/);
+    expect(text).toMatch(/^SLACK_ALLOWED_USERS=\*$/m);
     // POSIX must lock the secret file to 0o600 from the moment it exists —
     // we create through an atomic temp file with mode 0o600, then rename.
     // We only relax on Windows, where mode bits are largely meaningless.
@@ -62,7 +62,7 @@ describe("runEnvInit (non-interactive / answers path)", () => {
     const r = await runEnvInit({
       io,
       homeDir: home,
-      answers: { slackBotToken: "xoxb-a", slackAppToken: "xapp-a", copilotTmuxSession: "", slackAllowedUsers: "" },
+      answers: { slackBotToken: "xoxb-a", slackAppToken: "xapp-a", copilotTmuxSession: "", slackAllowedUsers: "*" },
     });
     expect(r.ok).toBe(true);
     const dir = join(home, OMP_ENV_DIRNAME);
@@ -88,7 +88,7 @@ describe("runEnvInit (non-interactive / answers path)", () => {
     const r = await runEnvInit({
       io,
       homeDir: home,
-      answers: { slackBotToken: "xoxb-a", slackAppToken: "xapp-a", copilotTmuxSession: "", slackAllowedUsers: "" },
+      answers: { slackBotToken: "xoxb-a", slackAppToken: "xapp-a", copilotTmuxSession: "", slackAllowedUsers: "*" },
     });
     expect(r.ok).toBe(true);
     const finalPath = join(dir, OMP_ENV_FILENAME);
@@ -122,14 +122,14 @@ describe("runEnvInit (non-interactive / answers path)", () => {
     const r1 = await runEnvInit({
       io,
       homeDir: home,
-      answers: { slackBotToken: "", slackAppToken: "xapp-x", copilotTmuxSession: "", slackAllowedUsers: "" },
+      answers: { slackBotToken: "", slackAppToken: "xapp-x", copilotTmuxSession: "", slackAllowedUsers: "*" },
     });
     expect(r1.ok).toBe(false);
     expect(r1.reason).toMatch(/BOT token/);
     const r2 = await runEnvInit({
       io,
       homeDir: home,
-      answers: { slackBotToken: "wrong", slackAppToken: "xapp-x", copilotTmuxSession: "", slackAllowedUsers: "" },
+      answers: { slackBotToken: "wrong", slackAppToken: "xapp-x", copilotTmuxSession: "", slackAllowedUsers: "*" },
     });
     expect(r2.ok).toBe(false);
     expect(r2.reason).toMatch(/BOT token/);
@@ -140,10 +140,44 @@ describe("runEnvInit (non-interactive / answers path)", () => {
     const r = await runEnvInit({
       io,
       homeDir: home,
-      answers: { slackBotToken: "xoxb-x", slackAppToken: "nope", copilotTmuxSession: "", slackAllowedUsers: "" },
+      answers: { slackBotToken: "xoxb-x", slackAppToken: "nope", copilotTmuxSession: "", slackAllowedUsers: "*" },
     });
     expect(r.ok).toBe(false);
     expect(r.reason).toMatch(/APP-LEVEL token/);
+  });
+
+  it("rejects when SLACK_ALLOWED_USERS is missing", async () => {
+    const io: InitIO = { print: () => {}, ask: async () => undefined };
+    const r = await runEnvInit({
+      io,
+      homeDir: home,
+      answers: {
+        slackBotToken: "xoxb-x",
+        slackAppToken: "xapp-x",
+        copilotTmuxSession: "",
+        slackAllowedUsers: "",
+      },
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/SLACK_ALLOWED_USERS=.*\*/);
+  });
+
+  it("rejects a semantically-empty SLACK_ALLOWED_USERS that parses to nothing", async () => {
+    const io: InitIO = { print: () => {}, ask: async () => undefined };
+    for (const allow of [",,,", " , "]) {
+      const r = await runEnvInit({
+        io,
+        homeDir: home,
+        answers: {
+          slackBotToken: "xoxb-x",
+          slackAppToken: "xapp-x",
+          copilotTmuxSession: "",
+          slackAllowedUsers: allow,
+        },
+      });
+      expect(r.ok).toBe(false);
+      expect(r.reason).toMatch(/SLACK_ALLOWED_USERS=.*\*/);
+    }
   });
 
   it("non-interactive: refuses to overwrite an existing file without --force", async () => {
@@ -151,13 +185,13 @@ describe("runEnvInit (non-interactive / answers path)", () => {
     const first = await runEnvInit({
       io,
       homeDir: home,
-      answers: { slackBotToken: "xoxb-a", slackAppToken: "xapp-a", copilotTmuxSession: "", slackAllowedUsers: "" },
+      answers: { slackBotToken: "xoxb-a", slackAppToken: "xapp-a", copilotTmuxSession: "", slackAllowedUsers: "*" },
     });
     expect(first.ok).toBe(true);
     const second = await runEnvInit({
       io,
       homeDir: home,
-      answers: { slackBotToken: "xoxb-b", slackAppToken: "xapp-b", copilotTmuxSession: "", slackAllowedUsers: "" },
+      answers: { slackBotToken: "xoxb-b", slackAppToken: "xapp-b", copilotTmuxSession: "", slackAllowedUsers: "*" },
     });
     expect(second.ok).toBe(false);
     expect(second.reason).toMatch(/already exists/);
@@ -170,13 +204,13 @@ describe("runEnvInit (non-interactive / answers path)", () => {
     await runEnvInit({
       io,
       homeDir: home,
-      answers: { slackBotToken: "xoxb-a", slackAppToken: "xapp-a", copilotTmuxSession: "", slackAllowedUsers: "" },
+      answers: { slackBotToken: "xoxb-a", slackAppToken: "xapp-a", copilotTmuxSession: "", slackAllowedUsers: "*" },
     });
     const r = await runEnvInit({
       io,
       homeDir: home,
       force: true,
-      answers: { slackBotToken: "xoxb-b", slackAppToken: "xapp-b", copilotTmuxSession: "", slackAllowedUsers: "" },
+      answers: { slackBotToken: "xoxb-b", slackAppToken: "xapp-b", copilotTmuxSession: "", slackAllowedUsers: "*" },
     });
     expect(r.ok).toBe(true);
     expect(readFileSync(r.path, "utf8")).toMatch(/xoxb-b/);
@@ -193,13 +227,14 @@ describe("runEnvInit (interactive / scripted IO)", () => {
   });
 
   it("happy path: prompts for tokens, skips optionals, writes the file", async () => {
-    // 4 answers: bot, app, session(skip), users(skip)
-    const { io, output } = makeScripted(["xoxb-bot", "xapp-app", "", ""]);
+    // 5 answers: bot, app, session(skip), users(* allow-all), home target(skip)
+    const { io, output } = makeScripted(["xoxb-bot", "xapp-app", "", "*", ""]);
     const r = await runEnvInit({ io, homeDir: home });
     expect(r.ok).toBe(true);
     const text = readFileSync(r.path, "utf8");
     expect(text).toMatch(/SLACK_BOT_TOKEN=xoxb-bot/);
     expect(text).toMatch(/SLACK_APP_TOKEN=xapp-app/);
+    expect(text).toMatch(/^SLACK_ALLOWED_USERS=\*$/m);
     // Intro printed where-to-get-tokens guidance
     const printed = output.join("\n");
     expect(printed).toContain("api.slack.com/apps");
@@ -211,7 +246,7 @@ describe("runEnvInit (interactive / scripted IO)", () => {
   });
 
   it("prints the Slack app manifest YAML so the user can paste it (with required scopes)", async () => {
-    const { io, output } = makeScripted(["xoxb-bot", "xapp-app", "", ""]);
+    const { io, output } = makeScripted(["xoxb-bot", "xapp-app", "", "*", ""]);
     await runEnvInit({ io, homeDir: home });
     const printed = output.join("\n");
     // Steers the user away from 'From scratch' (which is what triggers Slack's
@@ -233,10 +268,18 @@ describe("runEnvInit (interactive / scripted IO)", () => {
   });
 
   it("re-prompts when the user mistypes the bot-token prefix", async () => {
-    const { io } = makeScripted(["bad-token", "xoxb-good", "xapp-good", "", ""]);
+    const { io } = makeScripted(["bad-token", "xoxb-good", "xapp-good", "", "*", ""]);
     const r = await runEnvInit({ io, homeDir: home });
     expect(r.ok).toBe(true);
     expect(readFileSync(r.path, "utf8")).toMatch(/xoxb-good/);
+  });
+
+  it("re-prompts when the required Slack allowlist is blank", async () => {
+    const { io, output } = makeScripted(["xoxb-bot", "xapp-app", "", "", "*", ""]);
+    const r = await runEnvInit({ io, homeDir: home });
+    expect(r.ok).toBe(true);
+    expect(readFileSync(r.path, "utf8")).toMatch(/^SLACK_ALLOWED_USERS=\*$/m);
+    expect(output.join("\n")).toMatch(/SLACK_ALLOWED_USERS/);
   });
 
   it("interactive overwrite prompt: 'n' aborts and preserves the file", async () => {
@@ -248,7 +291,7 @@ describe("runEnvInit (interactive / scripted IO)", () => {
         slackBotToken: "xoxb-original",
         slackAppToken: "xapp-original",
         copilotTmuxSession: "",
-        slackAllowedUsers: "",
+        slackAllowedUsers: "*",
       },
     });
     // Second pass, user declines overwrite
@@ -267,7 +310,7 @@ describe("runEnvInit (interactive / scripted IO)", () => {
         slackBotToken: "xoxb-supersecretvalue1234",
         slackAppToken: "xapp-anothersecret9876",
         copilotTmuxSession: "",
-        slackAllowedUsers: "",
+        slackAllowedUsers: "*",
       },
     });
     const { io, output } = makeScripted(["n"]);

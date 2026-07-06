@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { formatSetup, installUserHooks, runSetup, userHookPath, userHooksNeedRefresh } from "../../src/copilot/setup.js";
@@ -49,6 +49,77 @@ function tempPlugin() {
   );
   return root;
 }
+
+function tempPluginWithHooksManifest(manifest: string) {
+  const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-setup-plugin-"));
+  writeFileSync(path.join(root, "package.json"), '{"name":"plugin"}');
+  mkdirSync(path.join(root, "hooks"), { recursive: true });
+  writeFileSync(path.join(root, "hooks", "hooks.json"), manifest, "utf8");
+  return root;
+}
+
+const PLUGIN_ROOT_ENV_VARS = [
+  "COPILOT_PLUGIN_ROOT",
+  "CLAUDE_PLUGIN_ROOT",
+  "PLUGIN_ROOT",
+  "OMP_PLUGIN_ROOT",
+  "OMC_PLUGIN_ROOT",
+];
+
+function envWithoutPluginRoots() {
+  const env = { ...process.env };
+  for (const key of PLUGIN_ROOT_ENV_VARS) delete env[key];
+  return env;
+}
+
+function templatePreToolUseCommand() {
+  const manifest = JSON.parse(readFileSync(path.join(process.cwd(), "hooks", "hooks.json"), "utf8")) as {
+    hooks: { preToolUse: Array<{ bash: string }> };
+  };
+  return manifest.hooks.preToolUse[0].bash;
+}
+
+function runHookCommand(bash: string) {
+  return runShellCommand(bash, envWithoutPluginRoots());
+}
+
+function runShellCommand(bash: string, env: NodeJS.ProcessEnv) {
+  return spawnSync("/bin/sh", ["-c", bash], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env,
+    timeout: 5000,
+  });
+}
+
+function expectNoOpJson(result: ReturnType<typeof runHookCommand>) {
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout.trim())).toEqual({});
+}
+
+describe("hook command crash safety", () => {
+  it("bare preToolUse template command exits 0 with JSON when plugin-root vars are unset", () => {
+    const bash = templatePreToolUseCommand();
+
+    expect(bash).toContain(" || echo '{}'");
+    expectNoOpJson(runHookCommand(bash));
+  });
+
+  it("installed pinned preToolUse command keeps the JSON fallback after the export prefix", () => {
+    const home = tempHome();
+    const plugin = tempPluginWithHooksManifest(readFileSync(path.join(process.cwd(), "hooks", "hooks.json"), "utf8"));
+
+    installUserHooks({ pluginRoot: plugin, copilotHome: home });
+
+    const installed = JSON.parse(readFileSync(path.join(home, "hooks", "omp.json"), "utf8")) as {
+      hooks: { preToolUse: Array<{ bash: string }> };
+    };
+    const bash = installed.hooks.preToolUse[0].bash;
+    expect(bash).toContain(`export COPILOT_PLUGIN_ROOT='${plugin}'`);
+    expect(bash).toContain(" || echo '{}'");
+    expectNoOpJson(runHookCommand(bash));
+  });
+});
 
 describe("runSetup", () => {
   it("dry-runs without writing files", () => {
@@ -210,7 +281,8 @@ describe("runSetup", () => {
     const installed = JSON.parse(readFileSync(path.join(home, "hooks", "omp.json"), "utf8"));
     const bash = installed.hooks.sessionEnd[0].bash as string;
 
-    execSync(bash, { env: { ...process.env, MARKER: marker }, shell: "/bin/sh" });
+    const result = runShellCommand(bash, { ...process.env, MARKER: marker });
+    expect(result.status).toBe(0);
     expect(existsSync(marker)).toBe(true); // script ran → plugin root resolved correctly
   });
 });

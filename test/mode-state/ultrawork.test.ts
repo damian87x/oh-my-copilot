@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildUltraworkContext, cancelUltrawork, readUltrawork, startUltrawork } from "../../src/mode-state/ultrawork.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-uw-"));
+const cwd = () => {
+  const root = mkdtempSync(path.join(tmpdir(), "omc-uw-"));
+  writeFileSync(path.join(root, "package.json"), "{}\n", "utf8");
+  return root;
+};
 
 describe("ultrawork mode-state", () => {
   it("starts + reads + cancels", () => {

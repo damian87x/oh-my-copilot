@@ -27,7 +27,7 @@ export interface SlackMessageInput {
 export interface SlackHandlerDeps {
   resolve: (opts: { flag?: string; env?: string }) => ResolveSessionResult;
   ask: (session: string, text: string) => Promise<AskResult>;
-  /** [] / undefined / ["*"] = allow all. */
+  /** ["*"] = allow all; empty/unset denies all. */
   allowedUsers?: string[] | null;
   /** require @mention in channels (default true). */
   requireMention?: boolean;
@@ -46,9 +46,9 @@ function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Allowlist check: empty/unset or containing "*" = allow everyone. */
+/** Allowlist check: only an explicit "*" allows everyone. */
 export function isUserAllowed(userId: string | undefined, allowed?: string[] | null): boolean {
-  if (!allowed || allowed.length === 0) return true;
+  if (!allowed || allowed.length === 0) return false;
   if (allowed.includes("*")) return true;
   return userId != null && allowed.includes(userId);
 }

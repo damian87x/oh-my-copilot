@@ -27,6 +27,15 @@ export function buildAdditionalContextOutput(additionalContext = "") {
   return additionalContext ? { additionalContext } : buildContinueOutput();
 }
 
+export function buildContinueHookOutput(hookEventName, additionalContext = "") {
+  if (!additionalContext) return buildContinueOutput();
+  return {
+    continue: true,
+    additionalContext, // Copilot CLI
+    hookSpecificOutput: { hookEventName, additionalContext }, // Claude Code
+  };
+}
+
 export function buildModifiedResultOutput(textResultForLlm, additionalContext = "", resultType = "success") {
   return {
     modifiedResult: {
@@ -52,23 +61,18 @@ export function buildPermissionDecisionOutput(permissionDecision, permissionDeci
  * a no-op "continue" understood by both hosts and the zero-cost default.
  */
 export function printContinue(hookEventName, additionalContext = "") {
-  if (!additionalContext) {
-    console.log(JSON.stringify(buildContinueOutput()));
-    return;
-  }
-  console.log(
-    JSON.stringify({
-      continue: true,
-      additionalContext, // Copilot CLI
-      hookSpecificOutput: { hookEventName, additionalContext }, // Claude Code
-    }),
-  );
+  console.log(JSON.stringify(buildContinueHookOutput(hookEventName, additionalContext)));
 }
 
 /** agentStop (Copilot) / Stop (Claude): both honor {decision, reason}. */
-export function printStopDecision(decision, reason = "") {
+export function buildStopDecisionOutput(decision, reason = "") {
   const out = { decision }; // "block" forces another turn; "allow" lets it stop
   if (reason) out.reason = reason; // serves as the next-turn prompt when blocked
+  return out;
+}
+
+export function printStopDecision(decision, reason = "") {
+  const out = buildStopDecisionOutput(decision, reason);
   console.log(JSON.stringify(out));
 }
 

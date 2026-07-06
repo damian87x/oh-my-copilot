@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -10,14 +10,18 @@ import {
   startUltraqa,
 } from "../../src/mode-state/ultraqa.js";
 
-const cwd = () => mkdtempSync(path.join(tmpdir(), "omc-uq-"));
+const cwd = () => {
+  const root = mkdtempSync(path.join(tmpdir(), "omc-uq-"));
+  writeFileSync(path.join(root, "package.json"), "{}\n", "utf8");
+  return root;
+};
 
 describe("ultraqa mode-state", () => {
-  it("starts and records a failing cycle", () => {
+  it("records a failing verdict without advancing the hook-owned cycle counter", () => {
     const root = cwd();
     startUltraqa({ cwd: root, goal: "tests pass", maxCycles: 3 });
     const r = recordUltraqaCycle(root, "fail");
-    expect(r.state?.cycleCount).toBe(1);
+    expect(r.state?.cycleCount).toBe(0);
     expect(r.state?.lastVerdict).toBe("fail");
   });
 
@@ -28,13 +32,14 @@ describe("ultraqa mode-state", () => {
     expect(readUltraqa(root)).toBeUndefined();
   });
 
-  it("hits maxCycles and clears", () => {
+  it("does not enforce maxCycles from the cycle command", () => {
     const root = cwd();
     startUltraqa({ cwd: root, goal: "tests pass", maxCycles: 2 });
     recordUltraqaCycle(root, "fail");
     const second = recordUltraqaCycle(root, "fail");
-    expect(second.ok).toBe(false);
-    expect(readUltraqa(root)).toBeUndefined();
+    expect(second.ok).toBe(true);
+    expect(second.state).toMatchObject({ active: true, cycleCount: 0, lastVerdict: "fail" });
+    expect(readUltraqa(root)).toMatchObject({ active: true, cycleCount: 0 });
   });
 
   it("cancelUltraqa clears state", () => {

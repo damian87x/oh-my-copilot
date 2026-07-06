@@ -1,4 +1,4 @@
-import { clearModeState, readModeStateJson, writeModeStateJson } from "./paths.js";
+import { clearAgentStopMarkers, clearModeState, readModeStateJson, writeModeStateJson } from "./paths.js";
 
 export interface UltraqaState {
   active: boolean;
@@ -20,6 +20,7 @@ export interface StartUltraqaOptions {
 
 export function startUltraqa(opts: StartUltraqaOptions): UltraqaState {
   const cwd = opts.cwd ?? process.cwd();
+  clearAgentStopMarkers(cwd, "ultraqa");
   const state: UltraqaState = {
     active: true,
     goal: opts.goal,
@@ -54,18 +55,14 @@ export function recordUltraqaCycle(
 ): UltraqaCycleResult {
   const state = readUltraqa(cwd);
   if (!state) return { ok: false, reason: "not active" };
+  if (!state.active) return { ok: false, reason: "loop already cleared" };
   const next: UltraqaState = {
     ...state,
-    cycleCount: state.cycleCount + 1,
     lastVerdict: verdict,
   };
   if (verdict === "pass") {
     cancelUltraqa(cwd);
     return { ok: true, state: { ...next, active: false } };
-  }
-  if (next.cycleCount >= state.maxCycles) {
-    cancelUltraqa(cwd);
-    return { ok: false, state: { ...next, active: false }, reason: `max cycles (${state.maxCycles}) reached` };
   }
   writeModeStateJson(cwd, "ultraqa", next);
   return { ok: true, state: next };
