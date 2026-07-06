@@ -5,9 +5,9 @@
 
 // Priority order: a single-owner ralph loop wins over a QA cycle over a batch.
 export const LOOP_MODES = [
-  { key: "ralph", sentinel: "RALPH_COMPLETE", counter: "iteration", max: "maxIterations", defMax: 10 },
-  { key: "ultraqa", sentinel: "ULTRAQA_COMPLETE", counter: "cycleCount", max: "maxCycles", defMax: 5 },
-  { key: "ultrawork", sentinel: "ULTRAWORK_COMPLETE", counter: "iteration", max: "maxIterations", defMax: 20 },
+  { key: "ralph", sentinel: "RALPH_COMPLETE", counter: "iteration", max: "maxIterations", defMax: 10, unit: "ITERATION" },
+  { key: "ultraqa", sentinel: "ULTRAQA_COMPLETE", counter: "cycleCount", max: "maxCycles", defMax: 5, unit: "CYCLE" },
+  { key: "ultrawork", sentinel: "ULTRAWORK_COMPLETE", counter: "iteration", max: "maxIterations", defMax: 20, unit: "ITERATION" },
 ];
 
 /**
@@ -40,7 +40,7 @@ export function decideLoop(states = {}, transcriptText = "") {
 
     const next = cur + 1;
     const reason =
-      `[${m.key.toUpperCase()} ITERATION ${next}/${max}] Not finished. Continue the task. ` +
+      `[${m.key.toUpperCase()} ${m.unit} ${next}/${max}] Not finished. Continue the task. ` +
       `When ALL acceptance criteria pass, output the exact token ${m.sentinel} on its own line.`;
     return { decision: "block", patch: { mode: m.key, counter: m.counter, value: next }, reason };
   }

@@ -54,7 +54,7 @@ describe("decideLoop", () => {
   it("drives ultraqa via cycleCount/maxCycles", () => {
     const r = decideLoop({ ultraqa: { active: true, cycleCount: 0, maxCycles: 5 } }, "");
     expect(r.decision).toBe("block");
-    expect(r.reason).toContain("[ULTRAQA ITERATION 1/5]");
+    expect(r.reason).toContain("[ULTRAQA CYCLE 1/5]");
     expect(r.patch).toEqual({ mode: "ultraqa", counter: "cycleCount", value: 1 });
   });
 
