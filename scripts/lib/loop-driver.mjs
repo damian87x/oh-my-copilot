@@ -25,8 +25,14 @@ export function decideLoop(states = {}, transcriptText = "") {
       return { decision: "allow", clear: m.key, reason: `${m.key} complete (sentinel seen)` };
     }
 
-    const cur = Number(s[m.counter] ?? 0);
-    const max = Number(s[m.max] ?? m.defMax);
+    const rawCur = Number(s[m.counter] ?? 0);
+    const cur = Number.isFinite(rawCur) ? rawCur : 0;
+    // A corrupted non-numeric max (e.g. "abc") must NOT disable the cap: Number()
+    // would yield NaN and `cur >= NaN` is always false — an unbounded loop in the
+    // one component meant to be the backstop. Fall back to the mode default so the
+    // safety cap always holds.
+    const rawMax = Number(s[m.max] ?? m.defMax);
+    const max = Number.isFinite(rawMax) ? rawMax : m.defMax;
     // Safety cap: max=N grants exactly N hook-driven continuation turns.
     if (cur >= max) {
       return { decision: "allow", clear: m.key, reason: `${m.key} reached max (${max})` };

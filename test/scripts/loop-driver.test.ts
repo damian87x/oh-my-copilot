@@ -36,6 +36,21 @@ describe("decideLoop", () => {
     expect(r.reason).toContain("max (4)");
   });
 
+  it("keeps the safety cap when max is non-numeric (never fails open into an unbounded loop)", () => {
+    // A corrupted maxIterations must fall back to the mode default, not NaN — a
+    // NaN cap makes `cur >= max` always false and the loop never stops.
+    const capped = decideLoop({ ralph: { active: true, iteration: 500, maxIterations: "abc" } }, "");
+    expect(capped.decision).toBe("allow");
+    expect(capped.clear).toBe("ralph");
+    expect(capped.reason).toContain("max (10)");
+  });
+
+  it("treats a non-numeric counter as 0 rather than propagating NaN", () => {
+    const r = decideLoop({ ralph: { active: true, iteration: "oops", maxIterations: 4 } }, "");
+    expect(r.decision).toBe("block");
+    expect(r.patch).toEqual({ mode: "ralph", counter: "iteration", value: 1 });
+  });
+
   it("drives ultraqa via cycleCount/maxCycles", () => {
     const r = decideLoop({ ultraqa: { active: true, cycleCount: 0, maxCycles: 5 } }, "");
     expect(r.decision).toBe("block");
