@@ -6,13 +6,13 @@
 import {
   closeSync,
   existsSync,
+  fstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readSync,
   readdirSync,
   renameSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -139,11 +139,11 @@ function writeState(directory, mode, state) {
 function readTranscriptTail(path) {
   if (!path || !existsSync(path)) return "";
   try {
-    const size = statSync(path).size;
-    const start = Math.max(0, size - TRANSCRIPT_TAIL_BYTES);
-    const len = size - start;
     const fd = openSync(path, "r");
     try {
+      const size = fstatSync(fd).size;
+      const start = Math.max(0, size - TRANSCRIPT_TAIL_BYTES);
+      const len = size - start;
       const buf = Buffer.alloc(len);
       readSync(fd, buf, 0, len, start);
       return buf.toString("utf8");

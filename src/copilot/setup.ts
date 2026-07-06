@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { resolveCopilotPaths, type CopilotPaths, type ResolveCopilotPathsOptions } from "./paths.js";
+import { atomicWrite } from "../utils/fs.js";
 
 export interface SetupOptions extends ResolveCopilotPathsOptions {
   dryRun?: boolean;
@@ -123,7 +124,7 @@ function ensureFile(target: string, content: string, actions: SetupAction[], dry
   }
   if (!dryRun) {
     mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, content, "utf8");
+    atomicWrite(target, content);
   }
   actions.push({ source: "(template)", target, kind: "create" });
 }

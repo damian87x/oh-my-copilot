@@ -8,9 +8,16 @@ import {
   renameSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Task, TaskStatus } from "./types.js";
+
+const TASK_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
+export function validateTaskId(taskId: string): boolean {
+  return TASK_ID_RE.test(taskId);
+}
 
 export function taskFilePath(tasksDir: string, taskId: string): string {
   return join(tasksDir, `${taskId}.json`);
@@ -64,10 +71,7 @@ function openLockExclusive(lockPath: string, worker: string): number | undefined
   try {
     const fd = openSync(lockPath, "wx");
     try {
-      writeFileSync(
-        lockPath,
-        JSON.stringify({ owner: worker, pid: process.pid, claimedAt: new Date().toISOString() }),
-      );
+      writeSync(fd, JSON.stringify({ owner: worker, pid: process.pid, claimedAt: new Date().toISOString() }));
     } finally {
       closeSync(fd);
     }

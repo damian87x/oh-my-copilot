@@ -7,7 +7,7 @@ import {
   readSync,
   readdirSync,
   renameSync,
-  statSync,
+  fstatSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -51,14 +51,15 @@ export function scanScheduleResults(directory, opts = {}) {
     const cursorPath = join(resultsDir, `${id}.offset`);
 
     let cursor = readCursor(cursorPath);
-    const size = statSync(resultsPath).size;
-    if (cursor > size) cursor = 0; // truncated/rotated → re-read from start
-    if (cursor >= size) continue;
-
-    const remaining = Math.min(size - cursor, maxBytes);
     const fd = openSync(resultsPath, "r");
-    const buf = Buffer.alloc(remaining);
+    let buf;
     try {
+      const size = fstatSync(fd).size;
+      if (cursor > size) cursor = 0; // truncated/rotated → re-read from start
+      if (cursor >= size) continue;
+
+      const remaining = Math.min(size - cursor, maxBytes);
+      buf = Buffer.alloc(remaining);
       readSync(fd, buf, 0, remaining, cursor);
     } finally {
       closeSync(fd);

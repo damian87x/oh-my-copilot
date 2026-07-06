@@ -30,6 +30,14 @@ describe("apiClaimTask", () => {
     const worker = resolveWorkerPaths(paths, "worker-1");
     expect(existsSync(worker.heartbeatFile)).toBe(true);
   });
+
+  it("rejects traversal-shaped task ids before task-store path construction", () => {
+    const { cwd, teamName } = setup();
+    const claim = apiClaimTask({ team_name: teamName, task_id: "../escape", worker: "worker-1", cwd });
+
+    expect(claim.ok).toBe(false);
+    expect(claim.reason).toBe("invalid_task_id");
+  });
 });
 
 describe("apiTransitionTaskStatus", () => {
@@ -72,5 +80,21 @@ describe("apiTransitionTaskStatus", () => {
       cwd,
     });
     expect(result.ok).toBe(false);
+  });
+
+  it("rejects traversal-shaped task ids before transition path construction", () => {
+    const { cwd, teamName } = setup();
+    const result = apiTransitionTaskStatus({
+      team_name: teamName,
+      task_id: "../escape",
+      worker: "worker-1",
+      from: "in_progress",
+      to: "completed",
+      claim_token: "token",
+      cwd,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("invalid_task_id");
   });
 });

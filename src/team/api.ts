@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { resolveTeamPaths, resolveWorkerPaths } from "./state-paths.js";
-import { tryClaimTask, transitionTask, type ClaimResult, type TransitionResult } from "./task-store.js";
+import { tryClaimTask, transitionTask, validateTaskId, type ClaimResult, type TransitionResult } from "./task-store.js";
 import { writeHeartbeat } from "./heartbeat.js";
 import { appendOutbox } from "./outbox.js";
 import { loadTeamConfig } from "./config.js";
@@ -20,6 +20,9 @@ export interface ClaimInput {
 }
 
 export function apiClaimTask(input: ClaimInput): ClaimResult {
+  if (!validateTaskId(input.task_id)) {
+    return { ok: false, reason: "invalid_task_id" };
+  }
   const cwd = resolve(input.cwd ?? process.cwd());
   const team = resolveTeamPaths(cwd, input.team_name);
   const worker = resolveWorkerPaths(team, input.worker);
@@ -49,6 +52,9 @@ export interface TransitionInput {
 }
 
 export function apiTransitionTaskStatus(input: TransitionInput): TransitionResult {
+  if (!validateTaskId(input.task_id)) {
+    return { ok: false, reason: "invalid_task_id" };
+  }
   const cwd = resolve(input.cwd ?? process.cwd());
   const team = resolveTeamPaths(cwd, input.team_name);
   const transition = transitionTask({
