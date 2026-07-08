@@ -25,7 +25,10 @@ describe('listAll skill discovery', () => {
     const list = await listAll({ cwd: root, packageRoot: root });
 
     const names = list.skills.map((s) => s.name);
-    expect(names).toContain('ClawTeam');
+    // Command identity is the directory; the Title-Case frontmatter name is display only.
+    expect(names).toContain('clawteam');
+    expect(names).not.toContain('ClawTeam');
+    expect(list.skills.find((s) => s.name === 'clawteam')?.display).toBe('ClawTeam');
     expect(names).not.toContain('broken');
   });
 });

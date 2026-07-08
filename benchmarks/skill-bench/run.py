@@ -34,7 +34,7 @@ Cost currency: the Copilot CLI reports NO token counts or USD -- only premiumReq
 sessionDurationMs. So on --engine copilot the sweep measures quality vs premium-requests and
 vs seconds. Real token/$ numbers require --engine claude (which returns usage + total_cost_usd).
 """
-import argparse, concurrent.futures, datetime, json, os, shutil, statistics, subprocess, sys, tempfile
+import argparse, concurrent.futures, datetime, json, os, re, shutil, statistics, subprocess, sys, tempfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -60,6 +60,10 @@ DEFAULT_MODELS = ["gpt-5-mini", "claude-haiku-4.5", "claude-sonnet-4.6", "gemini
 
 # Sentinel used in cell names when no explicit model is pinned (single-model / host default).
 DEFAULT_MODEL = "default"
+
+# A model slug becomes a filesystem path component and part of the `__`-delimited cell name,
+# so it must not contain a path separator or the delimiter. (Copilot slugs are dot/hyphen only.)
+SAFE_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]*$")
 
 CELL_TIMEOUT = 300                           # seconds per cell; a hung agent is force-killed
 PROBE_TIMEOUT = 20                           # seconds for the per-model entitlement probe
@@ -124,11 +128,11 @@ def build_cmd(engine, task, arm, workdir, model=None):
 
 
 def probe_model(engine, model):
-    """Return True if `--model <model>` is runnable on this host. Mirrors probeModel() in
-    src/copilot/models.ts: a working model is proven by captured stdout (copilot -p often
-    hangs after answering), and the entitlement signature on stderr proves it's unavailable.
-    Anything else (timeout/crash with no output) is treated as unavailable to avoid spending a
-    whole grid on a dead cell -- but it is logged so a false negative is visible, not silent."""
+    """Classify `--model <model>` on this host as available | unavailable | unknown. Mirrors
+    probeModel() in src/copilot/models.ts: a working model is proven by captured stdout
+    (copilot -p often hangs after answering); the entitlement signature on stderr proves it is
+    unavailable; anything else (timeout/crash with no output) is UNKNOWN -- 'slow/broken' is not
+    the same as 'not entitled', so we do not drop it. Returns (status, why)."""
     bin_name = "claude" if engine == "claude" else "copilot"
     exe = shutil.which(bin_name)
     if not exe:
@@ -144,31 +148,32 @@ def probe_model(engine, model):
         err, code = "", None
     low = err.lower()
     if any(s in low for s in ("does not have access", "not entitled", "no access", "not available", "invalid model")):
-        return False, "not entitled"
+        return "unavailable", "not entitled"
     if out.strip() or code == 0:
-        return True, "ok"
-    return False, "no output (timeout/crash) -- skipped; re-run with --no-probe to force"
+        return "available", "ok"
+    return "unknown", "no output (timeout/crash) -- kept unverified; --no-probe to skip probing"
 
 
 def filter_available_models(engine, models):
-    """Probe each candidate model once and drop the unavailable ones, LOUDLY (never a silent
-    cap). Returns the kept list; exits if nothing survives."""
-    kept = []
+    """Probe each candidate once and drop ONLY the provably-unavailable ones, LOUDLY (never a
+    silent cap; an 'unknown' probe is kept, matching src/copilot/models.ts). Returns the kept
+    list; exits if nothing survives."""
+    kept, dropped = [], []
     print(f"probing {len(models)} model(s) on '{engine}' for entitlement...", flush=True)
     for m in models:
         if m == DEFAULT_MODEL:
             kept.append(m)
             print(f"  - {m:22} kept (host default, not probed)", flush=True)
             continue
-        ok, why = probe_model(engine, m)
-        print(f"  - {m:22} {'AVAILABLE' if ok else 'SKIPPED  '} ({why})", flush=True)
-        if ok:
-            kept.append(m)
+        status, why = probe_model(engine, m)
+        label = {"available": "AVAILABLE", "unknown": "KEPT     ", "unavailable": "SKIPPED  "}[status]
+        print(f"  - {m:22} {label} ({why})", flush=True)
+        (dropped if status == "unavailable" else kept).append(m)
     if not kept:
         sys.exit("no requested models are available on this host; nothing to run")
-    if len(kept) < len(models):
+    if dropped:
         print(f"note: running {len(kept)}/{len(models)} requested models "
-              f"(skipped: {', '.join(m for m in models if m not in kept)})", flush=True)
+              f"(skipped as unavailable: {', '.join(dropped)})", flush=True)
     return kept
 
 
@@ -244,8 +249,26 @@ def score_workspace(task_id, arm, engine, workdir, model=DEFAULT_MODEL):
         if result_text:
             (workdir / "_result.txt").write_text(result_text, encoding="utf-8")
     sc = task["score"](workdir)
-    return {"task": task_id, "skill": task["skill"], "arm": arm, "engine": engine,
-            "model": model, **sc, **meta}
+    sc = {"task": task_id, "skill": task["skill"], "arm": arm, "engine": engine,
+          "model": model, **sc, **meta}
+    # Honesty gate, applied HERE (not only in run_cell) so --resume/--rescore cannot turn a
+    # timed-out or failed-to-spawn cell into a pass just because it left a plausible artifact.
+    # Reads the persisted _status.json; absent (old runs) => no gate, preserving back-compat.
+    st = workdir / "_status.json"
+    if st.exists():
+        try:
+            status = json.loads(st.read_text(encoding="utf-8"))
+        except Exception:
+            status = {}
+        sc["returncode"] = status.get("returncode")
+        sc["timed_out"] = int(bool(status.get("timed_out")))
+        if status.get("spawn_error"):
+            sc["error"] = status["spawn_error"]
+        if status.get("timed_out") or status.get("spawn_error"):
+            sc["applied"], sc["correct"] = 0, 0
+            sc["reason"] = ("timed out" if status.get("timed_out") else "spawn error") + \
+                "; forced applied=correct=0 (honesty gate)"
+    return sc
 
 
 def run_cell(task_id, arm, engine, workdir, model=DEFAULT_MODEL):
@@ -270,16 +293,12 @@ def run_cell(task_id, arm, engine, workdir, model=DEFAULT_MODEL):
     except Exception as e:
         spawn_error = str(e)[:300]
         out_path.write_text(json.dumps({"error": spawn_error}), encoding="utf-8")
-    sc = score_workspace(task_id, arm, engine, workdir, model=model)
-    sc["returncode"], sc["timed_out"] = returncode, int(timed_out)
-    if spawn_error:
-        sc["error"] = spawn_error
-    # Honesty gate: a timed-out or failed-to-spawn cell cannot count as a success even if it
-    # left a plausible-looking artifact behind (a half-finished file, or the seed itself).
-    if timed_out or spawn_error:
-        sc["applied"], sc["correct"] = 0, 0
-        sc["reason"] = ("timed out" if timed_out else "spawn error") + "; forced applied=correct=0"
-    return sc
+    # Persist execution status BEFORE scoring so the honesty gate in score_workspace (also used
+    # by --resume/--rescore) sees it. This is what makes a resumed/rescored run honest.
+    (workdir / "_status.json").write_text(json.dumps(
+        {"timed_out": int(timed_out), "returncode": returncode, "spawn_error": spawn_error}),
+        encoding="utf-8")
+    return score_workspace(task_id, arm, engine, workdir, model=model)
 
 
 def _killtree(pid):
@@ -450,6 +469,11 @@ def main():
         models = list(DEFAULT_MODELS)
     else:
         models = [m.strip() for m in args.models.split(",") if m.strip()]
+    # A slug becomes a path component and part of the `__`-delimited cell name -- reject
+    # anything that could escape a directory or break rescore parsing.
+    for m in models:
+        if m != DEFAULT_MODEL and ("__" in m or not SAFE_MODEL.match(m)):
+            sys.exit(f"invalid model slug {m!r}: letters/digits/dot/hyphen only, no '__' or path separators")
     sweeping = models != [DEFAULT_MODEL]
     if sweeping and not args.no_probe:
         models = filter_available_models(args.engine, models)

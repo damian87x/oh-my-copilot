@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { parseFrontmatter, resolveProjectPaths } from "../project.js";
 
 export interface CatalogedItem {
+  /** The command identity: the directory (skills) or file (agents) name. */
   name: string;
+  /** Optional human-readable display name from frontmatter, when it differs. */
+  display?: string;
   kind: "skill" | "agent" | "capability";
   description?: string;
   path?: string;
@@ -32,7 +35,9 @@ function readSkillDir(dir: string): CatalogedItem[] {
       continue;
     }
     out.push({
-      name: fm.name || entry.name,
+      // The slash-command is the DIRECTORY name (the spec identity); `name` is display.
+      name: entry.name,
+      display: fm.name && fm.name !== entry.name ? fm.name : undefined,
       kind: "skill",
       description: fm.description,
       path: skillFile,
@@ -54,8 +59,10 @@ function readAgentDir(dir: string): CatalogedItem[] {
       console.warn(`omp: skipping unreadable agent ${filePath}: ${(err as Error).message}`);
       continue;
     }
+    const id = entry.name.replace(/\.md$/, "");
     out.push({
-      name: fm.name || entry.name.replace(/\.md$/, ""),
+      name: id,
+      display: fm.name && fm.name !== id ? fm.name : undefined,
       kind: "agent",
       description: fm.description,
       path: filePath,
@@ -100,9 +107,9 @@ export async function listAll(options: ListOptions = {}): Promise<CombinedList> 
 export function formatList(list: CombinedList): string {
   const lines: string[] = [];
   lines.push(`Skills (${list.skills.length}):`);
-  for (const s of list.skills) lines.push(`  /${s.name}${s.description ? `  ${s.description}` : ""}`);
+  for (const s of list.skills) lines.push(`  /${s.name}${s.display ? ` (${s.display})` : ""}${s.description ? `  ${s.description}` : ""}`);
   lines.push("", `Agents (${list.agents.length}):`);
-  for (const a of list.agents) lines.push(`  @${a.name}${a.description ? `  ${a.description}` : ""}`);
+  for (const a of list.agents) lines.push(`  @${a.name}${a.display ? ` (${a.display})` : ""}${a.description ? `  ${a.description}` : ""}`);
   lines.push("", `Capabilities (${list.capabilities.length}):`);
   for (const c of list.capabilities) lines.push(`  ${c.name}${c.description ? `  ${c.description}` : ""}`);
   return lines.join("\n");
