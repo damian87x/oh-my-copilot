@@ -22,7 +22,15 @@ function readSkillDir(dir: string): CatalogedItem[] {
     if (!entry.isDirectory()) continue;
     const skillFile = join(dir, entry.name, "SKILL.md");
     if (!existsSync(skillFile)) continue;
-    const fm = parseFrontmatter(readFileSync(skillFile, "utf8"));
+    // Skip an unreadable skill with a warning instead of aborting the whole
+    // listing — one bad skill should never hide the rest (spec behavior).
+    let fm: Record<string, string>;
+    try {
+      fm = parseFrontmatter(readFileSync(skillFile, "utf8"));
+    } catch (err) {
+      console.warn(`omp: skipping unreadable skill ${skillFile}: ${(err as Error).message}`);
+      continue;
+    }
     out.push({
       name: fm.name || entry.name,
       kind: "skill",
@@ -39,7 +47,13 @@ function readAgentDir(dir: string): CatalogedItem[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
     const filePath = join(dir, entry.name);
-    const fm = parseFrontmatter(readFileSync(filePath, "utf8"));
+    let fm: Record<string, string>;
+    try {
+      fm = parseFrontmatter(readFileSync(filePath, "utf8"));
+    } catch (err) {
+      console.warn(`omp: skipping unreadable agent ${filePath}: ${(err as Error).message}`);
+      continue;
+    }
     out.push({
       name: fm.name || entry.name.replace(/\.md$/, ""),
       kind: "agent",
