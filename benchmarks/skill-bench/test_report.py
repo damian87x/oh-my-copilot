@@ -68,6 +68,81 @@ class SkillBenchReportTests(unittest.TestCase):
         self.assertNotIn("<b>baseline-model&lt;&amp;&gt;</b>", recommendation)
         self.assertNotIn("<b>default</b>", recommendation)
 
+    def test_write_report_names_best_observed_row_and_tie_break(self):
+        rows = [
+            {
+                "task": "code-review-sqli",
+                "skill": "code-review",
+                "arm": "baseline",
+                "model": "claude-haiku-4.5",
+                "n": 1,
+                "applied_rate": 1,
+                "correct_rate": 1,
+                "premium_reqs_per_task": 0.33,
+                "premium_reqs_per_success": 0.33,
+                "seconds_per_task": 50.1,
+                "seconds_per_success": 50.1,
+                "p50_seconds": 50.1,
+            },
+            {
+                "task": "code-review-sqli",
+                "skill": "code-review",
+                "arm": "baseline",
+                "model": "gpt-5-mini",
+                "n": 1,
+                "applied_rate": 1,
+                "correct_rate": 1,
+                "premium_reqs_per_task": 0,
+                "premium_reqs_per_success": 0,
+                "seconds_per_task": 23.3,
+                "seconds_per_success": 23.3,
+                "p50_seconds": 23.3,
+            },
+            {
+                "task": "code-review-sqli",
+                "skill": "code-review",
+                "arm": "prompt",
+                "model": "claude-haiku-4.5",
+                "n": 1,
+                "applied_rate": 1,
+                "correct_rate": 1,
+                "premium_reqs_per_task": 0.33,
+                "premium_reqs_per_success": 0.33,
+                "seconds_per_task": 26.0,
+                "seconds_per_success": 26.0,
+                "p50_seconds": 26.0,
+            },
+            {
+                "task": "code-review-sqli",
+                "skill": "code-review",
+                "arm": "prompt",
+                "model": "gpt-5-mini",
+                "n": 1,
+                "applied_rate": 1,
+                "correct_rate": 1,
+                "premium_reqs_per_task": 0,
+                "premium_reqs_per_success": 0,
+                "seconds_per_task": 21.6,
+                "seconds_per_success": 21.6,
+                "p50_seconds": 21.6,
+                "out_tokens_per_task": 372,
+                "out_tokens_per_success": 372,
+            },
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            dest = report.write_report(rows, rows, Path(d))
+            html = dest.read_text(encoding="utf-8")
+
+        self.assertIn("<h2>Best observed row</h2>", html)
+        self.assertIn("<b>code-review-sqli</b>: <b>prompt / gpt-5-mini</b>", html)
+        self.assertIn("372 out tok/win", html)
+        self.assertIn("out tok/task", html)
+        self.assertIn("All rows for this task are at 100% correct", html)
+        self.assertIn("tie broken by premium-requests, then seconds", html)
+        self.assertIn("No <b>skill</b> arm rows were captured", html)
+        self.assertNotIn("reports no tokens or USD", html)
+        self.assertIn("Input-token/USD columns are not captured by this report yet", html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,9 +30,10 @@ Host CLI: defaults to `copilot` (omp's real host -- skills are Copilot CLI plugi
 --engine claude to run against the `claude` CLI instead. The engine layer is intentionally
 thin; if your copilot CLI flags differ, adjust build_cmd() -- it is the only host-specific code.
 
-Cost currency: the Copilot CLI reports NO token counts or USD -- only premiumRequests and
-sessionDurationMs. So on --engine copilot the sweep measures quality vs premium-requests and
-vs seconds. Real token/$ numbers require --engine claude (which returns usage + total_cost_usd).
+Cost currency: this runner currently captures premiumRequests, sessionDurationMs, and
+assistant outputTokens from the Copilot JSON stream. It does not yet capture input-token or USD
+details, so on --engine copilot the sweep measures quality vs premium-requests, output tokens,
+and seconds. The --engine claude path records usage + total_cost_usd when the host returns them.
 """
 import argparse, concurrent.futures, datetime, json, os, re, shutil, statistics, subprocess, sys, tempfile
 from collections import defaultdict
@@ -202,8 +203,11 @@ def _meta_claude(raw):
 def _meta_copilot(raw):
     """copilot -p --output-format json emits an NDJSON EVENT STREAM. The final answer is the
     last `assistant.message`.data.content; usage/duration come from the `result` event
-    (premiumRequests / sessionDurationMs -- copilot reports no USD cost or token counts)."""
+    (premiumRequests / sessionDurationMs). Assistant outputTokens are emitted on
+    `assistant.message` events."""
     result_text, meta = "", {}
+    out_tokens = 0
+    saw_out_tokens = False
     for ln in raw.splitlines():
         ln = ln.strip()
         if not ln:
@@ -215,11 +219,17 @@ def _meta_copilot(raw):
         t, d = o.get("type"), (o.get("data") or {})
         if t == "assistant.message" and isinstance(d.get("content"), str):
             result_text = d["content"]
+            if isinstance(d.get("outputTokens"), (int, float)):
+                out_tokens += d["outputTokens"]
+                saw_out_tokens = True
         elif t == "result":
             u = o.get("usage") or {}
             meta = {"cost": None, "premium_requests": u.get("premiumRequests"),
                     "duration_ms": u.get("sessionDurationMs") or u.get("totalApiDurationMs"),
-                    "exit_code": o.get("exitCode")}
+                    "exit_code": o.get("exitCode"),
+                    "session_id": o.get("sessionId")}
+    if saw_out_tokens:
+        meta["out_tokens"] = out_tokens
     return meta, result_text
 
 
@@ -359,8 +369,8 @@ def _median(xs):
 
 def aggregate(results):
     """Aggregate cells into one row per (task, arm, model). Metrics adapt the rightmodel
-    sweep formulas to the Copilot cost currency: premium-requests and seconds (tokens/USD
-    are unavailable on the copilot host). `*_per_success` fold quality and cost into one
+    sweep formulas to the currently captured Copilot cost currency: premium-requests,
+    output tokens, and seconds. `*_per_success` fold quality and cost into one
     number; they are None when a cell group had zero successes (correct==1)."""
     groups = defaultdict(list)
     for r in results:
@@ -371,9 +381,11 @@ def aggregate(results):
         passes = sum((c.get("correct") or 0) for c in cells)
         secs = [(c["duration_ms"] / 1000) if c.get("duration_ms") is not None else None for c in cells]
         prs = [c.get("premium_requests") for c in cells]
+        outs = [c.get("out_tokens") for c in cells]
         costs = [c["cost"] for c in cells if c.get("cost") is not None]
         total_secs = sum(s for s in secs if s is not None)
         total_pr = sum(p for p in prs if p is not None)
+        total_out = sum(t for t in outs if t is not None)
         rows.append({
             "task": t, "skill": cells[0].get("skill"), "arm": a, "model": m, "n": n,
             # error/timed-out cells may lack these keys -- treat a missing score as a 0.
@@ -381,6 +393,8 @@ def aggregate(results):
             "correct_rate": round(passes / n, 3),
             "premium_reqs_per_task": round(_mean(prs), 3) if any(p is not None for p in prs) else None,
             "premium_reqs_per_success": round(total_pr / passes, 3) if (passes and any(p is not None for p in prs)) else None,
+            "out_tokens_per_task": round(_mean(outs), 1) if any(t is not None for t in outs) else None,
+            "out_tokens_per_success": round(total_out / passes, 1) if (passes and any(t is not None for t in outs)) else None,
             "seconds_per_task": round(_mean(secs), 1) if any(s is not None for s in secs) else None,
             "seconds_per_success": round(total_secs / passes, 1) if passes else None,
             "p50_seconds": round(_median(secs), 1) if any(s is not None for s in secs) else None,
@@ -398,14 +412,17 @@ def print_table(rows):
     for task, rs in sorted(by.items()):
         multi = len({r["model"] for r in rs}) > 1
         print(f"\n=== {task}  (skill={rs[0]['skill']}, n={rs[0]['n']}) ===")
-        hdr = f"  {'arm':10} {'model':22} {'applied%':>9} {'correct%':>9} {'pr/task':>8} {'pr/win':>7} {'s/task':>7} {'s/win':>7}"
+        hdr = f"  {'arm':10} {'model':22} {'applied%':>9} {'correct%':>9} {'pr/task':>8} {'pr/win':>7} {'out/win':>7} {'s/task':>7} {'s/win':>7}"
         print(hdr)
         for r in sorted(rs, key=lambda x: (x["arm"], x["model"])):
             def fmt(v, nd=2):
                 return "-" if v is None else format(v, f".{nd}f")
+            def fmt_int(v):
+                return "-" if v is None else format(v, ".0f")
             print(f"  {r['arm']:10} {(r['model'] if multi else '-'):22} "
                   f"{r['applied_rate']:>9} {r['correct_rate']:>9} "
                   f"{fmt(r['premium_reqs_per_task']):>8} {fmt(r['premium_reqs_per_success']):>7} "
+                  f"{fmt_int(r.get('out_tokens_per_success')):>7} "
                   f"{fmt(r['seconds_per_task'],1):>7} {fmt(r['seconds_per_success'],1):>7}")
 
 

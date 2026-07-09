@@ -6,9 +6,10 @@ summary.json; this plotter globs the rows and draws. Regenerating the report cos
 and never re-spends. Plots are inline SVG (no matplotlib dependency) so the file opens in any
 browser and is trivial to share.
 
-Cost currency note: on the Copilot host there are no tokens or USD -- only premium-requests
-and seconds -- so the plots put quality (correct%) on Y against premium-requests/task and
-seconds/task on X. `*_per_success` fold quality and cost into one number.
+Telemetry note: this report currently captures premium-requests, assistant output tokens, and
+seconds from the Copilot JSON stream. It does not yet collect input-token/USD data, so the
+plots put quality (correct%) on Y against premium-requests/task and seconds/task on X.
+`*_per_success` fold quality and cost into one number.
 """
 import html
 from collections import defaultdict
@@ -25,6 +26,10 @@ def _color_for(models):
 
 def _fmt(v, nd=2):
     return "-" if v is None else format(v, f".{nd}f")
+
+
+def _fmt_count(v):
+    return "-" if v is None else format(v, ".0f")
 
 
 def _marker_svg(shape, cx, cy, color, r=6):
@@ -105,6 +110,30 @@ def _recommendation(rows):
     return out
 
 
+def _winner_key(r):
+    return (-(r["correct_rate"] or 0),
+            r["premium_reqs_per_success"] if r["premium_reqs_per_success"] is not None else float("inf"),
+            r["seconds_per_success"] if r["seconds_per_success"] is not None else float("inf"),
+            r.get("out_tokens_per_success") if r.get("out_tokens_per_success") is not None else float("inf"),
+            r["arm"],
+            r["model"])
+
+
+def _best_observed(rows):
+    """Per task, pick the best observed row across all arms/models: highest correct_rate,
+    tie-broken by lowest premium_reqs_per_success, then lowest seconds_per_success."""
+    out = []
+    by_task = defaultdict(list)
+    for r in rows:
+        by_task[r["task"]].append(r)
+    for task, rs in sorted(by_task.items()):
+        best = sorted(rs, key=_winner_key)[0]
+        all_same_quality = len({r.get("correct_rate") for r in rs}) == 1
+        all_perfect = all((r.get("correct_rate") or 0) == 1 for r in rs)
+        out.append((task, best, all_same_quality, all_perfect))
+    return out
+
+
 def write_report(rows, results, out_dir):
     out_dir = Path(out_dir)
     models = {r["model"] for r in rows}
@@ -117,9 +146,35 @@ def write_report(rows, results, out_dir):
              '<title>skill-bench sweep report</title>', _CSS, '</head><body>']
     parts.append('<h1>skill-bench model sweep</h1>')
     parts.append('<p class="note">Quality = <b>correct%</b> (artifact sound). Cost currency is '
-                 '<b>premium-requests</b> and <b>seconds</b> — the Copilot host reports no tokens or USD. '
+                 '<b>premium-requests</b>, <b>assistant output tokens</b>, and <b>seconds</b> '
+                 'from the current runner. Input-token/USD columns are not captured by this '
+                 'report yet; Copilot session details may be available separately via '
+                 '<code>/session info</code>. '
                  '<code>pr/win</code> and <code>s/win</code> are premium-requests and seconds '
                  '<i>per success</i> (quality and cost folded into one number).</p>')
+
+    best = _best_observed(rows)
+    if best:
+        parts.append('<h2>Best observed row</h2><ul class="best">')
+        for task, b, all_same_quality, all_perfect in best:
+            parts.append(f'<li><b>{html.escape(task)}</b>: <b>{html.escape(b["arm"])} / '
+                         f'{html.escape(b["model"])}</b> — correct {int((b["correct_rate"] or 0)*100)}%, '
+                         f'{_fmt(b["premium_reqs_per_success"])} pr/win, '
+                         f'{_fmt(b["seconds_per_success"],1)} s/win')
+            if b.get("out_tokens_per_success") is not None:
+                parts.append(f', {_fmt_count(b["out_tokens_per_success"])} out tok/win')
+            if all_perfect:
+                parts.append(' <span class="tie">(All rows for this task are at 100% correct; '
+                             'tie broken by premium-requests, then seconds, then output tokens.)</span>')
+            elif all_same_quality:
+                parts.append(' <span class="tie">(Rows tied on correct%; tie broken by '
+                             'premium-requests, then seconds, then output tokens.)</span>')
+            parts.append('</li>')
+        parts.append('</ul>')
+        if not any(r.get("arm") == "skill" for r in rows):
+            parts.append('<p class="warn">No <b>skill</b> arm rows were captured in this run, so this '
+                         'report can pick the best observed row but cannot say whether the skill '
+                         'beats baseline or prompt.</p>')
 
     if multi:
         rec = _recommendation(rows)
@@ -144,8 +199,8 @@ def write_report(rows, results, out_dir):
     # data table
     parts.append('<h2>Per-cell data</h2><div class="tablewrap"><table>')
     parts.append('<tr><th>task</th><th>arm</th><th>model</th><th>n</th><th>applied%</th>'
-                 '<th>correct%</th><th>pr/task</th><th>pr/win</th><th>s/task</th><th>s/win</th>'
-                 '<th>p50 s</th></tr>')
+                 '<th>correct%</th><th>pr/task</th><th>pr/win</th><th>out tok/task</th>'
+                 '<th>out tok/win</th><th>s/task</th><th>s/win</th><th>p50 s</th></tr>')
     for r in sorted(rows, key=lambda x: (x["task"], x["arm"], x["model"])):
         parts.append(
             "<tr>"
@@ -153,6 +208,7 @@ def write_report(rows, results, out_dir):
             f'<td>{html.escape(r["model"])}</td><td>{r["n"]}</td>'
             f'<td>{int(r["applied_rate"]*100)}</td><td>{int(r["correct_rate"]*100)}</td>'
             f'<td>{_fmt(r["premium_reqs_per_task"])}</td><td>{_fmt(r["premium_reqs_per_success"])}</td>'
+            f'<td>{_fmt_count(r.get("out_tokens_per_task"))}</td><td>{_fmt_count(r.get("out_tokens_per_success"))}</td>'
             f'<td>{_fmt(r["seconds_per_task"],1)}</td><td>{_fmt(r["seconds_per_success"],1)}</td>'
             f'<td>{_fmt(r["p50_seconds"],1)}</td>'
             "</tr>")
@@ -171,7 +227,8 @@ body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 24px; max-wi
 h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 24px; }
 .note { color: #555; } @media (prefers-color-scheme: dark){ .note{color:#aaa;} }
 code { background: rgba(127,127,127,.18); padding: 1px 4px; border-radius: 3px; }
-.rec { margin: 4px 0; } .rec li { margin: 2px 0; }
+.rec, .best { margin: 4px 0; } .rec li, .best li { margin: 2px 0; }
+.tie, .warn { color: #666; } @media (prefers-color-scheme: dark){ .tie,.warn{color:#aaa;} }
 .plots { display: flex; gap: 16px; flex-wrap: wrap; }
 .legend { margin: 8px 0; font-size: 12px; }
 .lg { margin-right: 12px; white-space: nowrap; }

@@ -135,6 +135,45 @@ class SkillBenchRunTests(unittest.TestCase):
         self.assertIsNone(row["premium_reqs_per_success"])
         self.assertIsNone(row["seconds_per_success"])
 
+    def test_meta_copilot_collects_output_tokens_from_message_events(self):
+        raw = "\n".join([
+            json.dumps({
+                "type": "assistant.message",
+                "data": {"content": "first", "outputTokens": 12},
+            }),
+            json.dumps({
+                "type": "assistant.message",
+                "data": {"content": "final", "outputTokens": 8},
+            }),
+            json.dumps({
+                "type": "result",
+                "sessionId": "session-1",
+                "exitCode": 0,
+                "usage": {"premiumRequests": 0, "sessionDurationMs": 2100},
+            }),
+        ])
+
+        meta, result_text = run._meta_copilot(raw)
+
+        self.assertEqual(result_text, "final")
+        self.assertEqual(meta["session_id"], "session-1")
+        self.assertEqual(meta["out_tokens"], 20)
+
+    def test_aggregate_reports_output_tokens_per_task_and_success(self):
+        rows = run.aggregate([{
+            "task": "tdd-slugify",
+            "skill": "tdd",
+            "arm": "skill",
+            "model": "gpt-5-mini",
+            "applied": 1,
+            "correct": 1,
+            "out_tokens": 123,
+        }])
+
+        row = rows[0]
+        self.assertEqual(row["out_tokens_per_task"], 123)
+        self.assertEqual(row["out_tokens_per_success"], 123)
+
 
 if __name__ == "__main__":
     unittest.main()
