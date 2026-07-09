@@ -135,8 +135,9 @@ class SkillBenchReportTests(unittest.TestCase):
 
         self.assertIn("<h2>Best observed row</h2>", html)
         self.assertIn("<b>code-review-sqli</b>: <b>prompt / gpt-5-mini</b>", html)
-        self.assertIn("372 out tok/win", html)
-        self.assertIn("out tok/task", html)
+        self.assertIn("372 output tokens/win", html)
+        self.assertIn("output tokens / task", html)
+        self.assertIn("output tokens/task", html)
         self.assertIn("All rows for this task are at 100% correct", html)
         self.assertIn("tie broken by premium-requests, then seconds", html)
         self.assertIn("No <b>skill</b> arm rows were captured", html)

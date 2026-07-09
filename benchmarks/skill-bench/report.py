@@ -162,7 +162,7 @@ def write_report(rows, results, out_dir):
                          f'{_fmt(b["premium_reqs_per_success"])} pr/win, '
                          f'{_fmt(b["seconds_per_success"],1)} s/win')
             if b.get("out_tokens_per_success") is not None:
-                parts.append(f', {_fmt_count(b["out_tokens_per_success"])} out tok/win')
+                parts.append(f', {_fmt_count(b["out_tokens_per_success"])} output tokens/win')
             if all_perfect:
                 parts.append(' <span class="tie">(All rows for this task are at 100% correct; '
                              'tie broken by premium-requests, then seconds, then output tokens.)</span>')
@@ -193,14 +193,15 @@ def write_report(rows, results, out_dir):
             trows = [r for r in rows if r["task"] == task]
             parts.append(f'<h2>{html.escape(task)}</h2><div class="plots">')
             parts.append('<div>' + _scatter(trows, "premium_reqs_per_task", "premium-requests / task", colors) + '</div>')
+            parts.append('<div>' + _scatter(trows, "out_tokens_per_task", "output tokens / task", colors) + '</div>')
             parts.append('<div>' + _scatter(trows, "seconds_per_task", "seconds / task", colors) + '</div>')
             parts.append('</div>')
 
     # data table
     parts.append('<h2>Per-cell data</h2><div class="tablewrap"><table>')
     parts.append('<tr><th>task</th><th>arm</th><th>model</th><th>n</th><th>applied%</th>'
-                 '<th>correct%</th><th>pr/task</th><th>pr/win</th><th>out tok/task</th>'
-                 '<th>out tok/win</th><th>s/task</th><th>s/win</th><th>p50 s</th></tr>')
+                 '<th>correct%</th><th>pr/task</th><th>pr/win</th><th>output tokens/task</th>'
+                 '<th>output tokens/win</th><th>s/task</th><th>s/win</th><th>p50 s</th></tr>')
     for r in sorted(rows, key=lambda x: (x["task"], x["arm"], x["model"])):
         parts.append(
             "<tr>"

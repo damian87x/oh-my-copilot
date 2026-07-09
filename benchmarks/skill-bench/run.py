@@ -412,7 +412,7 @@ def print_table(rows):
     for task, rs in sorted(by.items()):
         multi = len({r["model"] for r in rs}) > 1
         print(f"\n=== {task}  (skill={rs[0]['skill']}, n={rs[0]['n']}) ===")
-        hdr = f"  {'arm':10} {'model':22} {'applied%':>9} {'correct%':>9} {'pr/task':>8} {'pr/win':>7} {'out/win':>7} {'s/task':>7} {'s/win':>7}"
+        hdr = f"  {'arm':10} {'model':22} {'applied%':>9} {'correct%':>9} {'pr/task':>8} {'pr/win':>7} {'output/win':>10} {'s/task':>7} {'s/win':>7}"
         print(hdr)
         for r in sorted(rs, key=lambda x: (x["arm"], x["model"])):
             def fmt(v, nd=2):
@@ -422,7 +422,7 @@ def print_table(rows):
             print(f"  {r['arm']:10} {(r['model'] if multi else '-'):22} "
                   f"{r['applied_rate']:>9} {r['correct_rate']:>9} "
                   f"{fmt(r['premium_reqs_per_task']):>8} {fmt(r['premium_reqs_per_success']):>7} "
-                  f"{fmt_int(r.get('out_tokens_per_success')):>7} "
+                  f"{fmt_int(r.get('out_tokens_per_success')):>10} "
                   f"{fmt(r['seconds_per_task'],1):>7} {fmt(r['seconds_per_success'],1):>7}")
 
 
