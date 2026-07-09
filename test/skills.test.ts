@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { installSkill } from '../src/skills.js';
+import { formatSkillInstall, installSkill } from '../src/skills.js';
 
 type SkillScope = 'project' | 'user';
 
@@ -76,6 +76,17 @@ describe('skill installer', () => {
     expect(result.dryRun).toBe(false);
     expect(readFileSync(path.join(result.targetDir, 'SKILL.md'), 'utf8')).toContain('description:');
     expect(readFileSync(path.join(result.targetDir, 'references', 'notes.md'), 'utf8')).toContain('Notes');
+  });
+
+  it('formats installs with directory identity and frontmatter display name', () => {
+    const repo = tempRepo();
+    const source = tempSkill({ dir: 'clawteam', name: 'ClawTeam' });
+
+    const result = installSkill({ cwd: repo, root: repo, source });
+    const text = formatSkillInstall(result);
+
+    expect(text).toContain('PASS: skill install /clawteam (ClawTeam)');
+    expect(text).not.toContain('/ClawTeam');
   });
 
   it('uses the directory as identity and accepts a Title-Case display name (the ClawTeam case)', () => {
