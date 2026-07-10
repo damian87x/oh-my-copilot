@@ -13,7 +13,8 @@
 - Normal local usage is `npm link`, then plain `omp setup` from the target project.
 - Do not require `--root`, `--plugin-root`, temporary directories, or plugin-cache edits.
 - Preserve local skill edits: setup without `--force` must retain existing skip-changed behavior.
-- Live task modes run real Copilot sessions; `check` and `latest` do not invoke a model.
+- Live task modes run nested Copilot benchmark cells; `check` and `latest` do not start those
+  cells, though their containing Copilot turn still uses the session model.
 - Add no dependencies.
 
 ---
@@ -76,5 +77,5 @@
 - [ ] **Step 2: Link** both Homebrew and active NVM npm installations to this worktree, then verify `omp version --json` from `MoltCore-workspace` reports package `0.25.0` and this worktree path.
 - [ ] **Step 3: Run** plain `omp setup` from `MoltCore-workspace` without path flags. Verify it targets that Git root and copies `.github/skills/skill-bench/SKILL.md` without overwriting changed skills.
 - [ ] **Step 4: Run** a fresh `copilot skill list --json` process from `MoltCore-workspace` and assert `skill-bench` is listed.
-- [ ] **Step 5: Run** a fresh `/skill-bench check` smoke, read its output, and confirm all instruments are valid without nested benchmark model calls.
+- [ ] **Step 5: Run** a fresh `/skill-bench check` smoke, read its output, and confirm all instruments are valid without nested benchmark cells.
 - [ ] **Step 6: Commit and push** with Lore trailers recording setup semantics, verification, and any environmental gaps.

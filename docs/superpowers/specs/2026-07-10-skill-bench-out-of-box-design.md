@@ -43,17 +43,18 @@ Create `.github/skills/skill-bench/SKILL.md`. The skill resolves the active omp 
 `omp version --json`, locates `benchmarks/skill-bench`, and owns the Python invocation internally.
 Users only see these commands:
 
-- `/skill-bench check` — scorer selftest, no model calls.
-- `/skill-bench latest` — rescore and open the latest saved report, no model calls.
+- `/skill-bench check` — scorer selftest, no nested benchmark cells.
+- `/skill-bench latest` — rescore and open the latest saved report, no nested benchmark cells.
 - `/skill-bench code-review` — `code-review-sqli` across baseline, skill, and prompt arms.
 - `/skill-bench tdd` — `tdd-slugify` across the same arms.
 - `/skill-bench ralplan` — `ralplan-pwreset` across the same arms.
 
 Live task modes use `gpt-5-mini,claude-haiku-4.5`, one repetition, and two workers by default.
 The explicit task-mode invocation is consent to run real Copilot cells. The skill must run the
-no-spend selftest first, stop on failure, open the generated HTML, and summarize winner, USD,
-AI credits, and token columns. Missing Python, benchmark files, Copilot CLI, or report output is
-reported directly rather than hidden.
+selftest first, stop on failure, open the generated HTML, and summarize winner, USD, AI credits,
+and token columns. `check` and `latest` still use the containing Copilot turn, but they do not
+spawn benchmark cells. Missing Python, benchmark files, Copilot CLI, or report output is reported
+directly rather than hidden.
 
 ### Distribution
 

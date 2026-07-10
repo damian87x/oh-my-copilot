@@ -32,7 +32,7 @@ describe("bundled skill-bench skill", () => {
     expect(manifest.files).toContain("benchmarks/skill-bench");
   });
 
-  it("documents the plain setup and no-spend smoke flow", () => {
+  it("documents the plain setup and lightweight smoke flow", () => {
     const readme = readFileSync(path.join(root, "README.md"), "utf8");
 
     expect(readme).toContain("omp setup");

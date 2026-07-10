@@ -480,8 +480,9 @@ changes, then run plain `omp setup` from the target project to copy bundled skil
 checkout. Setup preserves locally changed skills unless you explicitly pass `--force`.
 
 Start a fresh Copilot session after setup because skills are loaded at session start. For a
-no-spend discovery smoke, run `/skill-bench check`; it validates the benchmark scorers without
-making model calls. Published plugin updates still use `copilot plugin update oh-my-copilot`.
+lightweight discovery smoke, run `/skill-bench check`; it validates the benchmark scorers without
+launching nested benchmark cells (the containing Copilot turn still uses the session model).
+Published plugin updates still use `copilot plugin update oh-my-copilot`.
 
 To unlink and revert to the published package:
 

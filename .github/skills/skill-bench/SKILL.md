@@ -9,7 +9,7 @@ Run the packaged benchmark without exposing its Python implementation to the use
 
 ## Modes
 
-| argument | action | model calls |
+| argument | action | nested benchmark cells |
 |---|---|---|
 | `check` | validate every deterministic scorer | none |
 | `latest` | rescore and open the newest saved run | none |
@@ -18,7 +18,8 @@ Run the packaged benchmark without exposing its Python implementation to the use
 | `ralplan` | run task `ralplan-pwreset` | yes |
 
 With no argument or an unknown argument, print this mode list and stop. Never start a live run by
-default. An explicit live mode is consent to run real benchmark cells.
+default. An explicit live mode is consent to run real benchmark cells. The containing Copilot turn
+still uses the session model even when the selected mode starts no nested benchmark cells.
 
 ## Resolve the benchmark
 
