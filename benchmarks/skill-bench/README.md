@@ -43,6 +43,32 @@ Each task seeds a starter file, runs the agent, and scores **deterministically**
 - Soft quality (is the plan actually *good*?) is graded separately by `judge.py` — a fixed model
   at temperature 0 with a published rubric, validated by its own selftest first.
 
+### Token and cost provenance
+
+For Copilot CLI cells, the runner uses the session ID from `_cli.json` to read the completed
+session's `session.shutdown` event. That is the same underlying accounting shown by Copilot's
+session information: uncached input, cached input, cache writes, output tokens, and
+`totalNanoAiu`. Each cell caches this immutable telemetry in `_usage.json` so later rescoring does
+not depend on the live session store.
+
+- **Direct cost:** `totalNanoAiu / 1,000,000,000` gives AI credits; one AI credit is `$0.01`.
+- **Independent check/fallback:** each run saves `pricing.json`, fetched once from
+  [GitHub's official Copilot model-pricing page](https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing),
+  and recomputes cost from all four token categories when one pricing tier unambiguously
+  applies. Aggregate session telemetry cannot safely choose among multiple pricing tiers or
+  split tokens across multiple models, so those checks are marked unresolved instead of
+  guessed.
+- **Legacy plans:** premium requests stay visible as a separate quota metric. They are not mixed
+  into USD or AI-credit values.
+- **Winner:** highest `correct%`, then highest `applied%`; only then do USD/win, legacy
+  premium-requests/win, and seconds/win break ties.
+
+If the direct session total and website-rate calculation differ, the HTML report flags it and
+keeps the direct Copilot total authoritative. This can happen when a historical run is rescored
+against a newer pricing snapshot. If any cell is missing cost telemetry, or a row mixes direct
+and estimated sources, the aggregate cost stays blank so incomplete data cannot win a
+cheapest-model tie-break.
+
 ## Findings so far (Claude Haiku 4.5, n=3/arm)
 
 Run on the Copilot CLI against Claude Haiku 4.5, with each task's hard requirement moved **out of
@@ -108,6 +134,9 @@ Workspaces are kept under `runs/<stamp>/` for inspection. Re-score without re-sp
 ```bash
 python3 run.py --rescore runs/<stamp>
 ```
+
+Rescoring never invokes a model. If an older run has no `pricing.json`, it may make one public
+HTTP request to GitHub Docs before regenerating `summary.json` and `sweep_report.html`.
 
 ### 3. Optional: LLM quality judge
 

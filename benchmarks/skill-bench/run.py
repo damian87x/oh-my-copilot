@@ -20,22 +20,24 @@ Arms:
 
   python run.py --all --models gpt-5-mini,claude-haiku-4.5 --runs 3
       MODEL SWEEP: run the same tasks x arms across each --model slug, then report which model
-      gives the best quality per premium-request and per second (see references from the
-      rightmodel workshop). Writes sweep_report.html alongside summary.json.
+      gives the best quality/process result, using USD, premium requests, and time as tie-breaks.
+      Writes sweep_report.html alongside summary.json.
 
   python run.py --rescore runs/<stamp>
-      Recompute metrics + report from kept workspaces. No API. Use after changing a scorer.
+      Recompute metrics + report from kept workspaces. No model call/spend; an old run without a
+      pricing snapshot may make one public GitHub Docs request. Use after changing a scorer.
 
 Host CLI: defaults to `copilot` (omp's real host -- skills are Copilot CLI plugins). Use
 --engine claude to run against the `claude` CLI instead. The engine layer is intentionally
 thin; if your copilot CLI flags differ, adjust build_cmd() -- it is the only host-specific code.
 
-Cost currency: this runner currently captures premiumRequests, sessionDurationMs, and
-assistant outputTokens from the Copilot JSON stream. It does not yet capture input-token or USD
-details, so on --engine copilot the sweep measures quality vs premium-requests, output tokens,
-and seconds. The --engine claude path records usage + total_cost_usd when the host returns them.
+Cost currency: Copilot cells read the completed session's full input/cache/output token breakdown
+and reported AI-credit total. The run snapshots GitHub's official model-pricing table so the
+reported total can be checked and older sessions can be estimated when direct cost telemetry is
+missing. Legacy premium requests remain a separate metric. The --engine claude path records usage
+and total_cost_usd when the host returns them.
 """
-import argparse, concurrent.futures, datetime, json, os, re, shutil, statistics, subprocess, sys, tempfile
+import argparse, concurrent.futures, datetime, json, os, re, shutil, statistics, subprocess, sys, tempfile, urllib.request
 from collections import defaultdict
 from pathlib import Path
 
@@ -65,13 +67,146 @@ DEFAULT_MODEL = "default"
 # A model slug becomes a filesystem path component and part of the `__`-delimited cell name,
 # so it must not contain a path separator or the delimiter. (Copilot slugs are dot/hyphen only.)
 SAFE_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]*$")
+SAFE_SESSION_ID = re.compile(r"^[A-Za-z0-9._-]+$")
 
 CELL_TIMEOUT = 300                           # seconds per cell; a hung agent is force-killed
 PROBE_TIMEOUT = 20                           # seconds for the per-model entitlement probe
+PRICING_PAGE_URL = "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing"
+PRICING_API_URL = ("https://docs.github.com/api/article/body?pathname="
+                   "/en/copilot/reference/copilot-billing/models-and-pricing")
+AI_CREDIT_USD = 0.01
 
 # Added to every arm identically: we measure the artifact, not its execution.
 NO_RUN = ("Write your output to the file named in the task. Do not start a dev server, install "
           "dependencies, run a database, or open a browser -- just produce the artifact and stop.")
+
+
+def _pricing_model_slug(display_name):
+    """Convert GitHub's pricing-table display name to the CLI's model slug shape."""
+    name = re.sub(r"\[\^[^]]+\]", "", display_name).lower()
+    return re.sub(r"[^a-z0-9.]+", "-", name).strip("-")
+
+
+def _price(cell):
+    value = cell.strip().removeprefix("$").replace(",", "")
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def parse_pricing_markdown(markdown):
+    """Parse GitHub Docs' model-pricing Markdown into rates keyed by CLI model slug."""
+    rates = defaultdict(list)
+    provider, headers = None, None
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+        if line.startswith("### "):
+            provider, headers = line[4:].strip(), None
+            continue
+        if not provider or not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if cells and cells[0].lower() == "model":
+            headers = [header.lower() for header in cells]
+            continue
+        if not headers or len(cells) != len(headers) or not cells[0]:
+            continue
+        if all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells):
+            continue
+        row = dict(zip(headers, cells))
+        model = row.get("model", "")
+        rates[_pricing_model_slug(model)].append({
+            "display_name": model,
+            "provider": provider,
+            "tier": row.get("tier"),
+            "threshold": row.get("threshold (input tokens)"),
+            "input_usd_per_million": _price(row.get("input", "")),
+            "cached_input_usd_per_million": _price(row.get("cached input", "")),
+            "cache_write_usd_per_million": _price(row.get("cache write", "")),
+            "output_usd_per_million": _price(row.get("output", "")),
+        })
+    return dict(rates)
+
+
+def _fetch_text(url):
+    with urllib.request.urlopen(url, timeout=15) as response:
+        return response.read().decode("utf-8")
+
+
+def load_or_fetch_pricing(run_dir, fetch_text=None):
+    """Load a run's immutable pricing snapshot, or fetch it once from GitHub Docs."""
+    path = Path(run_dir) / "pricing.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    try:
+        markdown = (fetch_text or _fetch_text)(PRICING_API_URL)
+        rates = parse_pricing_markdown(markdown)
+        if not rates:
+            raise ValueError("pricing page contained no model rows")
+        snapshot = {
+            "source_url": PRICING_PAGE_URL,
+            "api_url": PRICING_API_URL,
+            "retrieved_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "rates": rates,
+        }
+        path.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
+        return snapshot
+    except Exception as exc:
+        print(f"warning: GitHub Copilot pricing unavailable ({str(exc)[:160]}); "
+              "USD/AI-credit estimates will be blank", file=sys.stderr)
+        return None
+
+
+def price_usage(usage, model, pricing):
+    """Return authoritative session cost, with GitHub's website rates as a fallback/check."""
+    website_cost = None
+    rows = (pricing or {}).get("rates", {}).get(model, [])
+    website_status = "unresolved_tiered_pricing" if len(rows) > 1 else None
+    # Aggregate session telemetry cannot safely choose between default/long-context tiers.
+    if len(rows) == 1:
+        rate = rows[0]
+        token_keys = ("input_tokens", "cached_input_tokens", "cache_write_tokens", "out_tokens")
+        required_rates = ("input_usd_per_million", "cached_input_usd_per_million",
+                          "output_usd_per_million")
+        complete_usage = all(isinstance(usage.get(key), (int, float)) for key in token_keys)
+        complete_rates = all(isinstance(rate.get(key), (int, float))
+                             for key in required_rates)
+        cache_write_rate = rate.get("cache_write_usd_per_million")
+        cache_write_supported = (not usage.get("cache_write_tokens")
+                                 or isinstance(cache_write_rate, (int, float)))
+        if complete_usage and complete_rates and cache_write_supported:
+            website_cost = (
+                usage["input_tokens"] * rate["input_usd_per_million"]
+                + usage["cached_input_tokens"] * rate["cached_input_usd_per_million"]
+                + usage["cache_write_tokens"] * (cache_write_rate or 0)
+                + usage["out_tokens"] * rate["output_usd_per_million"]
+            ) / 1_000_000
+
+    reported_nano_aiu = usage.get("reported_nano_aiu")
+    if isinstance(reported_nano_aiu, (int, float)) and reported_nano_aiu >= 0:
+        ai_credits = reported_nano_aiu / 1_000_000_000
+        result = {
+            "cost_usd": ai_credits * AI_CREDIT_USD,
+            "ai_credits": ai_credits,
+            "cost_source": "copilot_session",
+        }
+        if website_cost is not None:
+            result["website_cost_usd"] = website_cost
+            result["website_cost_delta_usd"] = result["cost_usd"] - website_cost
+        elif website_status:
+            result["website_cost_status"] = website_status
+        return result
+    if website_cost is None:
+        return {"website_cost_status": website_status} if website_status else {}
+    return {
+        "cost_usd": website_cost,
+        "ai_credits": website_cost / AI_CREDIT_USD,
+        "cost_source": (pricing or {}).get("source_url", PRICING_PAGE_URL),
+    }
 
 
 def skill_text(skill):
@@ -233,6 +368,59 @@ def _meta_copilot(raw):
     return meta, result_text
 
 
+def _session_usage(workdir, session_id):
+    """Read and cache the completed Copilot session's billing token categories."""
+    cache_path = Path(workdir) / "_usage.json"
+    if cache_path.exists():
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if cached.get("session_id") == session_id:
+                return {k: v for k, v in cached.items() if k != "session_id"}
+        except Exception:
+            pass
+    if (not isinstance(session_id, str) or not SAFE_SESSION_ID.fullmatch(session_id)
+            or ".." in session_id or not re.search(r"[A-Za-z0-9]", session_id)):
+        return {}
+    copilot_home = Path(os.environ.get("COPILOT_HOME") or (Path.home() / ".copilot"))
+    events_path = copilot_home / "session-state" / session_id / "events.jsonl"
+    if not events_path.exists():
+        return {}
+    shutdown = None
+    try:
+        with events_path.open(encoding="utf-8") as events:
+            for line in events:
+                try:
+                    event = json.loads(line)
+                except Exception:
+                    continue
+                if event.get("type") == "session.shutdown":
+                    shutdown = event.get("data") or {}
+    except Exception:
+        return {}
+    if shutdown is None:
+        return {}
+    details = shutdown.get("tokenDetails") or {}
+
+    def count(kind):
+        value = (details.get(kind) or {}).get("tokenCount")
+        return value if isinstance(value, (int, float)) else None
+
+    usage = {
+        "input_tokens": count("input"),
+        "cached_input_tokens": count("cache_read"),
+        "cache_write_tokens": count("cache_write"),
+        "out_tokens": count("output"),
+        "reported_nano_aiu": shutdown.get("totalNanoAiu"),
+        "reported_model": shutdown.get("currentModel"),
+        "models_used": sorted((shutdown.get("modelMetrics") or {}).keys()),
+    }
+    if not any(value is not None for value in usage.values()):
+        return {}
+    cache_path.write_text(json.dumps({"session_id": session_id, **usage}, indent=2),
+                          encoding="utf-8")
+    return usage
+
+
 def read_meta(workdir, engine):
     """Pull result text + cost/duration/usage from the host CLI dump, parsed per engine
     (the two CLIs use completely different JSON shapes)."""
@@ -246,14 +434,30 @@ def read_meta(workdir, engine):
     except Exception:
         return {}, ""
     try:
-        return _meta_claude(raw) if engine == "claude" else _meta_copilot(raw)
+        if engine == "claude":
+            return _meta_claude(raw)
+        meta, result_text = _meta_copilot(raw)
+        if meta.get("session_id"):
+            meta.update(_session_usage(workdir, meta["session_id"]))
+        return meta, result_text
     except Exception:
         return {}, ""
 
 
-def score_workspace(task_id, arm, engine, workdir, model=DEFAULT_MODEL):
+def score_workspace(task_id, arm, engine, workdir, model=DEFAULT_MODEL, pricing=None):
     task = TASKS[task_id]
     meta, result_text = read_meta(workdir, engine)
+    requested_model = model
+    models_used = meta.get("models_used") or []
+    if len(models_used) == 1:
+        model = models_used[0]
+    elif model == DEFAULT_MODEL and isinstance(meta.get("reported_model"), str):
+        model = meta["reported_model"]
+    if engine == "copilot":
+        priced = price_usage(meta, model, None if len(models_used) > 1 else pricing)
+        if len(models_used) > 1 and pricing:
+            priced.setdefault("website_cost_status", "unresolved_multi_model_session")
+        meta.update(priced)
     # if the skill answers in chat (no file), fall back to the captured result text
     if task.get("reads") == "chat" or not (workdir / task["file"]).exists():
         if result_text:
@@ -261,6 +465,8 @@ def score_workspace(task_id, arm, engine, workdir, model=DEFAULT_MODEL):
     sc = task["score"](workdir)
     sc = {"task": task_id, "skill": task["skill"], "arm": arm, "engine": engine,
           "model": model, **sc, **meta}
+    if model != requested_model:
+        sc["requested_model"] = requested_model
     # Honesty gate, applied HERE (not only in run_cell) so --resume/--rescore cannot turn a
     # timed-out or failed-to-spawn cell into a pass just because it left a plausible artifact.
     # Reads the persisted _status.json; absent (old runs) => no gate, preserving back-compat.
@@ -281,7 +487,7 @@ def score_workspace(task_id, arm, engine, workdir, model=DEFAULT_MODEL):
     return sc
 
 
-def run_cell(task_id, arm, engine, workdir, model=DEFAULT_MODEL):
+def run_cell(task_id, arm, engine, workdir, model=DEFAULT_MODEL, pricing=None):
     task = TASKS[task_id]
     seed_workspace(task, workdir)
     cmd = build_cmd(engine, task, arm, workdir, model=model)
@@ -308,7 +514,7 @@ def run_cell(task_id, arm, engine, workdir, model=DEFAULT_MODEL):
     (workdir / "_status.json").write_text(json.dumps(
         {"timed_out": int(timed_out), "returncode": returncode, "spawn_error": spawn_error}),
         encoding="utf-8")
-    return score_workspace(task_id, arm, engine, workdir, model=model)
+    return score_workspace(task_id, arm, engine, workdir, model=model, pricing=pricing)
 
 
 def _killtree(pid):
@@ -369,9 +575,9 @@ def _median(xs):
 
 def aggregate(results):
     """Aggregate cells into one row per (task, arm, model). Metrics adapt the rightmodel
-    sweep formulas to the currently captured Copilot cost currency: premium-requests,
-    output tokens, and seconds. `*_per_success` fold quality and cost into one
-    number; they are None when a cell group had zero successes (correct==1)."""
+    sweep formulas to full token usage, AI credits/USD, legacy premium requests, and seconds.
+    `*_per_success` folds quality and cost into one number; values are None when a cell group
+    had zero successes (correct==1)."""
     groups = defaultdict(list)
     for r in results:
         groups[(r["task"], r["arm"], r.get("model", DEFAULT_MODEL))].append(r)
@@ -381,26 +587,72 @@ def aggregate(results):
         passes = sum((c.get("correct") or 0) for c in cells)
         secs = [(c["duration_ms"] / 1000) if c.get("duration_ms") is not None else None for c in cells]
         prs = [c.get("premium_requests") for c in cells]
+        ins = [c.get("input_tokens") for c in cells]
+        cached_ins = [c.get("cached_input_tokens") for c in cells]
+        cache_writes = [c.get("cache_write_tokens") for c in cells]
         outs = [c.get("out_tokens") for c in cells]
-        costs = [c["cost"] for c in cells if c.get("cost") is not None]
+        cost_values = [c.get("cost_usd", c.get("cost")) for c in cells]
+        costs = [value for value in cost_values if value is not None]
+        credits = [c.get("ai_credits") for c in cells]
+        cost_sources = {c.get("cost_source") for c, value in zip(cells, cost_values)
+                        if value is not None}
+        complete_costs = len(costs) == n
+        uniform_cost_source = len(cost_sources) <= 1
+        comparable_costs = complete_costs and uniform_cost_source
+        complete_credits = all(value is not None for value in credits)
+        complete_secs = all(value is not None for value in secs)
+        complete_prs = all(value is not None for value in prs)
+        complete_ins = all(value is not None for value in ins)
+        complete_cached_ins = all(value is not None for value in cached_ins)
+        complete_cache_writes = all(value is not None for value in cache_writes)
+        complete_outs = all(value is not None for value in outs)
         total_secs = sum(s for s in secs if s is not None)
         total_pr = sum(p for p in prs if p is not None)
+        total_in = sum(value for value in ins if value is not None)
+        total_cached_in = sum(value for value in cached_ins if value is not None)
+        total_cache_write = sum(value for value in cache_writes if value is not None)
         total_out = sum(t for t in outs if t is not None)
+        total_cost = sum(value for value in costs if value is not None)
+        total_credits = sum(value for value in credits if value is not None)
         rows.append({
             "task": t, "skill": cells[0].get("skill"), "arm": a, "model": m, "n": n,
             # error/timed-out cells may lack these keys -- treat a missing score as a 0.
             "applied_rate": round(sum((c.get("applied") or 0) for c in cells) / n, 3),
             "correct_rate": round(passes / n, 3),
-            "premium_reqs_per_task": round(_mean(prs), 3) if any(p is not None for p in prs) else None,
-            "premium_reqs_per_success": round(total_pr / passes, 3) if (passes and any(p is not None for p in prs)) else None,
-            "out_tokens_per_task": round(_mean(outs), 1) if any(t is not None for t in outs) else None,
-            "out_tokens_per_success": round(total_out / passes, 1) if (passes and any(t is not None for t in outs)) else None,
-            "seconds_per_task": round(_mean(secs), 1) if any(s is not None for s in secs) else None,
-            "seconds_per_success": round(total_secs / passes, 1) if passes else None,
-            "p50_seconds": round(_median(secs), 1) if any(s is not None for s in secs) else None,
+            "premium_reqs_per_task": round(_mean(prs), 3) if complete_prs else None,
+            "premium_reqs_per_success": (round(total_pr / passes, 3)
+                                         if passes and complete_prs else None),
+            "input_tokens_per_task": round(_mean(ins), 1) if complete_ins else None,
+            "input_tokens_per_success": (round(total_in / passes, 1)
+                                         if passes and complete_ins else None),
+            "cached_input_tokens_per_task": (round(_mean(cached_ins), 1)
+                                             if complete_cached_ins else None),
+            "cached_input_tokens_per_success": (round(total_cached_in / passes, 1)
+                                                if passes and complete_cached_ins else None),
+            "cache_write_tokens_per_task": (round(_mean(cache_writes), 1)
+                                            if complete_cache_writes else None),
+            "cache_write_tokens_per_success": (round(total_cache_write / passes, 1)
+                                               if passes and complete_cache_writes else None),
+            "out_tokens_per_task": round(_mean(outs), 1) if complete_outs else None,
+            "out_tokens_per_success": (round(total_out / passes, 1)
+                                       if passes and complete_outs else None),
+            "cost_usd_per_task": round(_mean(costs), 8) if comparable_costs else None,
+            "cost_usd_per_success": (round(total_cost / passes, 8)
+                                     if passes and comparable_costs else None),
+            "ai_credits_per_task": (round(_mean(credits), 6)
+                                    if comparable_costs and complete_credits else None),
+            "ai_credits_per_success": (round(total_credits / passes, 6)
+                                       if passes and comparable_costs and complete_credits else None),
+            "cost_basis": ("partial" if costs and not complete_costs
+                           else "mixed" if complete_costs and not uniform_cost_source
+                           else next(iter(cost_sources)) if cost_sources else None),
+            "seconds_per_task": round(_mean(secs), 1) if complete_secs else None,
+            "seconds_per_success": (round(total_secs / passes, 1)
+                                    if passes and complete_secs else None),
+            "p50_seconds": round(_median(secs), 1) if complete_secs else None,
             # back-compat fields (kept so old readers / --engine claude still work):
-            "cost_mean": round(statistics.mean(costs), 4) if costs else None,
-            "time_s_mean": round(_mean(secs), 1) if any(s is not None for s in secs) else None,
+            "cost_mean": round(statistics.mean(costs), 4) if comparable_costs else None,
+            "time_s_mean": round(_mean(secs), 1) if complete_secs else None,
         })
     return rows
 
@@ -410,27 +662,35 @@ def print_table(rows):
     for r in rows:
         by[r["task"]].append(r)
     for task, rs in sorted(by.items()):
-        multi = len({r["model"] for r in rs}) > 1
         print(f"\n=== {task}  (skill={rs[0]['skill']}, n={rs[0]['n']}) ===")
-        hdr = f"  {'arm':10} {'model':22} {'applied%':>9} {'correct%':>9} {'pr/task':>8} {'pr/win':>7} {'output/win':>10} {'s/task':>7} {'s/win':>7}"
+        hdr = (f"  {'arm':10} {'model':22} {'applied%':>9} {'correct%':>9} "
+               f"{'USD/win':>12} {'AI/win':>8} {'in/task':>9} {'cache/task':>10} "
+               f"{'write/task':>10} {'out/task':>9} {'pr/win':>7} {'s/win':>7}")
         print(hdr)
         for r in sorted(rs, key=lambda x: (x["arm"], x["model"])):
             def fmt(v, nd=2):
                 return "-" if v is None else format(v, f".{nd}f")
             def fmt_int(v):
                 return "-" if v is None else format(v, ".0f")
-            print(f"  {r['arm']:10} {(r['model'] if multi else '-'):22} "
+            def fmt_usd(v):
+                return "-" if v is None else f"${v:.8f}"
+            print(f"  {r['arm']:10} {r['model']:22} "
                   f"{r['applied_rate']:>9} {r['correct_rate']:>9} "
-                  f"{fmt(r['premium_reqs_per_task']):>8} {fmt(r['premium_reqs_per_success']):>7} "
-                  f"{fmt_int(r.get('out_tokens_per_success')):>10} "
-                  f"{fmt(r['seconds_per_task'],1):>7} {fmt(r['seconds_per_success'],1):>7}")
+                  f"{fmt_usd(r.get('cost_usd_per_success')):>12} "
+                  f"{fmt(r.get('ai_credits_per_success'),3):>8} "
+                  f"{fmt_int(r.get('input_tokens_per_task')):>9} "
+                  f"{fmt_int(r.get('cached_input_tokens_per_task')):>10} "
+                  f"{fmt_int(r.get('cache_write_tokens_per_task')):>10} "
+                  f"{fmt_int(r.get('out_tokens_per_task')):>9} "
+                  f"{fmt(r.get('premium_reqs_per_success')):>7} "
+                  f"{fmt(r.get('seconds_per_success'),1):>7}")
 
 
 def rescore(run_dir):
     run_dir = Path(run_dir)
     if not run_dir.exists():
         run_dir = RUNS_DIR / run_dir.name
-    results = []
+    cells = []
     for ws in sorted(p for p in run_dir.iterdir() if p.is_dir()):
         parts = ws.name.split("__")
         # 5-part sweep name: task__arm__engine__model__run ; 4-part legacy: task__arm__engine__run
@@ -441,7 +701,12 @@ def rescore(run_dir):
             model = DEFAULT_MODEL
         else:
             continue
-        results.append(score_workspace(tid, arm, engine, ws, model=model))
+        cells.append((tid, arm, engine, model, ws))
+    pricing = (load_or_fetch_pricing(run_dir)
+               if any(engine == "copilot" for _tid, _arm, engine, _model, _ws in cells)
+               else None)
+    results = [score_workspace(tid, arm, engine, ws, model=model, pricing=pricing)
+               for tid, arm, engine, model, ws in cells]
     rows = aggregate(results)
     (run_dir / "summary.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
     report_mod.write_report(rows, results, run_dir)
@@ -506,6 +771,8 @@ def main():
         out_dir = RUNS_DIR / stamp
         out_dir.mkdir(parents=True, exist_ok=True)
 
+    pricing = load_or_fetch_pricing(out_dir) if args.engine == "copilot" else None
+
     cells = [(tid, arm, model, r)
              for tid in task_ids for arm in arms for model in models for r in range(args.runs)]
 
@@ -529,7 +796,8 @@ def main():
             name = cell_name(*c)
             if already_done(name):
                 tid, arm, model, _r = c
-                results.append(score_workspace(tid, arm, args.engine, out_dir / name, model=model))
+                results.append(score_workspace(tid, arm, args.engine, out_dir / name,
+                                               model=model, pricing=pricing))
         print(f"resume: {skipped} cell(s) already recorded, {total} to run", flush=True)
 
     # Cells execute in a temp root OUTSIDE the repo so a tool-enabled agent cannot read the
@@ -543,7 +811,7 @@ def main():
         name = cell_name(tid, arm, model, r)
         ws = exec_root / name
         ws.mkdir(parents=True, exist_ok=True)
-        res = run_cell(tid, arm, args.engine, ws, model=model)
+        res = run_cell(tid, arm, args.engine, ws, model=model, pricing=pricing)
         try:
             shutil.copytree(ws, out_dir / name, dirs_exist_ok=True)
         except Exception:
@@ -565,15 +833,22 @@ def main():
                            "error": str(e)[:200]}
                 results.append(res)
                 done += 1
+                cost = res.get("cost_usd", res.get("cost"))
+                cost_text = "-" if cost is None else f"${cost:.8f}"
                 print(f"  [{done}/{total}] {tid} / {arm} / {model} #{r}  "
                       f"applied={res.get('applied')} correct={res.get('correct')} "
-                      f"pr={res.get('premium_requests')} cost=${res.get('cost')}", flush=True)
+                      f"pr={res.get('premium_requests')} cost={cost_text}", flush=True)
                 (out_dir / "results.json").write_text(json.dumps(
                     {"date": stamp, "engine": args.engine, "results": results}, indent=2),
                     encoding="utf-8")
     finally:
         shutil.rmtree(exec_root, ignore_errors=True)
 
+    # Persist the complete grid even when --resume has no pending cells. The writes in the
+    # completion loop remain as crash-safe checkpoints while cells are still running.
+    (out_dir / "results.json").write_text(json.dumps(
+        {"date": stamp, "engine": args.engine, "results": results}, indent=2),
+        encoding="utf-8")
     rows = aggregate(results)
     (out_dir / "summary.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
     report_mod.write_report(rows, results, out_dir)
