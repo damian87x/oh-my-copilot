@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export interface ProjectPaths {
@@ -49,7 +49,17 @@ export function repoRoot(...segments: string[]): string {
 }
 
 function inferPackageRoot(cwd: string): string {
+  const gitRoot = findUp(cwd, ".git");
   const localPackage = findUp(cwd, "package.json");
+  if (gitRoot) {
+    const packageRelativeToGit = localPackage ? relative(gitRoot, localPackage) : undefined;
+    const packageIsInsideGit = packageRelativeToGit !== undefined
+      && (packageRelativeToGit === ""
+        || (packageRelativeToGit !== ".."
+          && !packageRelativeToGit.startsWith(`..${sep}`)
+          && !isAbsolute(packageRelativeToGit)));
+    return packageIsInsideGit && localPackage ? localPackage : gitRoot;
+  }
   if (localPackage) {
     return localPackage;
   }

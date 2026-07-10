@@ -184,6 +184,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/ralplan`              | Consensus planning                                        | `/ralplan "plan this feature"`                       |
 | `/team`                 | Parallel tmux agent panes                                 | `/team`                                              |
 | `/code-review`          | Diff-focused reviewer                                     | `/code-review`                                       |
+| `/skill-bench`          | Compare skill quality, tokens, and cost in an HTML report | `/skill-bench code-review`                           |
 | `/weighted-consensus`   | Multi-model council → one weighted verdict + minority report | `/weighted-consensus "JSON or YAML for config?"`  |
 | `/research-codebase`    | Map an area of the codebase                               | `/research-codebase "auth middleware"`               |
 | `/debug`                | Disciplined diagnose-reproduce-fix loop                   | `/debug "flaky integration test"`                    |
@@ -468,26 +469,19 @@ npm link                                       # makes `omp` point to your local
 npm test
 npm run lint:skills
 npm run sync:dry-run
+
+cd /path/to/project
+omp setup                                      # copies this checkout's bundled skills
+omp                                            # start a fresh Copilot session
 ```
 
-After `npm link`, the global `omp` command runs your local build. Any changes you make are reflected after `npm run build`.
+After `npm link`, the global `omp` command runs your local build. Re-run `npm run build` after code
+changes, then run plain `omp setup` from the target project to copy bundled skills from the linked
+checkout. Setup preserves locally changed skills unless you explicitly pass `--force`.
 
-> **`npm link` only refreshes the `omp` shell CLI — not in-session `/skills`.**
-> The Copilot plugin is a separate, cached copy under
-> `~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/` (source: the
-> `oh-my-copilot` GitHub marketplace). So a new or edited skill shows up in
-> `omp list` immediately but **not** in a Copilot session until that cache is
-> refreshed. To test in-session skill changes:
->
-> ```bash
-> # Proper way (after the change is on the marketplace's default branch):
-> copilot plugin update oh-my-copilot
->
-> # Local pre-merge test — sync your branch's skill into the cache, then start
-> # a fresh Copilot session (skills load at session start):
-> cp -R .github/skills/<name> \
->   ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/<name>
-> ```
+Start a fresh Copilot session after setup because skills are loaded at session start. For a
+no-spend discovery smoke, run `/skill-bench check`; it validates the benchmark scorers without
+making model calls. Published plugin updates still use `copilot plugin update oh-my-copilot`.
 
 To unlink and revert to the published package:
 
