@@ -42,6 +42,57 @@ class SkillBenchRunTests(unittest.TestCase):
         self.assertEqual(score["error"], "boom")
         self.assertIn("honesty gate", score["reason"])
 
+    def test_debug_scorer_rejects_locale_only_fix_that_poisoned_failures(self):
+        task = TASKS["debug-inflight-dedup"]
+        with tempfile.TemporaryDirectory() as directory:
+            workdir = Path(directory)
+            run.seed_workspace(task, workdir)
+            (workdir / task["file"]).write_text(task["bad"], encoding="utf-8")
+            for name, content in task["good_extra"].items():
+                (workdir / name).write_text(content, encoding="utf-8")
+
+            score = task["score"](workdir)
+
+        self.assertEqual(score["applied"], 1)
+        self.assertEqual(score["correct"], 0)
+        self.assertEqual(score["locale_correct"], 1)
+        self.assertEqual(score["dedup_preserved"], 1)
+        self.assertEqual(score["failure_recovers"], 0)
+
+    def test_debug_scorer_rejects_commented_regression_test(self):
+        task = TASKS["debug-inflight-dedup"]
+        with tempfile.TemporaryDirectory() as directory:
+            workdir = Path(directory)
+            run.seed_workspace(task, workdir, ref_kind="good", for_selftest=True)
+            (workdir / "test_request_cache.py").write_text(
+                "def test_race():\n    # assert False\n    pass\n",
+                encoding="utf-8",
+            )
+
+            score = task["score"](workdir)
+
+        self.assertEqual(score["correct"], 1)
+        self.assertEqual(score["applied"], 0)
+        self.assertEqual(score["asserts"], 0)
+
+    def test_debug_scorer_is_repeatable(self):
+        task = TASKS["debug-inflight-dedup"]
+        observed = []
+        with tempfile.TemporaryDirectory() as directory:
+            workdir = Path(directory)
+            run.seed_workspace(task, workdir, ref_kind="good", for_selftest=True)
+            for _ in range(5):
+                score = task["score"](workdir)
+                observed.append((
+                    score["applied"],
+                    score["correct"],
+                    score["locale_correct"],
+                    score["dedup_preserved"],
+                    score["failure_recovers"],
+                ))
+
+        self.assertEqual(observed, [(1, 1, 1, 1, 1)] * 5)
+
     @mock.patch("run.shutil.which", return_value="/bin/copilot")
     @mock.patch("run.subprocess.run")
     def test_probe_model_drops_entitlement_failures(self, mock_run, _mock_which):
