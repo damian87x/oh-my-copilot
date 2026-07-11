@@ -54,6 +54,7 @@ PROMPT_ARM = {
     "tdd": "Use test-driven development: write a failing test first, then the implementation.",
     "code-review": "Do a thorough code review. Flag any security or correctness blockers and give a verdict.",
     "ralplan": "Write an implementation plan first with steps, acceptance criteria, tests and risks. Do not implement yet.",
+    "debug": "Debug systematically: reproduce, identify the root cause, fix it, and add a regression test.",
 }
 
 # Default Copilot `--model` slugs to sweep. Mirrors a subset of KNOWN_MODEL_SLUGS in

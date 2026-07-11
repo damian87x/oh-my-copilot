@@ -450,6 +450,276 @@ RALPLAN_ADV = (
 
 
 # ======================================================================================
+# debug -- prescribes reproduce -> diagnose -> root-cause fix -> regression test. The seed's
+#          in-flight request cache omits locale from its key and never evicts completed work.
+#          A correct fix must preserve same-key deduplication while preventing cross-locale
+#          contamination and failed-request poisoning.
+# ======================================================================================
+DEBUG_SEED = '''import threading
+
+_inflight = {}
+_lock = threading.Lock()
+
+
+def get_profile(user_id, locale, fetch):
+    """Fetch a localized profile, deduplicating identical concurrent requests."""
+    with _lock:
+        pending = _inflight.get(user_id)
+        owner = pending is None
+        if owner:
+            pending = (threading.Event(), {})
+            _inflight[user_id] = pending
+
+    ready, result = pending
+    if owner:
+        try:
+            result["value"] = fetch(user_id, locale)
+        except BaseException as exc:
+            result["error"] = exc
+        finally:
+            ready.set()
+    else:
+        ready.wait()
+
+    if "error" in result:
+        raise result["error"]
+    return result["value"]
+'''
+DEBUG_PROMPT = (
+    "Customers sometimes receive a profile in the wrong language when two requests for the "
+    "same user arrive together. Diagnose and fix request_cache.py while preserving its intended "
+    "in-flight deduplication. Do this properly."
+)
+
+_DEBUG_RUNNER = r'''
+import importlib.util
+import json
+import sys
+import threading
+import time
+from pathlib import Path
+
+path = Path(sys.argv[1]) / "request_cache.py"
+spec = importlib.util.spec_from_file_location("request_cache", path)
+module = importlib.util.module_from_spec(spec)
+try:
+    spec.loader.exec_module(module)
+except Exception as exc:
+    print(json.dumps({"ok": False, "reason": "import: " + str(exc)[:200]}))
+    raise SystemExit(0)
+
+
+def run_call(output, name, user_id, locale, fetch):
+    try:
+        output[name] = ("value", module.get_profile(user_id, locale, fetch))
+    except BaseException as exc:
+        output[name] = ("error", type(exc).__name__, str(exc))
+
+
+def wait_until_inside(thread):
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        frame = sys._current_frames().get(thread.ident)
+        while frame:
+            if Path(frame.f_code.co_filename).name == "request_cache.py":
+                return True
+            frame = frame.f_back
+        time.sleep(0.001)
+    return False
+
+
+def concurrent(locales):
+    release = threading.Event()
+    first_fetch = threading.Event()
+    calls = []
+    output = {}
+
+    def fetch(user_id, locale):
+        calls.append((user_id, locale))
+        first_fetch.set()
+        if not release.wait(2):
+            raise TimeoutError("fetch release timed out")
+        return f"{user_id}:{locale}"
+
+    first = threading.Thread(
+        target=run_call, args=(output, "first", "user-1", locales[0], fetch), daemon=True
+    )
+    second = threading.Thread(
+        target=run_call, args=(output, "second", "user-1", locales[1], fetch), daemon=True
+    )
+    first.start()
+    if not first_fetch.wait(2):
+        return {"ok": False, "reason": "first fetch did not start"}
+    second.start()
+    if not wait_until_inside(second):
+        return {"ok": False, "reason": "second request did not enter get_profile"}
+    release.set()
+    first.join(2)
+    second.join(2)
+    if first.is_alive() or second.is_alive():
+        return {"ok": False, "reason": "concurrent request hung"}
+    return {"output": output, "calls": calls}
+
+
+case = sys.argv[2]
+if case == "locale":
+    result = concurrent(("en", "fr"))
+    expected = {
+        "first": ("value", "user-1:en"),
+        "second": ("value", "user-1:fr"),
+    }
+    result["ok"] = result.get("output") == expected and len(result.get("calls", [])) == 2
+elif case == "dedup":
+    result = concurrent(("en", "en"))
+    expected = {
+        "first": ("value", "user-1:en"),
+        "second": ("value", "user-1:en"),
+    }
+    result["ok"] = result.get("output") == expected and len(result.get("calls", [])) == 1
+elif case == "failure":
+    attempts = 0
+
+    def fail(user_id, locale):
+        raise RuntimeError("temporary")
+
+    def recover(user_id, locale):
+        global attempts
+        attempts += 1
+        return "recovered"
+
+    try:
+        module.get_profile("user-1", "en", fail)
+    except RuntimeError:
+        pass
+    else:
+        print(json.dumps({"ok": False, "reason": "first failure was swallowed"}))
+        raise SystemExit(0)
+    try:
+        value = module.get_profile("user-1", "en", recover)
+        result = {"ok": value == "recovered" and attempts == 1}
+    except BaseException as exc:
+        result = {"ok": False, "reason": "retry: " + str(exc)[:200]}
+else:
+    result = {"ok": False, "reason": "unknown case"}
+
+print(json.dumps(result))
+'''
+
+
+def _run_debug_case(workdir, case, timeout=10):
+    path = Path(workdir) / "request_cache.py"
+    if not path.exists():
+        return False, "request_cache.py missing"
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", _DEBUG_RUNNER, str(Path(workdir).resolve()), case],
+            capture_output=True, text=True, timeout=timeout, cwd=str(workdir),
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"{case} case hung (timeout)"
+    except Exception as exc:
+        return False, f"{case} scorer error: {str(exc)[:120]}"
+    try:
+        data = json.loads((result.stdout or "").strip().splitlines()[-1])
+    except Exception:
+        return False, f"{case} produced no parseable result (rc={result.returncode})"
+    return bool(data.get("ok")), data.get("reason", "behavior mismatch")
+
+
+def score_debug(workdir):
+    outcomes = {case: _run_debug_case(workdir, case) for case in ("locale", "dedup", "failure")}
+    correct = all(ok for ok, _ in outcomes.values())
+    report = _read(workdir, "_result.txt").lower()
+    sections = sum(bool(re.search(pattern, report)) for pattern in (
+        r"\brepro(?:duction)?\b",
+        r"\bcause\b",
+        r"\bfix\b",
+        r"regression test",
+    ))
+    evidence = bool(re.search(r"request_cache\.py:\d+", report))
+    wrote_test = _has_test_file(workdir)
+    asserts = _count_asserts_in_tests(workdir)
+    applied = sections == 4 and evidence and wrote_test and asserts >= 1
+    failed = [case for case, (ok, _) in outcomes.items() if not ok]
+    return _ok(
+        applied, correct,
+        reason=f"sections={sections}/4 evidence={evidence} test_asserts={asserts} "
+               f"behavior={'all pass' if not failed else 'failed ' + ','.join(failed)}",
+        sections=sections,
+        evidence=int(evidence),
+        wrote_test=int(wrote_test),
+        asserts=asserts,
+        locale_correct=int(outcomes["locale"][0]),
+        dedup_preserved=int(outcomes["dedup"][0]),
+        failure_recovers=int(outcomes["failure"][0]),
+    )
+
+
+DEBUG_GOOD = '''import threading
+
+_inflight = {}
+_lock = threading.Lock()
+
+
+def get_profile(user_id, locale, fetch):
+    key = (user_id, locale)
+    with _lock:
+        pending = _inflight.get(key)
+        owner = pending is None
+        if owner:
+            pending = (threading.Event(), {})
+            _inflight[key] = pending
+
+    ready, result = pending
+    if owner:
+        try:
+            result["value"] = fetch(user_id, locale)
+        except BaseException as exc:
+            result["error"] = exc
+        finally:
+            with _lock:
+                _inflight.pop(key, None)
+            ready.set()
+    else:
+        ready.wait()
+
+    if "error" in result:
+        raise result["error"]
+    return result["value"]
+'''
+DEBUG_GOOD_TEST = '''from request_cache import get_profile
+
+
+def test_returns_fetched_profile():
+    assert get_profile("u1", "en", lambda user, locale: f"{user}:{locale}") == "u1:en"
+'''
+DEBUG_GOOD_REPORT = '''## Repro
+Two overlapping locales for one user return the first locale.
+
+## Cause
+request_cache.py:10 keys in-flight work only by user and never evicts completed entries.
+
+## Fix
+Use the full request identity and remove completed entries while preserving concurrent deduplication.
+
+## Regression test
+Added a test and verified locale isolation, same-key deduplication, and recovery after failure.
+'''
+DEBUG_BAD = DEBUG_SEED.replace("_inflight.get(user_id)", "_inflight.get((user_id, locale))").replace(
+    "_inflight[user_id] = pending", "_inflight[(user_id, locale)] = pending"
+)
+DEBUG_ADV_REPORT = '''## Repro
+The race is reproducible.
+## Cause
+request_cache.py:10 has a cache-key defect.
+## Fix
+The root cause was fixed.
+## Regression test
+A regression test was considered.
+'''
+
+
+# ======================================================================================
 TASKS = {
     "tdd-slugify": {
         "skill": "tdd",
@@ -494,6 +764,28 @@ TASKS = {
         "bad": RALPLAN_BAD,
         "adversarial": [
             {"name": "plan-shaped-word-salad", "file": RALPLAN_ADV, "extra": {}},
+        ],
+    },
+    "debug-inflight-dedup": {
+        "skill": "debug",
+        "prompt": DEBUG_PROMPT,
+        "file": "request_cache.py",
+        "reads": "chat",
+        "seed": {"request_cache.py": DEBUG_SEED},
+        "axis": "applied",
+        "score": score_debug,
+        "good": DEBUG_GOOD,
+        "good_extra": {
+            "test_request_cache.py": DEBUG_GOOD_TEST,
+            "_result.txt": DEBUG_GOOD_REPORT,
+        },
+        "bad": DEBUG_BAD,
+        "adversarial": [
+            {
+                "name": "report-without-regression-test",
+                "file": DEBUG_GOOD,
+                "extra": {"_result.txt": DEBUG_ADV_REPORT},
+            },
         ],
     },
 }
