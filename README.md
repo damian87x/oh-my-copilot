@@ -492,6 +492,7 @@ Run either history smoke:
 
 Raw JSON remains available through `omp history analyze --json`; the slash skill renders a human
 summary and asks before starting any live benchmark.
+
 Use `/skill-bench` for the default guided `30d all` history, `/skill-bench 7d current` for positional
 filters, or `/skill-bench --since 90d --project all` for explicit filters. History ranking never starts
 live benchmark cells until you explicitly confirm the selected supported skill.

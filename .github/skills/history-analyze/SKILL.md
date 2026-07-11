@@ -31,6 +31,10 @@ that specific metric; do not substitute the broader `sessionsWithTelemetry` coun
 
 ## Present the history
 
+Require a successful schema-version-1 report before presentation or loading `grill-me`.
+Present the history only after a successful schema-version-1 report. On schema or analyzer
+failure, stop without presenting history or loading `grill-me`.
+
 Do not print or paste raw JSON. Make the summary decision first: put the selected candidate or
 winner from the top-level `skills` array first, before supporting detail. Then, within the available space:
 
@@ -49,15 +53,28 @@ as per-skill cost.
 
 ## Offer the next step
 
-If the top-level `skills` array is empty, print the valid guided and direct `/skill-bench` commands
-and stop. Otherwise select the first ranked entry.
+Define valid recovery forms with placeholders replaced by resolved values:
+
+- direct: `/skill-bench SELECTED_SKILL`;
+- guided: `/skill-bench WINDOW SCOPE`.
+
+Never append the candidate to the guided command. The fixed direct supported modes are:
+
+- `/skill-bench code-review`;
+- `/skill-bench tdd`;
+- `/skill-bench ralplan`.
+
+If the top-level `skills` array is empty, print the resolved guided command and the fixed direct
+commands, then stop. Otherwise, select the first ranked entry.
 
 Call the `skill` tool with `skill: "grill-me"`. Do not call `ask_user` before loading it. Ask exactly
 one question naming the selected skill and explaining that Yes starts live benchmark cells and uses
 model quota.
 
 On refusal, ambiguity, analyzer failure, no supported skill, or unavailable handoff, stop without
-loading `skill-bench` and print the valid commands.
+loading `skill-bench` and print the valid commands. Silence, empty answer, and non-answer are not
+consent; stop in each case.
+With a selected candidate, print both resolved direct and guided forms.
 
 Only after an unambiguous affirmative answer, call the `skill` tool with `skill: "skill-bench"` and
 follow its direct mode for the selected skill. Do not start any `python3 run.py --task` command before
