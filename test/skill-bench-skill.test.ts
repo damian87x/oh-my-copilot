@@ -11,6 +11,11 @@ describe("bundled skill-bench skill", () => {
     const skill = readFileSync(skillPath, "utf8");
 
     expect(skill).toContain("name: skill-bench");
+    expect(skill).toContain("Use with bare /skill-bench");
+    expect(skill).toContain("top-level `skills` array");
+    expect(skill).toContain("top-level `unsupportedSkills` array");
+    expect(skill).toContain("`skill`, `invocations`, `sessions`, `lastInvokedAt`, `benchmarkable`, and `benchmarkTask`");
+    expect(skill).toContain("never suggest arbitrary project names");
     expect(skill).toContain("omp version --json");
     expect(skill).toMatch(/code-review[\s\S]*code-review-sqli/);
     expect(skill).toMatch(/tdd[\s\S]*tdd-slugify/);
@@ -22,6 +27,18 @@ describe("bundled skill-bench skill", () => {
     expect(skill).toContain("--runs 1");
     expect(skill).toContain("--workers 2");
     expect(skill).toContain("sweep_report.html");
+    const historyIndex = skill.indexOf("omp history analyze --window 30d --project all --json");
+    const grillIndex = skill.indexOf("/grill-me");
+    expect(historyIndex).toBeGreaterThanOrEqual(0);
+    expect(grillIndex).toBeGreaterThan(historyIndex);
+    expect(skill).toMatch(/require a\s+successful schema-version-1 history report before invoking `\/grill-me`/);
+    expect(skill).toContain('Call the `skill` tool with `skill: "grill-me"`');
+    expect(skill).toMatch(/Do not call `ask_user` directly\s+before loading it/);
+    expect(skill).toContain("Select the first ranked supported skill");
+    expect(skill).toContain("omp history analyze --window <window> --project <project> --json");
+    expect(skill).toContain("explicit affirmative confirmation");
+    expect(skill).toContain("unsupported skills");
+    expect(skill).toContain("stop without starting live benchmark cells");
   });
 
   it("includes the benchmark engine in npm packages", () => {

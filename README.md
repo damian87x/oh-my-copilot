@@ -185,6 +185,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/team`                 | Parallel tmux agent panes                                 | `/team`                                              |
 | `/code-review`          | Diff-focused reviewer                                     | `/code-review`                                       |
 | `/skill-bench`          | Compare skill quality, tokens, and cost in an HTML report | `/skill-bench code-review`                           |
+| `/history-analyze`      | Summarize actual local skill activations without reading conversation content | `/history-analyze`                 |
 | `/weighted-consensus`   | Multi-model council → one weighted verdict + minority report | `/weighted-consensus "JSON or YAML for config?"`  |
 | `/research-codebase`    | Map an area of the codebase                               | `/research-codebase "auth middleware"`               |
 | `/debug`                | Disciplined diagnose-reproduce-fix loop                   | `/debug "flaky integration test"`                    |
@@ -482,6 +483,9 @@ checkout. Setup preserves locally changed skills unless you explicitly pass `--f
 Start a fresh Copilot session after setup because skills are loaded at session start. For a
 lightweight discovery smoke, run `/skill-bench check`; it validates the benchmark scorers without
 launching nested benchmark cells (the containing Copilot turn still uses the session model).
+Use `/skill-bench` for the default guided `30d all` history, `/skill-bench 7d current` for positional
+filters, or `/skill-bench --since 90d --project all` for explicit filters. History ranking never starts
+live benchmark cells until you explicitly confirm the selected supported skill.
 Published plugin updates still use `copilot plugin update oh-my-copilot`.
 
 To unlink and revert to the published package:
