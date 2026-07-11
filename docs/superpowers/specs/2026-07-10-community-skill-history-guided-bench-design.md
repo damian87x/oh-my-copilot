@@ -3,8 +3,9 @@
 ## Goal
 
 Ship a community-safe `/history-analyze` skill backed by a deterministic `omp history analyze`
-command, then make bare `/skill-bench` use that report to guide an explicitly confirmed live
-benchmark. Existing `/skill-bench check`, `/skill-bench latest`, and direct
+command. The skill turns the machine report into a concise human summary and offers one explicitly
+confirmed benchmark next step. Bare `/skill-bench` remains a second guided entry point. Existing
+`/skill-bench check`, `/skill-bench latest`, and direct
 `/skill-bench code-review|tdd|ralplan` behavior remains unchanged.
 
 ## Product contract
@@ -18,6 +19,11 @@ benchmark. Existing `/skill-bench check`, `/skill-bench latest`, and direct
 - Counts are exact for readable matching events. Tokens, AI credits, duration, model metrics, and
   other shutdown telemetry are session-level context only; they are never divided among skills or
   represented as exact per-skill usage.
+- `/history-analyze` does not paste raw JSON. It renders a concise human summary, identifies the
+  first ranked supported skill when one exists, loads `/grill-me`, and asks exactly one question
+  before handing an affirmative answer to the existing direct `/skill-bench` path.
+- Refusal, ambiguity, analyzer failure, missing supported history, or unavailable handoff stops
+  without live benchmark cells and prints the valid guided and direct commands.
 - Bare `/skill-bench` runs history analysis, ranks only `code-review`, `tdd`, and `ralplan`, lists
   observed unsupported skills separately, invokes `/grill-me` for one explicit selection and
   confirmation, and starts no benchmark cells until the user confirms.
@@ -72,9 +78,22 @@ It performs no prompt inference and does not invoke Copilot or benchmark process
 
 ### Bundled skills
 
-Create `.github/skills/history-analyze/SKILL.md`. It calls `omp history analyze` with only the two
-documented filters, preserves warnings, explains that usage is session-level, and never opens or
-summarizes conversation content.
+Create `.github/skills/history-analyze/SKILL.md`. It calls `omp history analyze --json` with only the
+two documented filters, preserves warnings, explains that usage is session-level, and never opens or
+summarizes conversation content. JSON is an internal transport and is never pasted to the user.
+Instead, the skill presents:
+
+1. The requested window and project scope.
+2. Ranked supported skills and observed unsupported skills.
+3. Exact session-level token, premium-request, AI-credit, duration, and per-metric coverage values.
+4. Single-skill associations, the shared-skill bucket, and every analyzer warning.
+
+When `skills` contains a supported candidate, select its first entry, load `/grill-me` through the
+`skill` tool, and ask exactly one question naming that candidate and the fact that continuing starts
+live benchmark cells. On an unambiguous affirmative answer, load `/skill-bench` and follow its direct
+mode for the selected skill; do not duplicate the benchmark runner inside `/history-analyze`. On any
+non-affirmative answer, stop and show the exact guided and direct commands. No `python3 run.py --task`
+command may start before the affirmative answer.
 
 Modify `.github/skills/skill-bench/SKILL.md` only at the missing-argument branch:
 
@@ -206,9 +225,10 @@ warnings. Warnings are stable `{code,count,message}` rows, coalesced by code and
   fields, and must not serialize raw events.
 - Session IDs and individual paths are not emitted. The requested cwd is emitted only because the
   caller supplied it; text output may display it only for `project=current`.
-- No network calls, model calls, subprocesses, or writes occur during history analysis.
+- The deterministic CLI analyzer makes no network calls, model calls, subprocesses, or writes. The
+  skill's Copilot turn and explicit benchmark handoff remain outside that analyzer boundary.
 - No benchmark subprocess starts without direct-mode consent or a fresh affirmative answer from
-  the bare-mode `/grill-me` gate.
+  the `/history-analyze` or bare `/skill-bench` `/grill-me` gate.
 
 ## Non-goals
 
@@ -217,3 +237,13 @@ warnings. Warnings are stable `{code,count,message}` rows, coalesced by code and
 - Benchmarking skills other than the three current harness mappings.
 - Copying the project-local MoltCore history skill or coupling the analyzer to that workspace.
 - Changing benchmark arms, models, repetitions, workers, scoring, `check`, or `latest`.
+
+## Verification additions for the interactive history entry point
+
+- A bundled-skill contract test fails unless raw JSON is hidden, the human summary is required,
+  `/grill-me` loads before any question, and affirmative handoff uses `/skill-bench` direct mode.
+- A fresh Copilot session runs default `/history-analyze` (`30d all`), records `history-analyze` followed by
+  `grill-me`, and answers No.
+- The refusal smoke must contain the exact normalized history command, no `skill-bench` invocation,
+  no `python3 run.py --task` command, and no new benchmark run directory.
+- The deterministic CLI JSON contract remains unchanged and continues to serve scripts and tests.
