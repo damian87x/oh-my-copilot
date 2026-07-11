@@ -104,6 +104,14 @@ neutral prompts it drops and goes noisy (e.g. `tdd` 0.00 → 0.33, *equal* for s
 > The benchmark earning its keep: it says, with evidence, *which* skills beat just asking — and
 > for these three at this model tier, that's `code-review`, not `tdd` or `ralplan`.
 
+### Debug task calibration (n=5/arm)
+
+`debug-inflight-dedup` produced a clear model gap: GPT-5 Mini scored 100% correct in baseline and
+prompt arms and 80% with the skill, while Claude Haiku 4.5 scored 80%, 40%, and 40% respectively.
+All arms scored 0% applied because no cell combined the complete evidence-backed debug report with
+a real regression test. The task is therefore useful as a difficult correctness probe, but this run
+is not evidence that `/debug` improves outcomes.
+
 ## Run it
 
 ### 0. Selftest first — always, no spend
