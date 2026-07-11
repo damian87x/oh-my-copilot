@@ -1,85 +1,103 @@
 ---
 name: skill-bench
-description: Compare an omp skill directly or use local Copilot history to choose one safely. Use with bare /skill-bench, /skill-bench 7d current, /skill-bench --since 30d --project all, check, latest, code-review, tdd, or ralplan.
+description: Use with bare /skill-bench, history filters, check, latest, code-review, tdd, ralplan, or direct --models selection.
 ---
 
 # Skill Bench
 
-Run the packaged benchmark without exposing its Python implementation to the user.
+Run packaged benchmark. Pick skill. Pick model mode. Report result.
 
-## Modes
+## Commands
 
-| argument | action | nested benchmark cells |
+| command | run | model mode |
 |---|---|---|
-| none or history filters | rank actual local skill history, then confirm one live choice | only after yes |
-| `check` | validate every deterministic scorer | none |
-| `latest` | rescore and open the newest saved run | none |
-| `code-review` | run task `code-review-sqli` | yes |
-| `tdd` | run task `tdd-slugify` | yes |
-| `ralplan` | run task `ralplan-pwreset` | yes |
+| `/skill-bench` or history filters | rank local skill history, then ask once | user chooses |
+| `/skill-bench check` | scorer self-test | none |
+| `/skill-bench latest` | rescore newest saved run | none |
+| `/skill-bench code-review` | `code-review-sqli` | host default |
+| `/skill-bench tdd` | `tdd-slugify` | host default |
+| `/skill-bench ralplan` | `ralplan-pwreset` | host default |
+| `/skill-bench code-review --models default` | `code-review-sqli` | available reference grid |
+| `/skill-bench code-review --models gpt-5.6-luna` | `code-review-sqli` | named model(s) |
 
-Any argument not matching a direct mode or the guided filters below is unknown; print this mode list
-and stop. An explicit live mode is consent to run
-real benchmark cells. The containing Copilot turn still uses the session model even when the
-selected mode starts no nested benchmark cells.
+Replace `code-review` with `tdd` or `ralplan` in either `--models` form.
 
-Guided history mode accepts no arguments (default `30d all`), positional `7d|30d|90d|all` and
-`current|all`, `--window`, the `--since` alias, and `--project`. Normalize the default to exactly
-`omp history analyze --window 30d --project all --json`; normalize filtered input to exactly
-`omp history analyze --window <window> --project <project> --json`. Run that command and require a
-successful schema-version-1 history report before invoking `/grill-me`; an unavailable or unknown
-history command must stop here. If the shell saves large output to a file, parse that exact JSON file;
-that is not an analyzer failure. `check`, `latest`, and the three direct live modes bypass guided history.
-Read ranked benchmarkable entries from the top-level `skills` array and observed unsupported entries
-from the top-level `unsupportedSkills` array; do not guess alternate property names. `skills` entries
-use exactly `skill`, `invocations`, `sessions`, `lastInvokedAt`, `benchmarkable`, and `benchmarkTask`.
-Display only `code-review`, `tdd`, and `ralplan` as benchmarkable, preserving array order, and list
-observed unsupported skills separately. Select the first ranked supported skill, which is the first
-entry in `skills`. Call the `skill` tool with `skill: "grill-me"`. Do not call `ask_user` directly
-before loading it. After loading `/grill-me`, ask exactly one question naming the selected supported
-skill and requesting explicit affirmative confirmation to start live benchmark cells.
-Only after an unambiguous affirmative answer may the existing mapped live-mode path run any
-`python3 run.py --task` command.
-On refusal, ambiguity, no supported history, analyzer failure, or unavailable `/grill-me`,
-stop without starting live benchmark cells and print the direct modes plus the exact guided filters
-`--since 7d|30d|90d|all` and `--project current|all`; never suggest arbitrary project names.
-History rank alone is never consent.
+Direct input shape: `SKILL` or `SKILL --models VALUE`. Reject extra flags. A direct live mode is consent
+to spend benchmark quota. The containing Copilot turn still uses its session model.
 
-## Resolve the benchmark
+## Model modes
+
+- No `--models`: use host default. Best default. Works when an organization disables named models.
+- `--models default`: use runner reference grid. Probe models first. Skip only unavailable models.
+- `--models MODEL[,MODEL...]`: run exactly named models. Example: `/skill-bench code-review --models gpt-5.6-luna`.
+
+`default` means reference grid. No flag means host default. Do not confuse them.
+
+The runner validates model slugs and probes entitlement. If every requested model is unavailable, stop.
+Do not replace requested models with GPT-5 Mini, Haiku, or another fallback.
+
+Reference grid gives repeatable comparison. Host-default and custom runs answer a local question. Do not
+declare one winner across different model modes.
+
+## History mode
+
+Guided history accepts no arguments (default `30d all`), positional `7d|30d|90d|all` and `current|all`,
+`--window`, `--since`, and `--project`. Normalize default to exactly
+`omp history analyze --window 30d --project all --json`. Normalize filtered input to exactly
+`omp history analyze --window <window> --project <project> --json`.
+
+Always require a successful schema-version-1 history report before invoking `/grill-me`. Missing, unknown, or
+failed history stops here. Large shell output saved to a file is valid: parse that JSON file.
+
+Read ranked entries from top-level `skills` array and top-level `unsupportedSkills` array. Entries use exactly
+`skill`, `invocations`, `sessions`, `lastInvokedAt`, `benchmarkable`, and `benchmarkTask`. Display only
+`code-review`, `tdd`, and `ralplan` as benchmarkable. List observed unsupported skills separately.
+
+History chooses the skill, not the model. Select the first ranked supported skill. Call the `skill` tool with `skill: "grill-me"`. Do not call `ask_user` directly before loading it.
+
+After loading `/grill-me`, ask exactly one question. Name selected skill. Offer host default, reference
+grid, named model(s), or stop. Ask for explicit affirmative confirmation before live cells. A named
+model choice is explicit confirmation. Silence, empty answer, ambiguity, refusal, unavailable
+`/grill-me`, no supported skill, or analyzer failure: stop without starting live benchmark cells.
+
+Only after an unambiguous affirmative answer may the mapped live-mode path run `python3 run.py --task`.
+On stop, print direct mode and guided filters: `--since 7d|30d|90d|all`, `--project current|all`.
+On stop, never suggest arbitrary project names. History rank alone is never consent.
+
+## Resolve
 
 1. Require `omp` and `python3` on `PATH`.
-2. Run `omp version --json`, parse its `packageRoot`, and use
-   `<packageRoot>/benchmarks/skill-bench` as the benchmark directory.
-3. Require `run.py` in that directory. Report the missing command or path directly and stop.
+2. Run `omp version --json`. Use `<packageRoot>/benchmarks/skill-bench`.
+3. Require `run.py`. Missing path or command: print it. Stop.
 
-## Execute
+## Run
 
-- `check`: from the benchmark directory, run `python3 run.py --selftest`. Success must include
-  `all instruments valid`.
-- `latest`: find the newest directory under its `runs` subdirectory, then run
-  `python3 run.py --rescore <run-directory>`. If none exists, say so and stop.
-- Live modes: first run `python3 run.py --selftest` and stop if it fails. Then run:
+First run `python3 run.py --selftest`. Require `all instruments valid`.
+
+`check`: self-test only. `latest`: run `python3 run.py --rescore <newest-run-directory>`.
+
+Use same task, arms, runs, workers in every live mode:
 
 ```bash
+# Host default: omit --models.
+python3 run.py --task <mapped-task> --arms baseline,skill,prompt --runs 1 --workers 2
+
+# Available reference grid.
 python3 run.py --task <mapped-task> --arms baseline,skill,prompt \
-  --models gpt-5-mini,claude-haiku-4.5 --runs 1 --workers 2
+  --models default --runs 1 --workers 2
+
+# Exact user request.
+python3 run.py --task <mapped-task> --arms baseline,skill,prompt \
+  --models <requested-models> --runs 1 --workers 2
 ```
 
-Do not silently change models, arms, repetitions, or workers. Preserve the runner output and take
-the report path from its final `report:` line. Require the resulting `sweep_report.html` to exist.
+Do not silently change models, arms, repetitions, or workers. Preserve runner output. Read its final
+`report:` path. Require `sweep_report.html`.
 
-## Present the result
+## Report
 
-Open `sweep_report.html` with the platform's normal HTML opener (`open` on macOS or `xdg-open` on
-Linux). If no opener is available, print the absolute path instead.
+Open `sweep_report.html` with platform opener. If unavailable, print absolute path.
 
-Read the generated summary and report, then state:
-
-- the winner and why it won (quality first, cost only as a tie-breaker),
-- correct and applied percentages,
-- USD and AI credits per successful run,
-- input, cached-input, cache-write, output, and total tokens,
-- any missing or unresolved pricing telemetry.
-
-Do not call every 100% row a winner; apply the report's tie-break order. Do not claim a cost when
-token or session telemetry is incomplete.
+State model mode first: host default, reference grid, or custom. Then state winner within that mode,
+correct and applied percentages, USD and AI credits per successful run, token categories, and missing
+telemetry. Do not call every 100% row a winner. Quality first; cost breaks ties.

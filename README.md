@@ -496,6 +496,12 @@ summary and asks before starting any live benchmark.
 Use `/skill-bench` for the default guided `30d all` history, `/skill-bench 7d current` for positional
 filters, or `/skill-bench --since 90d --project all` for explicit filters. History ranking never starts
 live benchmark cells until you explicitly confirm the selected supported skill.
+
+Direct benchmark: `/skill-bench code-review` uses your Copilot host default. Use
+`/skill-bench code-review --models default` for the available reference grid, or
+`/skill-bench code-review --models gpt-5.6-luna` for an exact model. Disabled models are skipped;
+requested models are never replaced silently.
+
 Published plugin updates still use `copilot plugin update oh-my-copilot`.
 
 To unlink and revert to the published package:

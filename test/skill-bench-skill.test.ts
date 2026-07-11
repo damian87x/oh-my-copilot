@@ -23,7 +23,14 @@ describe("bundled skill-bench skill", () => {
     expect(skill).toContain("check");
     expect(skill).toContain("latest");
     expect(skill).toContain("--selftest");
-    expect(skill).toContain("--models gpt-5-mini,claude-haiku-4.5");
+    expect(skill).toContain("`/skill-bench code-review`");
+    expect(skill).toContain("`/skill-bench code-review --models default`");
+    expect(skill).toContain("`/skill-bench code-review --models gpt-5.6-luna`");
+    expect(skill).toContain("host default");
+    expect(skill).toContain("History chooses the skill, not the model.");
+    expect(skill).toMatch(/skip only unavailable models/i);
+    expect(skill).toContain("Do not replace requested models");
+    expect(skill).not.toContain("--models gpt-5-mini,claude-haiku-4.5");
     expect(skill).toContain("--runs 1");
     expect(skill).toContain("--workers 2");
     expect(skill).toContain("sweep_report.html");
@@ -54,6 +61,8 @@ describe("bundled skill-bench skill", () => {
 
     expect(readme).toContain("omp setup");
     expect(readme).toContain("/skill-bench check");
+    expect(readme).toContain("/skill-bench code-review --models default");
+    expect(readme).toContain("/skill-bench code-review --models gpt-5.6-luna");
     expect(readme).not.toMatch(/installed-plugins[\s\S]*cp -R/);
   });
 });
