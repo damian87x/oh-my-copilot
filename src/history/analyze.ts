@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fstatSync, openSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { isValidSessionId } from "../memory-review/transcript.js";
@@ -146,19 +146,15 @@ export function analyzeHistory(options: AnalyzeHistoryOptions): HistoryAnalysis 
     const path = join(root, id, "events.jsonl");
     let raw: string;
     let mtime: number;
-    let fileDescriptor: number | undefined;
     try {
-      fileDescriptor = openSync(path, "r");
-      const eventFile = fstatSync(fileDescriptor);
+      raw = readFileSync(path, "utf8");
+      const eventFile = statSync(path);
       mtime = eventFile.mtimeMs;
-      raw = readFileSync(fileDescriptor, "utf8");
       coverage.sessionsRead++;
     } catch {
       coverage.filesUnreadable++;
       warn("unreadable_events");
       continue;
-    } finally {
-      if (fileDescriptor !== undefined) closeSync(fileDescriptor);
     }
     let startTime: number | null = null;
     let startCwd: string | null = null;
