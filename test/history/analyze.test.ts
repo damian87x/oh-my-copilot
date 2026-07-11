@@ -43,6 +43,26 @@ describe("analyzeHistory", () => {
     ]);
     expect(analyzeHistory({ window: "all", project: "all", cwd: "/repo", sessionStateDir: root, now }).skills[0]?.skill).toBe("ralplan");
   });
+
+  it("maps debug history to its benchmark task", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-history-"));
+    session(root, "debug-session", [
+      { type: "session.start", timestamp: "2026-07-09T10:00:00Z", data: { context: { cwd: "/repo" } } },
+      { type: "tool.execution_start", timestamp: "2026-07-09T11:00:00Z", data: { toolName: "skill", arguments: { skill: "debug" } } },
+    ]);
+
+    expect(analyzeHistory({
+      window: "30d", project: "all", cwd: "/repo", sessionStateDir: root, now,
+    }).skills).toEqual([{
+      skill: "debug",
+      invocations: 1,
+      sessions: 1,
+      lastInvokedAt: "2026-07-09T11:00:00.000Z",
+      benchmarkable: true,
+      benchmarkTask: "debug-inflight-dedup",
+    }]);
+  });
+
   it("counts only exact skill tool starts, tolerates malformed lines, and never leaks content", () => {
     const root = mkdtempSync(join(tmpdir(), "omp-history-"));
     session(root, "valid-session", [

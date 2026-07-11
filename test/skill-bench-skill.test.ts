@@ -20,10 +20,12 @@ describe("bundled skill-bench skill", () => {
     expect(skill).toMatch(/code-review[\s\S]*code-review-sqli/);
     expect(skill).toMatch(/tdd[\s\S]*tdd-slugify/);
     expect(skill).toMatch(/ralplan[\s\S]*ralplan-pwreset/);
+    expect(skill).toMatch(/debug[\s\S]*debug-inflight-dedup/);
     expect(skill).toContain("check");
     expect(skill).toContain("latest");
     expect(skill).toContain("--selftest");
     expect(skill).toContain("`/skill-bench code-review`");
+    expect(skill).toContain("`/skill-bench debug`");
     expect(skill).toContain("`/skill-bench code-review --models default`");
     expect(skill).toContain("`/skill-bench code-review --models gpt-5.6-luna`");
     expect(skill).toContain("host default");

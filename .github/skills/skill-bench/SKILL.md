@@ -1,6 +1,6 @@
 ---
 name: skill-bench
-description: Use with bare /skill-bench, history filters, check, latest, code-review, tdd, ralplan, or direct --models selection.
+description: Use with bare /skill-bench, history filters, check, latest, code-review, tdd, ralplan, debug, or direct --models selection.
 ---
 
 # Skill Bench
@@ -17,10 +17,11 @@ Run packaged benchmark. Pick skill. Pick model mode. Report result.
 | `/skill-bench code-review` | `code-review-sqli` | host default |
 | `/skill-bench tdd` | `tdd-slugify` | host default |
 | `/skill-bench ralplan` | `ralplan-pwreset` | host default |
+| `/skill-bench debug` | `debug-inflight-dedup` | host default |
 | `/skill-bench code-review --models default` | `code-review-sqli` | available reference grid |
 | `/skill-bench code-review --models gpt-5.6-luna` | `code-review-sqli` | named model(s) |
 
-Replace `code-review` with `tdd` or `ralplan` in either `--models` form.
+Replace `code-review` with `tdd`, `ralplan`, or `debug` in either `--models` form.
 
 Direct input shape: `SKILL` or `SKILL --models VALUE`. Reject extra flags. A direct live mode is consent
 to spend benchmark quota. The containing Copilot turn still uses its session model.
@@ -51,7 +52,7 @@ failed history stops here. Large shell output saved to a file is valid: parse th
 
 Read ranked entries from top-level `skills` array and top-level `unsupportedSkills` array. Entries use exactly
 `skill`, `invocations`, `sessions`, `lastInvokedAt`, `benchmarkable`, and `benchmarkTask`. Display only
-`code-review`, `tdd`, and `ralplan` as benchmarkable. List observed unsupported skills separately.
+`code-review`, `tdd`, `ralplan`, and `debug` as benchmarkable. List observed unsupported skills separately.
 
 History chooses the skill, not the model. Select the first ranked supported skill. Call the `skill` tool with `skill: "grill-me"`. Do not call `ask_user` directly before loading it.
 

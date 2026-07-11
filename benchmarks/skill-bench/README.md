@@ -37,6 +37,7 @@ Each task seeds a starter file, runs the agent, and scores **deterministically**
 | `tdd-slugify` | `tdd` | a `slugify()` stub (spec also needs accent transliteration) | a real **test file** with assertions | the impl passes all 11 checks, incl. accented/unicode input |
 | `code-review-sqli` | `code-review` | **two** planted defects in `users.py` (SQL injection + `SELECT *` leaking `password_hash`) | the **injection flagged** + a verdict given | **both** defects caught |
 | `ralplan-pwreset` | `ralplan` | two stub modules | ≥3 of {slices, acceptance, tests, risks}, task-anchored, **stopped at the plan** | also covers ≥2 security specifics (expiry / replay / rate-limit) |
+| `debug-inflight-dedup` | `debug` | a localized request deduplicator with two coupled state bugs | evidence-backed diagnosis plus a real regression test | locale isolation, same-key deduplication, and retry after failure all pass |
 
 - **`applied`** = did the skill's discipline show up? (the skill's whole point)
 - **`correct`** = is the artifact sound?
@@ -126,6 +127,7 @@ copilot plugin install oh-my-copilot@oh-my-copilot
 ```bash
 python3 run.py --all --runs 3                 # all tasks, 3 reps, via copilot CLI
 python3 run.py --task tdd-slugify --runs 5    # one task
+python3 run.py --task debug-inflight-dedup --runs 5
 python3 run.py --all --engine claude --runs 3 # run against the claude CLI instead
 ```
 

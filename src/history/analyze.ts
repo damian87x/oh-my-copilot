@@ -62,7 +62,12 @@ export interface HistoryAnalysis {
   warnings: HistoryWarning[];
 }
 
-const TASKS: Record<string, string> = { "code-review": "code-review-sqli", tdd: "tdd-slugify", ralplan: "ralplan-pwreset" };
+const TASKS: Record<string, string> = {
+  "code-review": "code-review-sqli",
+  debug: "debug-inflight-dedup",
+  ralplan: "ralplan-pwreset",
+  tdd: "tdd-slugify",
+};
 const DAYS: Record<Exclude<HistoryWindow, "all">, number> = { "7d": 7, "30d": 30, "90d": 90 };
 const WARNING_MESSAGES: Record<string, (count: number) => string> = {
   invalid_session_id: (n) => `${n} session directories had invalid identifiers and were skipped.`,
