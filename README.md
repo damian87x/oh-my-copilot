@@ -157,12 +157,12 @@ flowchart TB
 ### Intelligent Orchestration
 
 - **7 specialized agents** — planner, architect, executor, verifier, code-reviewer, designer, researcher (all `--agent <name>` compatible with Copilot CLI)
-- **27 in-session skills** auto-discovered from `.github/skills/`
+- **28 in-session skills** auto-discovered from `.github/skills/`
 - **Smart pipeline routing** — `/research-codebase` → `/ralplan` → `/team` / `/ralph` / `/ultrawork` → `/code-review` → `/ultraqa`
 
 ### Developer Experience
 
-- **Context & history as CLI subcommands** — `omp state` (key-value with TTL), `omp project-memory` (notes + directives), `omp trace` (per-session timeline + summary), `omp goal` / `omp memory sync` (managed repo context), `omp daily-log`
+- **Context & history as CLI subcommands** — `omp state` (key-value with TTL), `omp project-memory` (notes + directives), `omp trace` (per-session timeline + summary), `omp goal` / `omp memory sync` (managed repo context), `omp daily-log`, `omp handoff` (task continuation packets)
 - **Lightweight Copilot context** — managed instructions keep only the repo goal plus on-demand memory commands; set `OMP_DISABLE_INSTRUCTIONS_MEMORY=1` to skip writing the managed block entirely
 - **Estimated cost ledger** — `omp cost [--today] [--session <id>]` summarizes local prompt/tool token estimates recorded by hooks. These are best-effort estimates, not provider billing.
 - **File-state worker coordination** — outbox JSONL + byte cursor, atomic `O_EXCL` task locks, optimistic CAS on claim
@@ -202,6 +202,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/schedule`             | Durable local cron job — re-runs a prompt on a schedule, survives reboot | `/schedule "check the PR every 15 min"`   |
 | `/goal`                 | Set/read the repo-level goal injected into the managed Copilot context | `/goal "ship v1.0 of the billing flow"` |
 | `/daily-log`            | Per-day goal + work log surfaced at the start of new sessions | `/daily-log "ratelimit refactor landed"`        |
+| `/handoff`              | Create or resume a task handoff for unfinished work (CLI-backed) | `/handoff "finish auth middleware"`      |
 | `/teach`                | Stateful multi-session teaching loop for a topic (mission → lessons → quizzes) | `/teach "rust ownership"`         |
 | `/slack`                | One-way outbound Slack notification (explicit command only) | `/slack "deploy is green"`                         |
 
@@ -341,6 +342,8 @@ omp models [--candidates a,b,c] [--json]    # probe which Copilot models your pl
 omp memory-review --session <uuid|latest>   # run the end-of-session review manually
 omp memory sync [--json]                    # render goal + directives into copilot-instructions.md
 omp daily-log set-goal "<text>" | add "<text>" | read [--days N] | prune [--keep-days N] [--json]
+omp handoff create [--objective "…"] [--done "…"]… [--pending "…"]… [--llm] [--json]
+omp handoff list | read <id> | close <id> [--promote] | archive <id> | prune [--json]
 omp state write <key> <val> [--ttl <s>] | read | delete | status <key> | list | cleanup [--json]
 omp project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" [--json]
 omp trace timeline [<sessionId>] [--limit N] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]

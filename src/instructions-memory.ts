@@ -2,6 +2,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, join } from "node:path";
 import { ompRoot } from "./omp-root.js";
 import { readRepoGoal } from "./goal.js";
+// Import store only (not the handoff barrel) so instruction sync does not pull git/trace.
+import { listHandoffPointers } from "./handoff/store.js";
+import { sanitizeForInstructions } from "./handoff/redact.js";
 import { readMemoryConfig } from "./memory-review/config.js";
 import { noteIndex, recentNotes, listTopics } from "./project-memory.js";
 
@@ -72,6 +75,25 @@ function renderBlock(cwd: string): string {
     const moreTopics = topics.length - shownTopics.length;
     lines.push("", `Project topics (${topics.length}):`, ...shownTopics);
     if (moreTopics > 0) lines.push(`- (+${moreTopics} more — \`omp project-memory topics\` for full list)`);
+  }
+
+  // Active handoffs: pointers only (id + sanitized one-line objective). Full
+  // bodies load on demand via `omp handoff read <id>` — never inject packet bodies.
+  const handoffs = listHandoffPointers(cwd);
+  if (handoffs.length > 0) {
+    const shown = handoffs.slice(0, 5).map((p) => {
+      const clean = sanitizeForInstructions(p.objective);
+      const obj = clean.length > 80 ? `${clean.slice(0, 77)}…` : clean;
+      // Ids are already validated; still avoid backticks inside the objective.
+      return `- ${obj.replace(/`/g, "'")} (\`${p.id}\`)`;
+    });
+    const more = handoffs.length - shown.length;
+    lines.push(
+      "",
+      `Active handoffs (${handoffs.length}) — \`omp handoff read <id>\` to load:`,
+      ...shown,
+    );
+    if (more > 0) lines.push(`- (+${more} more — \`omp handoff list\`)`);
   }
 
   lines.push(END);
