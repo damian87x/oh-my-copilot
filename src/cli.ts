@@ -20,6 +20,22 @@ function flagValue(args: string[], flag: string): string | undefined {
 }
 
 /**
+ * Collect all values for a repeated flag (`--done a --done b`).
+ * Accepts values that start with `-` (e.g. `--done "-2 tests failing"`) so free
+ * text is not dropped; only a missing next token ends the pair.
+ */
+function flagValues(args: string[], flag: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag && i + 1 < args.length) {
+      out.push(args[i + 1]!);
+      i++;
+    }
+  }
+  return out;
+}
+
+/**
  * Interactive only when both streams are TTYs, we're not emitting JSON, and
  * we're not in CI (which may allocate a pseudo-TTY but must never block on a
  * prompt). Honors the same no-block contract as update-prompt.ts.
@@ -129,7 +145,7 @@ function printResult(result: CliResult, json: boolean): void {
 
 function help(): string {
   return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  update                                        (self-update: npm i -g @damian87/omp@latest)\n  list [--json]\n  setup [--dry-run] [--scope project|user] [--plugin-root <dir>] [--force] [--json]\n                                                (--force overrides locally-changed bundled skills/agents; otherwise setup prompts. Always installs/refreshes ~/.copilot/hooks/omp.json)\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot] [--hooks] [--deep]\n  cost [--json] [--session <id>] [--days <n>]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  gateway serve [--only <name>[,<name>]]        (run all configured connectors; today: slack)\n  gateway status [--json] [--only <name>[,...]] (per-connector readiness; no sockets opened)\n  gateway doctor [--json] [--only <name>[,...]] (alias for 'gateway status')\n  gateway notify --text "<msg>" [--target slack:C\\|D\\|G\\|U... [:thread_ts]] [--thread-ts <ts>] [--json]\n                                                (one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL)\n  slack serve                                   (deprecated alias for 'gateway serve --only slack')\n  slack doctor [--json]                         (deprecated alias for 'gateway status --only slack')\n  env init [--force]                            (interactive: write ~/.omp/.env with Slack tokens + optional SLACK_HOME_CHANNEL)\n                                                non-interactive: set OMP_INIT_BOT_TOKEN/OMP_INIT_APP_TOKEN/OMP_INIT_HOME_CHANNEL\n                                                (env vars preferred over --bot-token/--app-token/--home-channel flags)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n${registeredCommandHelpLines().join("\n")}\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  ponytail start [lite|full|ultra] [--json]    (lazy senior dev mode; persisted + re-injected each turn)\n  ponytail status [--json]\n  ponytail off [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--notify-target slack:<ID>] [--notify-desktop] [--notify-open-omp] [--dry-run] [--json]
-                                                (--notify-desktop: native OS notification on completion [macOS uses osascript]; --notify-open-omp: click opens an omp session in the state root — needs OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1 + terminal-notifier on macOS)\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule open <id> [--tmux] [--json]          (show this id's latest status + full output; --tmux instead opens an interactive omp session in the project — recent runs show via the startup banner)\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (render goal+directives into copilot-instructions.md)\n  config get [--json] | config set memory-mode on|off [--no-validate] [--model <slug>] | config set memory-review-model <slug> | config set memory-review-min-messages <n> | config set memory-note-cap <n> | config set memory-note-char-cap <n> | config set memory-topic-cap <n> | config set memory-topic-char-cap <n> [--global]\n                                                (memory-mode on probes/validates a model + writes ~/.omp globally; --no-validate skips the probe. --global writes ~/.omp/config.json; project .omp/config.json overrides per key)\n  memory-review --session <uuid|latest> [--model <slug>] [--json]   (cheap-model end-of-session review; opt-in via memory-mode)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | search "<query>" [--topic <id>] [--limit <n>] | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | add-topic <id> [--description "..."] | add-fact <topic> "<fact>" | topics | read-topic <id> | prune-notes --keep <n>|--older-than <days> [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+                                                (--notify-desktop: native OS notification on completion [macOS uses osascript]; --notify-open-omp: click opens an omp session in the state root — needs OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1 + terminal-notifier on macOS)\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule open <id> [--tmux] [--json]          (show this id's latest status + full output; --tmux instead opens an interactive omp session in the project — recent runs show via the startup banner)\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (render goal+directives into copilot-instructions.md)\n  config get [--json] | config set memory-mode on|off [--no-validate] [--model <slug>] | config set memory-review-model <slug> | config set memory-review-min-messages <n> | config set memory-note-cap <n> | config set memory-note-char-cap <n> | config set memory-topic-cap <n> | config set memory-topic-char-cap <n> | config set handoff-llm on|off [--global]\n                                                (memory-mode on probes/validates a model + writes ~/.omp globally; --no-validate skips the probe. --global writes ~/.omp/config.json; project .omp/config.json overrides per key; handoff-llm enables automatic LLM handoff generation)\n  memory-review --session <uuid|latest> [--model <slug>] [--json]   (cheap-model end-of-session review; opt-in via memory-mode)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  handoff create [--objective "<text>"] [--done "<item>"]... [--pending "<item>"]... [--blockers "<item>"]... [--files "<path>"]... [--verification "<text>"] [--next "<text>"] [--ref "<path|url>"]... [--skill "<name>"]... [--focus "<text>"] [--llm] [--json]\n                                                (deterministic from git/traces by default; --llm is cost-bearing; auto-LLM only via config set handoff-llm on)\n  handoff list [--all] [--state active|closed|archived] [--json]\n  handoff read <id> [--json]\n  handoff close <id> [--promote] [--json]\n  handoff archive <id> [--json]\n  handoff prune [--older-than-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | search "<query>" [--topic <id>] [--limit <n>] | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | add-topic <id> [--description "..."] | add-fact <topic> "<fact>" | topics | read-topic <id> | prune-notes --keep <n>|--older-than <days> [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope project|user] [--dry-run] [--json]\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -502,11 +518,14 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     const scope: "project" | "global" = hasFlag(argv, "--global") ? "global" : "project";
     if (command === "get" || command === undefined) {
       const cfg = readMemoryConfig(cwd, { homeDir });
+      const { readHandoffConfig } = await import("./handoff/config.js");
+      const handoffCfg = readHandoffConfig(cwd, { homeDir });
+      const output = { ...cfg, handoffLlm: handoffCfg.handoffLlm };
       return json
-        ? { ok: true, output: cfg }
+        ? { ok: true, output }
         : {
             ok: true,
-            message: `memory-mode=${cfg.memoryMode}\nmemory-review-model=${cfg.memoryReviewModel}\nmemory-review-min-messages=${cfg.memoryReviewMinMessages}\nmemory-note-cap=${cfg.memoryNoteTitleCap}\nmemory-note-char-cap=${cfg.memoryNoteCharCap}\nmemory-topic-cap=${cfg.memoryTopicCap}\nmemory-topic-char-cap=${cfg.memoryTopicCharCap}`,
+            message: `memory-mode=${cfg.memoryMode}\nmemory-review-model=${cfg.memoryReviewModel}\nmemory-review-min-messages=${cfg.memoryReviewMinMessages}\nmemory-note-cap=${cfg.memoryNoteTitleCap}\nmemory-note-char-cap=${cfg.memoryNoteCharCap}\nmemory-topic-cap=${cfg.memoryTopicCap}\nmemory-topic-char-cap=${cfg.memoryTopicCharCap}\nhandoff-llm=${handoffCfg.handoffLlm}`,
           };
     }
     if (command === "set") {
@@ -579,7 +598,17 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
         setMemoryConfigValue(cwd, numericKey.key, String(intValue), { scope, homeDir });
         return json ? { ok: true, output: { [numericKey.key]: intValue, scope } } : { ok: true, message: `${numericKey.label}=${intValue}${where}` };
       }
-      return { ok: false, exitCode: 1, message: "Unknown config key. Try: memory-mode | memory-review-model | memory-review-min-messages | memory-note-cap | memory-note-char-cap | memory-topic-cap | memory-topic-char-cap" };
+      if (value === "handoff-llm") {
+        if (setVal !== "on" && setVal !== "off") {
+          return { ok: false, exitCode: 1, message: "usage: omp config set handoff-llm on|off [--global]" };
+        }
+        const { setHandoffLlm } = await import("./handoff/config.js");
+        setHandoffLlm(cwd, setVal, { scope, homeDir });
+        return json
+          ? { ok: true, output: { handoffLlm: setVal, scope } }
+          : { ok: true, message: `handoff-llm=${setVal}${where}` };
+      }
+      return { ok: false, exitCode: 1, message: "Unknown config key. Try: memory-mode | memory-review-model | memory-review-min-messages | memory-note-cap | memory-note-char-cap | memory-topic-cap | memory-topic-char-cap | handoff-llm" };
     }
     return { ok: false, exitCode: 1, message: "Unknown config subcommand. Try: config get | config set <key> <value>" };
   }
@@ -611,6 +640,193 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
           ok: true,
           message: res.ran ? `memory-review ran: ${JSON.stringify(res.summary)}` : `memory-review skipped: ${res.reason}`,
         };
+  }
+
+  if (group === "handoff") {
+    const h = await import("./handoff/index.js");
+    const cwd = flagValue(argv, "--root") ?? process.cwd();
+    if (command === "create") {
+      const objective = flagValue(argv, "--objective") ?? (value && !value.startsWith("-") ? value : undefined);
+      const focus = flagValue(argv, "--focus");
+      const refs = flagValues(argv, "--ref").map((r) =>
+        /^https?:\/\//i.test(r) ? { url: r } : { path: r },
+      );
+      try {
+        const done = flagValues(argv, "--done");
+        const pending = flagValues(argv, "--pending");
+        const blockers = flagValues(argv, "--blockers");
+        const files = flagValues(argv, "--files");
+        const skills = flagValues(argv, "--skill");
+        const res = await h.createHandoff(
+          cwd,
+          {
+            objective,
+            done: done.length ? done : undefined,
+            pending: pending.length ? pending : undefined,
+            blockers: blockers.length ? blockers : undefined,
+            files_touched: files.length ? files : undefined,
+            verification_status: flagValue(argv, "--verification"),
+            next_action: flagValue(argv, "--next"),
+            references: refs.length ? refs : undefined,
+            suggested_skills: skills.length ? skills : undefined,
+            focus,
+            llm: hasFlag(argv, "--llm"),
+          },
+          // Honor `omp config set handoff-llm on` for create (fails honestly until a real summarizer is wired).
+          { allowAutoLlm: true },
+        );
+        if (res.cost_bearing && res.warning) {
+          // Cost warning always goes to stderr so --json stdout stays pure.
+          console.error(`[handoff] ${res.warning}`);
+        }
+        return json
+          ? {
+              ok: true,
+              output: {
+                ok: true,
+                handoff: res.handoff,
+                path: res.path,
+                cost_bearing: res.cost_bearing,
+                warning: res.warning,
+              },
+            }
+          : {
+              ok: true,
+              message: `handoff created: ${res.handoff.id}${res.cost_bearing ? " (LLM/cost-bearing)" : ""}\nobjective: ${res.handoff.objective}\nnext: ${res.handoff.next_action}`,
+            };
+      } catch (e) {
+        return { ok: false, exitCode: 1, message: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    if (command === "list" || command === undefined) {
+      const all = hasFlag(argv, "--all");
+      const stateRaw = flagValue(argv, "--state");
+      if (stateRaw !== undefined && stateRaw !== "active" && stateRaw !== "closed" && stateRaw !== "archived") {
+        return {
+          ok: false,
+          exitCode: 1,
+          message: "usage: omp handoff list [--all] [--state active|closed|archived] [--json]",
+        };
+      }
+      const state =
+        stateRaw === "active" || stateRaw === "closed" || stateRaw === "archived" ? stateRaw : undefined;
+      const items = h.listHandoffs(cwd, { all, state });
+      const pointers = items.map((item) => ({
+        id: item.id,
+        state: item.state,
+        objective: item.objective,
+        next_action: item.next_action,
+        updated_at: item.updated_at,
+      }));
+      return json
+        ? { ok: true, output: { handoffs: pointers, count: pointers.length } }
+        : {
+            ok: true,
+            message:
+              pointers.length === 0
+                ? "(no handoffs)"
+                : pointers.map((p) => `${p.id}\t${p.state}\t${p.objective}`).join("\n"),
+          };
+    }
+    if (command === "read") {
+      if (!value || value.startsWith("-")) {
+        return { ok: false, exitCode: 1, message: "usage: omp handoff read <id> [--json]" };
+      }
+      try {
+        const handoff = h.readHandoff(cwd, value);
+        if (!handoff) return { ok: false, exitCode: 1, message: `handoff not found: ${value}` };
+        return json
+          ? { ok: true, output: { handoff } }
+          : {
+              ok: true,
+              message: [
+                `id: ${handoff.id}`,
+                `state: ${handoff.state}`,
+                `objective: ${handoff.objective}`,
+                `done: ${handoff.done.join("; ") || "(none)"}`,
+                `pending: ${handoff.pending.join("; ") || "(none)"}`,
+                `blockers: ${handoff.blockers.join("; ") || "(none)"}`,
+                `files: ${handoff.files_touched.join(", ") || "(none)"}`,
+                `verification: ${handoff.verification_status}`,
+                `next: ${handoff.next_action}`,
+                handoff.suggested_skills.length
+                  ? `suggested skills: ${handoff.suggested_skills.join(", ")}`
+                  : "",
+              ]
+                .filter(Boolean)
+                .join("\n"),
+            };
+      } catch (e) {
+        return { ok: false, exitCode: 1, message: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    if (command === "close") {
+      if (!value || value.startsWith("-")) {
+        return { ok: false, exitCode: 1, message: "usage: omp handoff close <id> [--promote] [--json]" };
+      }
+      try {
+        const handoff = h.closeHandoff(cwd, value);
+        let promote: { ok: boolean; noteId?: string; reason?: string } | undefined;
+        if (hasFlag(argv, "--promote")) {
+          promote = h.promoteHandoffToMemory(cwd, value);
+        }
+        return json
+          ? { ok: true, output: { handoff, promote } }
+          : {
+              ok: true,
+              message: `handoff closed: ${handoff.id}${
+                promote?.ok ? ` (promoted to note ${promote.noteId})` : promote?.reason ? ` (promote skipped: ${promote.reason})` : ""
+              }`,
+            };
+      } catch (e) {
+        return { ok: false, exitCode: 1, message: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    if (command === "archive") {
+      if (!value || value.startsWith("-")) {
+        return { ok: false, exitCode: 1, message: "usage: omp handoff archive <id> [--json]" };
+      }
+      try {
+        const handoff = h.archiveHandoff(cwd, value);
+        return json
+          ? { ok: true, output: { handoff } }
+          : { ok: true, message: `handoff archived: ${handoff.id}` };
+      } catch (e) {
+        return { ok: false, exitCode: 1, message: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    if (command === "prune") {
+      const daysRaw = flagValue(argv, "--older-than-days");
+      let olderThanDays = 30;
+      if (daysRaw !== undefined) {
+        const n = Number(daysRaw);
+        if (daysRaw.trim() === "" || !Number.isFinite(n) || n < 0) {
+          return {
+            ok: false,
+            exitCode: 1,
+            message: "usage: omp handoff prune [--older-than-days <non-negative number>] [--json]",
+          };
+        }
+        olderThanDays = n;
+      }
+      try {
+        const res = h.pruneHandoffs(cwd, { olderThanDays });
+        return json
+          ? { ok: true, output: res }
+          : {
+              ok: true,
+              message: `pruned ${res.removed.length} handoff(s); ${res.kept} active remain`,
+            };
+      } catch (e) {
+        return { ok: false, exitCode: 1, message: e instanceof Error ? e.message : String(e) };
+      }
+    }
+    return {
+      ok: false,
+      exitCode: 1,
+      message:
+        "Unknown handoff subcommand. Try: handoff create | list | read <id> | close <id> | archive <id> | prune",
+    };
   }
 
   if (group === "daily-log") {

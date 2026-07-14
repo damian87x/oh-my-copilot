@@ -39,4 +39,15 @@ describe("skill lifecycle documentation", () => {
     expect(read(".github/skills/research-codebase/reference/agent-prompts.md")).toContain("Worker Prompt Templates");
     expect(read(".github/skills/research-codebase/reference/agent-prompts.md")).toContain("omp team");
   });
+
+  it("keeps handoff skill routed through omp handoff CLI", () => {
+    const help = read("src/cli.ts");
+    const skill = read(".github/skills/handoff/SKILL.md");
+    for (const command of ["handoff create", "handoff list", "handoff read", "handoff close", "handoff archive", "handoff prune"]) {
+      expect(help).toContain(command);
+    }
+    expect(skill).toContain("omp handoff create");
+    expect(skill).toContain("omp handoff list --json");
+    expect(skill).toContain("omp handoff read <id> --json");
+  });
 });
