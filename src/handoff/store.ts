@@ -28,10 +28,6 @@ const INDEX_LOCK_MAX_AGE_MS = 30_000;
 const INDEX_LOCK_RETRIES = 40;
 const INDEX_LOCK_SPIN_MS = 25;
 
-function emptyIndex(): HandoffIndex {
-  return { version: 1, active: [] };
-}
-
 function indexLockPath(cwd: string): string {
   return join(handoffsDir(cwd), "index.lock");
 }
