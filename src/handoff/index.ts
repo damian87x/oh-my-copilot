@@ -9,7 +9,8 @@ export type {
   HandoffState,
 } from "./types.js";
 export { assertValidHandoffId, isValidHandoffId, newHandoffId } from "./id.js";
-export { handoffsDir, handoffFilePath, handoffIndexPath } from "./paths.js";
+export { handoffsDir, handoffFilePath, handoffIndexPath, handoffLegacyJsonPath } from "./paths.js";
+export { parseHandoffMarkdown, serializeHandoffMarkdown } from "./markdown.js";
 export { readHandoffConfig, setHandoffLlm, type HandoffLlmMode } from "./config.js";
 export {
   HANDOFF_BOUNDS,

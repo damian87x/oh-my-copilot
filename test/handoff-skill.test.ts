@@ -24,8 +24,11 @@ describe("handoff skill contract", () => {
       expect(body, `missing ${cmd}`).toContain(cmd);
     }
     // Must not instruct writing files under .omp/handoffs directly as the SoT.
-    expect(body).toMatch(/Do not write|never write|not write/i);
+    expect(body).toMatch(/Do not|Never|never invent/i);
     expect(body).toContain(".omp/handoffs");
+    expect(body).toMatch(/absolute path/i);
+    expect(body).toMatch(/stdout/i);
+    expect(body).toMatch(/\.md/);
     // Secrets redaction + references-not-duplication + suggested skills
     expect(body).toMatch(/Redact|secrets/i);
     expect(body).toMatch(/Reference|path or URL/i);

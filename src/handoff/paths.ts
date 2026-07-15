@@ -12,9 +12,14 @@ export function handoffIndexPath(cwd: string): string {
 }
 
 /**
- * Path to a single handoff artifact.
+ * Path to a single handoff markdown artifact.
  * Callers MUST validate `id` with `assertValidHandoffId` first.
  */
 export function handoffFilePath(cwd: string, id: string): string {
+  return join(handoffsDir(cwd), `${id}.md`);
+}
+
+/** Legacy JSON path from v0.26.0 (read-compat only). */
+export function handoffLegacyJsonPath(cwd: string, id: string): string {
   return join(handoffsDir(cwd), `${id}.json`);
 }
