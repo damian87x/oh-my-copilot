@@ -6,65 +6,88 @@ const root = process.cwd();
 const skillPath = path.join(root, ".github", "skills", "skill-bench", "SKILL.md");
 
 describe("bundled skill-bench skill", () => {
-  it("exposes friendly modes backed by the packaged benchmark", () => {
+  it("is a thin guided/direct entrypoint around omp skill-bench", () => {
     expect(existsSync(skillPath)).toBe(true);
     const skill = readFileSync(skillPath, "utf8");
+    const bannedFixedContracts = [
+      "benchmarkable",
+      "benchmarkTask",
+      "code-review-sqli",
+      "tdd-slugify",
+      "ralplan-pwreset",
+      "debug-inflight-dedup",
+      "python3",
+      "run.py",
+      "benchmarks/skill-bench",
+      "sweep_report.html",
+      "--selftest",
+      "/grill-me",
+      "gpt-5.6-luna",
+      "reference grid",
+      "fixed direct supported modes",
+    ];
 
     expect(skill).toContain("name: skill-bench");
-    expect(skill).toContain("Use with bare /skill-bench");
-    expect(skill).toContain("top-level `skills` array");
-    expect(skill).toContain("top-level `unsupportedSkills` array");
-    expect(skill).toContain("`skill`, `invocations`, `sessions`, `lastInvokedAt`, `benchmarkable`, and `benchmarkTask`");
-    expect(skill).toContain("never suggest arbitrary project names");
-    expect(skill).toContain("omp version --json");
-    expect(skill).toMatch(/code-review[\s\S]*code-review-sqli/);
-    expect(skill).toMatch(/tdd[\s\S]*tdd-slugify/);
-    expect(skill).toMatch(/ralplan[\s\S]*ralplan-pwreset/);
-    expect(skill).toMatch(/debug[\s\S]*debug-inflight-dedup/);
-    expect(skill).toContain("check");
-    expect(skill).toContain("latest");
-    expect(skill).toContain("--selftest");
-    expect(skill).toContain("`/skill-bench code-review`");
-    expect(skill).toContain("`/skill-bench debug`");
-    expect(skill).toContain("`/skill-bench code-review --models default`");
-    expect(skill).toContain("`/skill-bench code-review --models gpt-5.6-luna`");
-    expect(skill).toContain("host default");
-    expect(skill).toContain("History chooses the skill, not the model.");
-    expect(skill).toMatch(/skip only unavailable models/i);
-    expect(skill).toContain("Do not replace requested models");
-    expect(skill).not.toContain("--models gpt-5-mini,claude-haiku-4.5");
-    expect(skill).toContain("--runs 1");
-    expect(skill).toContain("--workers 2");
-    expect(skill).toContain("sweep_report.html");
-    const historyIndex = skill.indexOf("omp history analyze --window 30d --project all --json");
-    const grillIndex = skill.indexOf("/grill-me");
-    expect(historyIndex).toBeGreaterThanOrEqual(0);
-    expect(grillIndex).toBeGreaterThan(historyIndex);
-    expect(skill).toMatch(/require a\s+successful schema-version-1 history report before invoking `\/grill-me`/);
-    expect(skill).toContain('Call the `skill` tool with `skill: "grill-me"`');
-    expect(skill).toMatch(/Do not call `ask_user` directly\s+before loading it/);
-    expect(skill).toContain("Select the first ranked supported skill");
-    expect(skill).toContain("omp history analyze --window <window> --project <project> --json");
-    expect(skill).toContain("explicit affirmative confirmation");
-    expect(skill).toContain("unsupported skills");
-    expect(skill).toContain("stop without starting live benchmark cells");
-  });
-
-  it("includes the benchmark engine in npm packages", () => {
-    const manifest = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")) as {
-      files: string[];
-    };
-
-    expect(manifest.files).toContain("benchmarks/skill-bench");
-  });
-
-  it("documents the plain setup and lightweight smoke flow", () => {
-    const readme = readFileSync(path.join(root, "README.md"), "utf8");
-
-    expect(readme).toContain("omp setup");
-    expect(readme).toContain("/skill-bench check");
-    expect(readme).toContain("/skill-bench code-review --models default");
-    expect(readme).toContain("/skill-bench code-review --models gpt-5.6-luna");
-    expect(readme).not.toMatch(/installed-plugins[\s\S]*cp -R/);
+    expect(skill).toMatch(/description: Use when .*compare an arbitrary skill or path/i);
+    expect(skill).toContain("omp skill-bench");
+    expect(skill).toMatch(/bare `\/skill-bench`/i);
+    expect(skill).toMatch(/`\/skill-bench SKILL_OR_PATH`/);
+    expect(skill).toMatch(/arbitrary skill name, installed skill identity, or filesystem path/i);
+    expect(skill).toMatch(/durable, resumable pair-design/i);
+    expect(skill).toMatch(/approval/i);
+    expect(skill).toMatch(/freeze/i);
+    expect(skill).toMatch(/budget/i);
+    expect(skill).toMatch(/Do not\s+start live benchmark cells/i);
+    expect(skill).toMatch(/approved frozen design/i);
+    expect(skill).toMatch(/hard budget/i);
+    expect(skill).toMatch(/history\s+can rank\s+candidates/i);
+    expect(skill).toMatch(/Copilot CLI session history/i);
+    expect(skill).toMatch(/OMP is only\s+the parser and orchestrator/i);
+    expect(skill).toMatch(/never describe .* as OMP history/i);
+    expect(skill).toMatch(/never restricts/i);
+    expect(skill).toMatch(/selected arbitrary skill/i);
+    expect(skill).toMatch(/no fixed skill-to-task mapping/i);
+    expect(skill).toMatch(/Do not expose Python/i);
+    expect(skill).toMatch(/Do not require a package checkout/i);
+    expect(skill).toMatch(/Do not depend on another skill/i);
+    expect(skill).toMatch(/stop without starting live benchmark cells/i);
+    expect(skill).toMatch(/refusal, ambiguity, missing approval, failed history/i);
+    expect(skill).toMatch(/run exactly one normalized `omp skill-bench.*--json` command/i);
+    expect(skill).toMatch(/do not\s+print or paste raw JSON/i);
+    expect(skill).toMatch(/continue in the\s+same skill invocation/i);
+    expect(skill).toMatch(/show the ranked candidates/i);
+    expect(skill).toMatch(/ask exactly one\s+unresolved high-impact question/i);
+    expect(skill).toMatch(/rerun direct mode with\s+the selected identity or path/i);
+    expect(skill).toMatch(/show the manifest diff before any gate approval/i);
+    expect(skill).toMatch(/model probes can consume provider requests/i);
+    expect(skill).toMatch(/probe\s+only the explicit model ids/i);
+    expect(skill).toContain("--probe-models");
+    expect(skill).toMatch(/unknown remains selectable/i);
+    expect(skill).toContain("--approve-spend");
+    expect(skill).toMatch(/hash-bound spend approval/i);
+    expect(skill).toMatch(/provider total.*otherwise input \+ output/i);
+    expect(skill).toMatch(/cache-read tokens are\s+already included in input/i);
+    expect(skill).toMatch(/totalNanoAiu.*direct.*USD/i);
+    expect(skill).toMatch(/official GitHub Copilot pricing[\s\S]{0,200}pricing\.json/i);
+    expect(skill).toMatch(/public-price proxy[\s\S]{0,100}not a[\s\S]{0,100}GitHub Copilot invoice/i);
+    expect(skill).toMatch(/report.*backfill.*without.*model call/i);
+    expect(skill).toMatch(/synthetic execution only for explicit synthetic\/dry-run smoke requests/i);
+    expect(skill).toMatch(/freeze earlier if a non-synthetic reviewed manifest is missing the approved Copilot provider/i);
+    expect(skill).toMatch(/provider \{kind:"copilot", approved:true\}/i);
+    expect(skill).toMatch(/execution\.allowlistedTools/i);
+    expect(skill).toMatch(/non-empty execution\.allowlistedTools/i);
+    expect(skill).toMatch(/maxUsd/i);
+    expect(skill).toMatch(/maxCells/i);
+    expect(skill).toMatch(/maxRuntimeMs/i);
+    expect(skill).toMatch(/maxPremiumRequests/i);
+    expect(skill).toMatch(/budgets\.estimatedCellUsd/i);
+    expect(skill).toMatch(/budgets\.estimatedCellPremiumRequests/i);
+    expect(skill).toMatch(/preview the export without `--approve`/i);
+    expect(skill).toMatch(/repeat with `--approve` only after the user approves/i);
+    expect(skill).toMatch(/run `omp skill-bench apply .* --dry-run` first/i);
+    expect(skill).not.toContain("unsupportedSkills");
+    for (const banned of bannedFixedContracts) {
+      expect(skill).not.toContain(banned);
+    }
   });
 });

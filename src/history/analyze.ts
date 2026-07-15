@@ -22,14 +22,6 @@ export interface HistorySkillRow {
   invocations: number;
   sessions: number;
   lastInvokedAt: string;
-  benchmarkable: true;
-  benchmarkTask: string;
-}
-export interface UnsupportedHistorySkillRow {
-  skill: string;
-  invocations: number;
-  sessions: number;
-  lastInvokedAt: string;
 }
 export interface UsageTotals {
   inputTokens?: number;
@@ -57,17 +49,10 @@ export interface HistoryAnalysis {
   filters: { window: HistoryWindow; project: HistoryProjectScope; cwd: string; since: string | null };
   coverage: { sessionsDiscovered: number; sessionsRead: number; sessionsMatched: number; sessionsWithInvocations: number; filesUnreadable: number; malformedLines: number; invocationsCounted: number; shutdownTelemetrySessions: number };
   skills: HistorySkillRow[];
-  unsupportedSkills: UnsupportedHistorySkillRow[];
   sessionUsage: UsageBucket & { attribution: "session-level-only"; singleSkillAssociations: SingleSkillAssociation[]; sharedSkillSessions: UsageBucket };
   warnings: HistoryWarning[];
 }
 
-const TASKS: Record<string, string> = {
-  "code-review": "code-review-sqli",
-  debug: "debug-inflight-dedup",
-  ralplan: "ralplan-pwreset",
-  tdd: "tdd-slugify",
-};
 const DAYS: Record<Exclude<HistoryWindow, "all">, number> = { "7d": 7, "30d": 30, "90d": 90 };
 const WARNING_MESSAGES: Record<string, (count: number) => string> = {
   invalid_session_id: (n) => `${n} session directories had invalid identifiers and were skipped.`,
@@ -98,7 +83,7 @@ function addTotals(target: UsageTotals, targetCoverage: MetricSessions, source: 
   }
 }
 
-function sortSkillRows<T extends UnsupportedHistorySkillRow>(rows: T[]): T[] {
+function sortSkillRows<T extends HistorySkillRow>(rows: T[]): T[] {
   return rows.sort(
     (left, right) =>
       right.invocations - left.invocations ||
@@ -251,20 +236,13 @@ export function analyzeHistory(options: AnalyzeHistoryOptions): HistoryAnalysis 
   }
 
   const skills: HistorySkillRow[] = [];
-  const unsupportedSkills: UnsupportedHistorySkillRow[] = [];
   for (const [skill, row] of aggregates) {
-    const common = {
+    skills.push({
       skill,
       invocations: row.invocations,
       sessions: row.sessions.size,
       lastInvokedAt: new Date(row.last).toISOString(),
-    };
-    const benchmarkTask = TASKS[skill];
-    if (benchmarkTask) {
-      skills.push({ ...common, benchmarkable: true, benchmarkTask });
-    } else {
-      unsupportedSkills.push(common);
-    }
+    });
   }
   return {
     schemaVersion: 1,
@@ -277,7 +255,6 @@ export function analyzeHistory(options: AnalyzeHistoryOptions): HistoryAnalysis 
     },
     coverage,
     skills: sortSkillRows(skills),
-    unsupportedSkills: sortSkillRows(unsupportedSkills),
     sessionUsage: {
       attribution: "session-level-only",
       sessions: skillSessions,

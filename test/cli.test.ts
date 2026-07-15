@@ -186,6 +186,11 @@ describe("runCli: schedule subcommands", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("help lists the skill-bench command", async () => {
+    const result = await runCli(["help"]);
+    expect(result.message ?? "").toMatch(/skill-bench \[<skill-or-path>\]/);
+  });
+
   it("help lists the schedule commands", async () => {
     const result = await runCli(["help"]);
     expect(result.message ?? "").toMatch(/schedule add/);

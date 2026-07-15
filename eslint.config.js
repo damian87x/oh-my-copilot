@@ -13,6 +13,8 @@ export default tseslint.config(
       "dist/**",
       "coverage/**",
       "node_modules/**",
+      ".omx/state/**",
+      ".review/**",
       ".worktrees/**",
       "test/**",
       "**/*.d.ts",

@@ -1,8 +1,12 @@
 # Skill Bench Out-of-Box Design
 
-## Goal
+## Superseded status
 
-Make a locally linked or published `omp` expose `/skill-bench` through the normal flow:
+This design is superseded by the dynamic `omp skill-bench` command and its bundled
+`/skill-bench` skill entry point. The original packaged harness and hard-coded task
+mapping approach has been removed and must not be restored as a compatibility path.
+
+Current local-development documentation may use the linked-checkout workflow:
 
 ```bash
 npm run build
@@ -12,76 +16,80 @@ omp setup
 omp
 ```
 
-The fresh Copilot session must then accept `/skill-bench code-review` without `--root`,
-`--plugin-root`, temporary directories, or visible Python commands.
+Packaged community documentation must use the out-of-box workflow from any project:
 
-## Current failures
+```bash
+omp setup
+omp
+```
 
-1. Two global Node installations can point `omp` at different worktrees. Local verification must
-   prove the executable selected by the target project's `PATH` reports the current package root.
-2. Project discovery follows `package.json` beyond the nearest Git boundary. A repository without
-   a root `package.json`, such as `MoltCore-workspace`, is incorrectly installed into the user's
-   home directory when a parent `package.json` exists there.
-3. No bundled `skill-bench` skill exists.
-4. `benchmarks/skill-bench` is excluded from the npm package, so a published skill could not find
-   its execution engine.
-5. The README's local-skill instructions describe manual plugin-cache copying even though
-   `omp setup` already copies bundled skills into the active project.
+A fresh Copilot session should discover the bundled `/skill-bench` skill after `omp
+setup`. The skill delegates execution to `omp skill-bench` from the active `omp`
+installation; it must not require a repository checkout, Python, internal runner
+working directory, symlink, plugin-cache edit, or implementation script.
 
-## Architecture
+## Current contract
 
-### Project-root boundary
+- `omp setup` is the supported way to copy bundled skills into the active project.
+- Users start with `/skill-bench` or a documented direct skill mode in a fresh Copilot
+  session after setup.
+- The skill resolves and calls the active `omp skill-bench` command rather than
+  describing internal runner files.
+- Skill discovery, model candidates, supported modes, and generated artifact IDs are
+  dynamic command behavior, not fixed documentation constants.
+- History and default model/profile/budget choices are recommendations only. Explicit
+  safe skill paths and model IDs remain allowed. Provider model probes are opt-in and
+  target only explicit IDs; `unknown` is not treated as unavailable.
+- Bare guided discovery persists duplicate identities separately and hands selection
+  back to the conversational skill instead of failing or selecting one silently.
+- `resume` owns reviewed manifest import, gate approvals, and freeze. `run` accepts
+  only a frozen spec ID or safe spec path, requires explicit pilot or validated mode,
+  and starts provider cells only when `--approve-spend` records consent bound to the
+  frozen semantic spec.
+- `export` first writes a hash-bound privacy preview and requires a second identical
+  invocation with `--approve` before writing the requested portable bundle.
+- `apply --dry-run` reads current managed routing state and Copilot instruction markers.
+  Conflicts block mutation; Copilot interactive instructions remain advisory.
+- Missing prerequisites, unsupported modes, and runner failures are reported by the
+  command/skill surface that produced them.
 
-`resolveProjectPaths()` will treat the nearest `.git` directory as a discovery boundary. A
-`package.json` found inside that repository remains the preferred package root; a package found
-above the Git root is ignored. If the repository has no package file, the Git root itself is the
-project root. Non-Git directories retain the existing nearest-package-or-cwd behavior.
+## Distribution contract
 
-### Bundled skill
+The npm package should include the CLI command and bundled skills needed for the
+supported workflow. It should not include or document a separate benchmark working
+copy as a user-facing runtime dependency.
 
-Create `.github/skills/skill-bench/SKILL.md`. The skill resolves the active omp package with
-`omp version --json`, locates `benchmarks/skill-bench`, and owns the Python invocation internally.
-Users only see these commands:
+`omp setup` remains the local project installation path for bundled skills. Direct
+edits to a global plugin cache are not part of the supported workflow.
 
-- `/skill-bench check` — scorer selftest, no nested benchmark cells.
-- `/skill-bench latest` — rescore and open the latest saved report, no nested benchmark cells.
-- `/skill-bench code-review` — `code-review-sqli` across baseline, skill, and prompt arms.
-- `/skill-bench tdd` — `tdd-slugify` across the same arms.
-- `/skill-bench ralplan` — `ralplan-pwreset` across the same arms.
+## Documentation contract
 
-Live task modes use `gpt-5-mini,claude-haiku-4.5`, one repetition, and two workers by default.
-The explicit task-mode invocation is consent to run real Copilot cells. The skill must run the
-selftest first, stop on failure, open the generated HTML, and summarize winner, USD, AI credits,
-and token columns. `check` and `latest` still use the containing Copilot turn, but they do not
-spawn benchmark cells. Missing Python, benchmark files, Copilot CLI, or report output is reported
-directly rather than hidden.
+Documentation for this surface should:
 
-### Distribution
-
-Add `benchmarks/skill-bench` to `package.json#files`. This makes the execution engine available
-both from a local `npm link` and from the published npm package. `omp setup` continues to copy
-bundled skills into the current project's `.github/skills`; the installed Copilot plugin remains
-the global release distribution path.
-
-### Documentation
-
-Replace the manual plugin-cache copy instructions with the supported local flow: build, `npm
-link`, run plain `omp setup` from the target project, and start a fresh session because Copilot
-loads skills at session start.
+1. Show the build/link/setup/fresh-session flow for local verification.
+2. Show the packaged out-of-box setup/fresh-session flow without requiring this
+   repository checkout or Python.
+3. Point users to `/skill-bench` and `omp skill-bench` as the supported entry points.
+4. Describe modes and reports as dynamic command output.
+5. Avoid hard-coded historical task identifiers, model lists, fixture names, or
+   package-internal runner commands.
+6. Avoid instructing users to run from an internal runner working directory.
 
 ## Verification
 
-1. Unit-test Git-root-bounded project discovery with a parent home-like `package.json`.
-2. Assert the bundled skill exists, carries the friendly mappings, and the npm package includes
-   the benchmark engine.
-3. Run build, focused tests, full tests, skill lint, catalog validation, and package dry-run.
-4. Link both active npm installations to the current worktree.
-5. From `MoltCore-workspace`, prove `omp version --json` reports the current worktree.
-6. Run plain `omp setup`, verify `.github/skills/skill-bench/SKILL.md`, then confirm discovery
-   with a fresh `copilot skill list --json` process and `/skill-bench check` smoke.
+- Unit tests cover project-root discovery and bundled skill installation behavior.
+- CLI tests cover `omp skill-bench` argument handling and report/run metadata.
+- Skill tests cover that `/skill-bench` calls the dynamic command path and does not
+  expose removed runner internals.
+- Local smoke verification uses `npm run build`, `npm link`, `omp setup`, a fresh
+  Copilot session, and the supported skill/CLI entry points.
+- Packaged smoke verification uses `omp setup` in a clean project and proves the
+  workflow does not depend on this repository checkout, Python, or package-internal
+  benchmark paths.
 
 ## Non-goals
 
 - No global settings hacks or direct edits to Copilot's installed-plugin cache.
-- No new benchmark implementation; the existing Python harness stays authoritative.
+- No compatibility shim for the removed packaged harness.
+- No documentation of package-internal runner commands or fixed historical task IDs.
 - No automatic full multi-run benchmark on a missing argument.

@@ -96,8 +96,7 @@ export function parseHistoryArgs(argv: string[]): { window: HistoryWindow; proje
 }
 
 export function formatHistory(report: HistoryAnalysis): string {
-  const supported = formatSkillRows(report.skills);
-  const unsupported = formatSkillRows(report.unsupportedSkills);
+  const observed = formatSkillRows(report.skills);
   const warningText = report.warnings.length
     ? report.warnings.map((warning) => `  [${warning.code}] ${warning.message}`).join("\n")
     : "  (none)";
@@ -110,7 +109,7 @@ export function formatHistory(report: HistoryAnalysis): string {
         .join("\n")
     : "  (none)";
   const shared = report.sessionUsage.sharedSkillSessions;
-  return `Skill history (${report.filters.window}, project=${report.filters.project})\nSupported benchmark skills:\n${supported}\nUnsupported observed skills:\n${unsupported}\nCoverage: ${report.coverage.sessionsMatched}/${report.coverage.sessionsDiscovered} sessions matched; ${report.coverage.invocationsCounted} invocations counted.\nUsage attribution: session-level-only; totals cover whole skill sessions and are not per-skill.\nAll skill-session totals (${report.sessionUsage.sessions} sessions, ${report.sessionUsage.sessionsWithTelemetry} with telemetry):\n${formatUsageTotals(report.sessionUsage)}\nSingle-skill associations:\n${associations}\nShared skill sessions: ${shared.sessions} sessions (${shared.sessionsWithTelemetry} with telemetry)\n${formatUsageTotals(shared)}\nWarnings:\n${warningText}`;
+  return `Skill history (${report.filters.window}, project=${report.filters.project})\nObserved skills:\n${observed}\nCoverage: ${report.coverage.sessionsMatched}/${report.coverage.sessionsDiscovered} sessions matched; ${report.coverage.invocationsCounted} invocations counted.\nUsage attribution: session-level-only; totals cover whole skill sessions and are not per-skill.\nAll skill-session totals (${report.sessionUsage.sessions} sessions, ${report.sessionUsage.sessionsWithTelemetry} with telemetry):\n${formatUsageTotals(report.sessionUsage)}\nSingle-skill associations:\n${associations}\nShared skill sessions: ${shared.sessions} sessions (${shared.sessionsWithTelemetry} with telemetry)\n${formatUsageTotals(shared)}\nWarnings:\n${warningText}`;
 }
 
 export const historyCommand: CommandModule = {

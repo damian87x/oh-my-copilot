@@ -28,11 +28,15 @@ describe("history command", () => {
       schemaVersion: 1 as const, generatedAt: "2026-07-10T00:00:00.000Z",
       filters: { window: "7d" as const, project: "all" as const, cwd: "/repo", since: "2026-07-03T00:00:00.000Z" },
       coverage: { sessionsDiscovered: 1, sessionsRead: 1, sessionsMatched: 1, sessionsWithInvocations: 1, filesUnreadable: 0, malformedLines: 0, invocationsCounted: 1, shutdownTelemetrySessions: 1 },
-      skills: [], unsupportedSkills: [], warnings: [],
+      skills: [], warnings: [],
       sessionUsage: { attribution: "session-level-only" as const, sessions: 1, sessionsWithTelemetry: 1, totals: { inputTokens: 12, premiumRequests: 1.5 }, metricSessions: { inputTokens: 1, premiumRequests: 1 }, singleSkillAssociations: [], sharedSkillSessions: { sessions: 0, sessionsWithTelemetry: 0, totals: {}, metricSessions: {} } },
     };
-    expect(formatHistory(report)).toContain("Input tokens: 12 (1 metric session)");
-    expect(formatHistory(report)).toContain("Premium requests: 1.5 (1 metric session)");
+    const formatted = formatHistory(report);
+    expect(formatted).toContain("Observed skills:");
+    expect(formatted).not.toContain("Supported benchmark skills");
+    expect(formatted).not.toContain("Unsupported observed skills");
+    expect(formatted).toContain("Input tokens: 12 (1 metric session)");
+    expect(formatted).toContain("Premium requests: 1.5 (1 metric session)");
   });
 
   it("returns JSON, text, and structured errors from historyCommand.run", () => {

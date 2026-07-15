@@ -44,23 +44,24 @@ describe("analyzeHistory", () => {
     expect(analyzeHistory({ window: "all", project: "all", cwd: "/repo", sessionStateDir: root, now }).skills[0]?.skill).toBe("ralplan");
   });
 
-  it("maps debug history to its benchmark task", () => {
+  it("ranks arbitrary observed skills without benchmark task metadata", () => {
     const root = mkdtempSync(join(tmpdir(), "omp-history-"));
     session(root, "debug-session", [
       { type: "session.start", timestamp: "2026-07-09T10:00:00Z", data: { context: { cwd: "/repo" } } },
       { type: "tool.execution_start", timestamp: "2026-07-09T11:00:00Z", data: { toolName: "skill", arguments: { skill: "debug" } } },
+      { type: "tool.execution_start", timestamp: "2026-07-09T12:00:00Z", data: { toolName: "skill", arguments: { skill: "arbitrary-local-skill" } } },
+      { type: "tool.execution_start", timestamp: "2026-07-09T13:00:00Z", data: { toolName: "skill", arguments: { skill: "arbitrary-local-skill" } } },
     ]);
 
-    expect(analyzeHistory({
+    const report = analyzeHistory({
       window: "30d", project: "all", cwd: "/repo", sessionStateDir: root, now,
-    }).skills).toEqual([{
-      skill: "debug",
-      invocations: 1,
-      sessions: 1,
-      lastInvokedAt: "2026-07-09T11:00:00.000Z",
-      benchmarkable: true,
-      benchmarkTask: "debug-inflight-dedup",
-    }]);
+    });
+
+    expect(report.skills).toEqual([
+      { skill: "arbitrary-local-skill", invocations: 2, sessions: 1, lastInvokedAt: "2026-07-09T13:00:00.000Z" },
+      { skill: "debug", invocations: 1, sessions: 1, lastInvokedAt: "2026-07-09T11:00:00.000Z" },
+    ]);
+    expect(JSON.stringify(report)).not.toMatch(/benchmarkable|benchmarkTask|debug-inflight-dedup/);
   });
 
   it("counts only exact skill tool starts, tolerates malformed lines, and never leaks content", () => {
@@ -77,7 +78,8 @@ describe("analyzeHistory", () => {
 
     const report = analyzeHistory({ window: "30d", project: "all", cwd: "/repo", sessionStateDir: root, now });
     expect(report.coverage.invocationsCounted).toBe(1);
-    expect(report.skills).toEqual([{ skill: "code-review", invocations: 1, sessions: 1, lastInvokedAt: "2026-07-09T11:00:00.000Z", benchmarkable: true, benchmarkTask: "code-review-sqli" }]);
+    expect(report.skills).toEqual([{ skill: "code-review", invocations: 1, sessions: 1, lastInvokedAt: "2026-07-09T11:00:00.000Z" }]);
+    expect(JSON.stringify(report)).not.toMatch(/benchmarkable|benchmarkTask|code-review-sqli/);
     expect(report.coverage.malformedLines).toBe(1);
     expect(JSON.stringify(report)).not.toContain("SECRET");
   });
@@ -95,8 +97,7 @@ describe("analyzeHistory", () => {
       { type: "tool.execution_start", timestamp: "2026-07-10T03:00:00Z", data: { toolName: "skill", arguments: { skill: "ralplan" } } },
     ]);
     const report = analyzeHistory({ window: "7d", project: "current", cwd: "/repo", sessionStateDir: root, now });
-    expect(report.skills.map((row) => row.skill)).toEqual(["tdd"]);
-    expect(report.unsupportedSkills.map((row) => row.skill)).toEqual(["research-codebase"]);
+    expect(report.skills.map((row) => row.skill)).toEqual(["research-codebase", "tdd"]);
     expect(report.coverage.sessionsMatched).toBe(1);
     expect(report.sessionUsage).toMatchObject({ attribution: "session-level-only", sessions: 1, sessionsWithTelemetry: 1, totals: { inputTokens: 100, outputTokens: 20, totalNanoAiu: 9, durationMs: 50 }, sharedSkillSessions: { sessions: 1, sessionsWithTelemetry: 1 } });
     expect(report.skills[0]).not.toHaveProperty("inputTokens");

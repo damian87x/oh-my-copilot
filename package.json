@@ -14,7 +14,6 @@
   },
   "files": [
     ".github",
-    "benchmarks/skill-bench",
     "LICENSE",
     "README.md",
     "catalog",
