@@ -735,11 +735,10 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
       try {
         const handoff = h.readHandoff(cwd, value);
         if (!handoff) return { ok: false, exitCode: 1, message: `handoff not found: ${value}` };
-        const { resolve } = await import("node:path");
-        const { handoffFilePath, handoffLegacyJsonPath } = await import("./handoff/paths.js");
         const { existsSync } = await import("node:fs");
-        const mdPath = resolve(handoffFilePath(cwd, handoff.id));
-        const legacyPath = resolve(handoffLegacyJsonPath(cwd, handoff.id));
+        const { resolve } = await import("node:path");
+        const mdPath = resolve(h.handoffFilePath(cwd, handoff.id));
+        const legacyPath = resolve(h.handoffLegacyJsonPath(cwd, handoff.id));
         const absPath = existsSync(mdPath) ? mdPath : existsSync(legacyPath) ? legacyPath : mdPath;
         return json
           ? { ok: true, output: { handoff, path: absPath } }

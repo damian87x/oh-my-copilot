@@ -86,14 +86,14 @@ export function serializeHandoffMarkdown(h: Handoff): string {
   return `${fm.join("\n")}\n\n${body.join("\n")}`;
 }
 
+/**
+ * Decode a double-quoted YAML scalar. Single-pass over escape pairs so a
+ * source `\`+`n` (written by yq as `\\n`) is never misread as a newline escape.
+ */
 function unquote(raw: string): string {
   const s = raw.trim();
   if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    return s
-      .slice(1, -1)
-      .replace(/\\n/g, "\n")
-      .replace(/\\"/g, '"')
-      .replace(/\\\\/g, "\\");
+    return s.slice(1, -1).replace(/\\(.)/g, (_, c: string) => (c === "n" ? "\n" : c));
   }
   return s;
 }

@@ -260,6 +260,7 @@ function redactHandoffInPlace(h: Handoff): void {
   h.next_action = sanitizeHandoffText(h.next_action);
   h.suggested_skills = h.suggested_skills.map(sanitizeHandoffText);
   if (h.focus) h.focus = sanitizeHandoffText(h.focus);
+  if (h.generation.warning) h.generation.warning = sanitizeHandoffText(h.generation.warning);
   h.references = h.references.map((r) => ({
     label: r.label ? sanitizeHandoffText(r.label) : undefined,
     path: r.path ? sanitizeHandoffText(r.path) : undefined,

@@ -15,13 +15,16 @@ import {
   listHandoffPointers,
   listHandoffs,
   LlmHandoffNotImplementedError,
+  parseHandoffMarkdown,
   promoteHandoffToMemory,
   pruneHandoffs,
   readHandoff,
   rebuildIndex,
   redactSecrets,
+  serializeHandoffMarkdown,
   setHandoffLlm,
   sanitizeForInstructions,
+  type Handoff,
 } from "../src/handoff/index.js";
 import { appendTraceEntry } from "../src/trace.js";
 import { noteIndex, readNote } from "../src/project-memory.js";
@@ -180,6 +183,42 @@ describe("handoff lifecycle (src/handoff)", () => {
     closeHandoff(root, "ho-legacy");
     expect(existsSync(path.join(dir, "ho-legacy.md"))).toBe(true);
     expect(existsSync(path.join(dir, "ho-legacy.json"))).toBe(false);
+  });
+});
+
+describe("markdown serialize/parse round-trip", () => {
+  it("round-trips a fully-populated handoff with special characters", () => {
+    const h: Handoff = {
+      id: "ho-roundtrip",
+      state: "active",
+      objective: 'Ship "feature" with C:\\notes\\file and literal \\n',
+      done: ["step one", 'quote "q"', "path C:\\notes\\file"],
+      pending: ["fix split on \\n here", "back\\\\slash"],
+      blockers: [],
+      files_touched: ["src/a.ts", "C:\\notes\\file"],
+      verification_status: "unknown",
+      next_action: "handle \\n in the parser",
+      references: [
+        { path: "docs/plan.md", label: "plan" },
+        { url: "https://example.com/pr/1", label: "pr" },
+      ],
+      suggested_skills: ["tdd", "verify"],
+      focus: 'resume "focus"',
+      created_at: "2026-07-15T00:00:00.000Z",
+      updated_at: "2026-07-15T00:00:00.000Z",
+      generation: {
+        mode: "explicit",
+        model_calls: 0,
+        cost_bearing: false,
+        warning: "cost note with \\n and quotes",
+      },
+    };
+    const md = serializeHandoffMarkdown(h);
+    expect(md).toMatch(/^---\n/);
+    expect(md).toContain("## Done");
+    const parsed = parseHandoffMarkdown(md);
+    expect(parsed).not.toBeNull();
+    expect(parsed).toEqual(h);
   });
 });
 
