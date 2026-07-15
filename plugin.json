@@ -1,7 +1,7 @@
 {
   "name": "oh-my-copilot",
   "description": "Multi-agent orchestration skills for GitHub Copilot CLI — autopilot, ralph, ultrawork, ultraqa, team, council, code-review and more as in-session slash skills + custom agents.",
-  "version": "0.26.0",
+  "version": "0.26.1",
   "author": {
     "name": "Damian Borek",
     "email": "borekdamian@yahoo.pl"
