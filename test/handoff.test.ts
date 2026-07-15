@@ -15,13 +15,16 @@ import {
   listHandoffPointers,
   listHandoffs,
   LlmHandoffNotImplementedError,
+  parseHandoffMarkdown,
   promoteHandoffToMemory,
   pruneHandoffs,
   readHandoff,
   rebuildIndex,
   redactSecrets,
+  serializeHandoffMarkdown,
   setHandoffLlm,
   sanitizeForInstructions,
+  type Handoff,
 } from "../src/handoff/index.js";
 import { appendTraceEntry } from "../src/trace.js";
 import { noteIndex, readNote } from "../src/project-memory.js";
@@ -67,7 +70,11 @@ describe("handoff lifecycle (src/handoff)", () => {
     expect(created.handoff.state).toBe("active");
     expect(created.cost_bearing).toBe(false);
     expect(created.handoff.generation.model_calls).toBe(0);
-    expect(existsSync(path.join(root, ".omp", "handoffs", "ho-test-1.json"))).toBe(true);
+    expect(existsSync(path.join(root, ".omp", "handoffs", "ho-test-1.md"))).toBe(true);
+    const md = readFileSync(path.join(root, ".omp", "handoffs", "ho-test-1.md"), "utf8");
+    expect(md).toMatch(/^---\n/);
+    expect(md).toContain("## Done");
+    expect(md).toContain("state: active");
 
     const listed = listHandoffs(root);
     expect(listed).toHaveLength(1);
@@ -91,15 +98,14 @@ describe("handoff lifecycle (src/handoff)", () => {
     expect(listHandoffs(root)).toHaveLength(0);
 
     for (const id of ["ho-test-1", "ho-test-2"]) {
-      const p = path.join(root, ".omp", "handoffs", `${id}.json`);
-      const raw = JSON.parse(readFileSync(p, "utf8")) as { updated_at: string };
-      raw.updated_at = "2000-01-01T00:00:00.000Z";
-      writeFileSync(p, JSON.stringify(raw, null, 2));
+      const p = path.join(root, ".omp", "handoffs", `${id}.md`);
+      const text = readFileSync(p, "utf8");
+      writeFileSync(p, text.replace(/updated_at: "[^"]+"/, 'updated_at: "2000-01-01T00:00:00.000Z"'));
     }
     const pruned = pruneHandoffs(root, { olderThanDays: 30 });
     expect(pruned.removed.sort()).toEqual(["ho-test-1", "ho-test-2"]);
     expect(pruned.kept).toBe(0);
-    expect(existsSync(path.join(root, ".omp", "handoffs", "ho-test-1.json"))).toBe(false);
+    expect(existsSync(path.join(root, ".omp", "handoffs", "ho-test-1.md"))).toBe(false);
   });
 
   it("rejects invalid id on read before file I/O", () => {
@@ -141,15 +147,78 @@ describe("handoff lifecycle (src/handoff)", () => {
     await createHandoff(root, { id: "ho-active", objective: "keep me", next_action: "n" });
     await createHandoff(root, { id: "ho-old", objective: "old closed", next_action: "n" });
     closeHandoff(root, "ho-old");
-    const oldPath = path.join(root, ".omp", "handoffs", "ho-old.json");
-    const raw = JSON.parse(readFileSync(oldPath, "utf8")) as { updated_at: string };
-    raw.updated_at = "not-a-date";
-    writeFileSync(oldPath, JSON.stringify(raw, null, 2));
+    const oldPath = path.join(root, ".omp", "handoffs", "ho-old.md");
+    const text = readFileSync(oldPath, "utf8");
+    writeFileSync(oldPath, text.replace(/updated_at: "[^"]+"/, 'updated_at: "not-a-date"'));
     const pruned = pruneHandoffs(root, { olderThanDays: 0 });
     expect(pruned.removed).toEqual([]);
     expect(pruned.kept).toBe(1);
-    expect(existsSync(path.join(root, ".omp", "handoffs", "ho-active.json"))).toBe(true);
+    expect(existsSync(path.join(root, ".omp", "handoffs", "ho-active.md"))).toBe(true);
     expect(existsSync(oldPath)).toBe(true);
+  });
+
+  it("reads legacy .json handoffs and rewrites to .md on state change", async () => {
+    const root = cwd();
+    const dir = path.join(root, ".omp", "handoffs");
+    mkdirSync(dir, { recursive: true });
+    const legacy = {
+      id: "ho-legacy",
+      state: "active",
+      objective: "Legacy packet",
+      done: ["old"],
+      pending: ["migrate"],
+      blockers: [],
+      files_touched: [],
+      verification_status: "unknown",
+      next_action: "continue",
+      references: [],
+      suggested_skills: [],
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      generation: { mode: "explicit", model_calls: 0, cost_bearing: false },
+    };
+    writeFileSync(path.join(dir, "ho-legacy.json"), JSON.stringify(legacy, null, 2));
+    const read = readHandoff(root, "ho-legacy");
+    expect(read?.objective).toBe("Legacy packet");
+    closeHandoff(root, "ho-legacy");
+    expect(existsSync(path.join(dir, "ho-legacy.md"))).toBe(true);
+    expect(existsSync(path.join(dir, "ho-legacy.json"))).toBe(false);
+  });
+});
+
+describe("markdown serialize/parse round-trip", () => {
+  it("round-trips a fully-populated handoff with special characters", () => {
+    const h: Handoff = {
+      id: "ho-roundtrip",
+      state: "active",
+      objective: 'Ship "feature" with C:\\notes\\file and literal \\n',
+      done: ["step one", 'quote "q"', "path C:\\notes\\file"],
+      pending: ["fix split on \\n here", "back\\\\slash"],
+      blockers: [],
+      files_touched: ["src/a.ts", "C:\\notes\\file"],
+      verification_status: "unknown",
+      next_action: "handle \\n in the parser",
+      references: [
+        { path: "docs/plan.md", label: "plan" },
+        { url: "https://example.com/pr/1", label: "pr" },
+      ],
+      suggested_skills: ["tdd", "verify"],
+      focus: 'resume "focus"',
+      created_at: "2026-07-15T00:00:00.000Z",
+      updated_at: "2026-07-15T00:00:00.000Z",
+      generation: {
+        mode: "explicit",
+        model_calls: 0,
+        cost_bearing: false,
+        warning: "cost note with \\n and quotes",
+      },
+    };
+    const md = serializeHandoffMarkdown(h);
+    expect(md).toMatch(/^---\n/);
+    expect(md).toContain("## Done");
+    const parsed = parseHandoffMarkdown(md);
+    expect(parsed).not.toBeNull();
+    expect(parsed).toEqual(h);
   });
 });
 
@@ -196,8 +265,9 @@ describe("deterministic generation + redaction + bounds", () => {
     expect(res.handoff.objective).not.toContain(secret);
     expect(res.handoff.objective).toContain("[REDACTED]");
     expect(res.handoff.done.join(" ")).toContain("[REDACTED]");
-    const onDisk = readFileSync(path.join(root, ".omp", "handoffs", "ho-sec.json"), "utf8");
+    const onDisk = readFileSync(path.join(root, ".omp", "handoffs", "ho-sec.md"), "utf8");
     expect(onDisk).not.toContain(secret);
+    expect(onDisk).toContain("[REDACTED]");
   });
 
   it("enforceDraftBounds shrinks oversized packets", () => {

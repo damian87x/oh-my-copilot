@@ -41,6 +41,9 @@ describe("omp handoff CLI", () => {
     expect(created.handoff.done).toContain("-2 tests still failing");
     expect(created.cost_bearing).toBe(false);
     expect(created.handoff.generation.model_calls).toBe(0);
+    expect(typeof (create.output as { path?: string }).path).toBe("string");
+    expect((create.output as { path: string }).path).toMatch(/\.md$/);
+    expect((create.output as { path: string }).path.startsWith("/")).toBe(true);
     const id = created.handoff.id;
 
     const list = await runCli(["handoff", "list", "--root", root, "--json"]);
@@ -78,10 +81,9 @@ describe("omp handoff CLI", () => {
     expect(arch.ok).toBe(true);
 
     for (const hid of [id, id2]) {
-      const p = join(root, ".omp", "handoffs", `${hid}.json`);
-      const raw = JSON.parse(readFileSync(p, "utf8")) as { updated_at: string };
-      raw.updated_at = "2000-01-01T00:00:00.000Z";
-      writeFileSync(p, JSON.stringify(raw, null, 2));
+      const p = join(root, ".omp", "handoffs", `${hid}.md`);
+      const text = readFileSync(p, "utf8");
+      writeFileSync(p, text.replace(/updated_at: "[^"]+"/, 'updated_at: "2000-01-01T00:00:00.000Z"'));
     }
 
     const prune = await runCli(["handoff", "prune", "--root", root, "--json"]);
@@ -147,5 +149,22 @@ describe("omp handoff CLI", () => {
     expect(help.message ?? "").toContain("handoff create");
     expect(help.message ?? "").toContain("handoff list");
     expect(help.message ?? "").toContain("handoff read");
+  });
+
+  it("human create message includes absolute path", async () => {
+    const root = tempRoot();
+    const res = await runCli([
+      "handoff",
+      "create",
+      "--root",
+      root,
+      "--objective",
+      "path check",
+      "--next",
+      "go",
+    ]);
+    expect(res.ok).toBe(true);
+    expect(res.message ?? "").toMatch(/path: \//);
+    expect(res.message ?? "").toMatch(/\.md/);
   });
 });

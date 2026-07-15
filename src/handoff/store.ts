@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { acquireLock, forceReleaseStaleLock } from "../schedule/lock.js";
-import { atomicWrite, ensureDir, readJSON } from "../utils/fs.js";
+import { atomicWrite, ensureDir } from "../utils/fs.js";
 import { assertValidHandoffId, newHandoffId } from "./id.js";
 import {
   buildDeterministicDraft,
@@ -12,7 +12,8 @@ import {
   LlmHandoffNotImplementedError,
   type HandoffSummarizer,
 } from "./generate.js";
-import { handoffFilePath, handoffIndexPath, handoffsDir } from "./paths.js";
+import { parseHandoffMarkdown, serializeHandoffMarkdown } from "./markdown.js";
+import { handoffFilePath, handoffIndexPath, handoffLegacyJsonPath, handoffsDir } from "./paths.js";
 import { readHandoffConfig } from "./config.js";
 import { sanitizeForInstructions, sanitizeHandoffText } from "./redact.js";
 import type {
@@ -35,7 +36,7 @@ function indexLockPath(cwd: string): string {
 function sleepMs(ms: number): void {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    // busy-wait: create/close are short critical sections; avoid async lock API surface
+    // busy-wait: create/close are short critical sections
   }
 }
 
@@ -70,8 +71,31 @@ function writeHandoffFile(cwd: string, handoff: Handoff): string {
   assertValidHandoffId(handoff.id);
   const p = handoffFilePath(cwd, handoff.id);
   ensureDir(p);
-  atomicWrite(p, `${JSON.stringify(handoff, null, 2)}\n`);
-  return p;
+  atomicWrite(p, serializeHandoffMarkdown(handoff));
+  // Drop legacy JSON twin if present so list does not double-count.
+  const legacy = handoffLegacyJsonPath(cwd, handoff.id);
+  if (existsSync(legacy)) {
+    try {
+      unlinkSync(legacy);
+    } catch {
+      // best-effort
+    }
+  }
+  return resolve(p);
+}
+
+function loadHandoffFromFile(filePath: string): Handoff | null {
+  if (!existsSync(filePath)) return null;
+  try {
+    const text = readFileSync(filePath, "utf8");
+    if (filePath.endsWith(".md")) {
+      return parseHandoffMarkdown(text);
+    }
+    const data = JSON.parse(text) as Handoff;
+    return data && typeof data.id === "string" ? data : null;
+  } catch {
+    return null;
+  }
 }
 
 function pointerOf(h: Handoff): HandoffPointer {
@@ -82,30 +106,35 @@ function pointerOf(h: Handoff): HandoffPointer {
   };
 }
 
-/** Scan disk for handoff files (source of truth). Skips index.json / locks. */
+/** Scan disk for handoff files (source of truth). Prefer .md over legacy .json. */
 function scanHandoffFiles(cwd: string): Handoff[] {
   const dir = handoffsDir(cwd);
   if (!existsSync(dir)) return [];
-  const out: Handoff[] = [];
+  const byId = new Map<string, Handoff>();
+
   for (const f of readdirSync(dir)) {
-    if (!f.endsWith(".json") || f === "index.json") continue;
-    const id = f.slice(0, -".json".length);
+    if (f === "index.json" || f.endsWith(".lock")) continue;
+    const isMd = f.endsWith(".md");
+    const isJson = f.endsWith(".json");
+    if (!isMd && !isJson) continue;
+    const id = f.replace(/\.md$|\.json$/, "");
     try {
       assertValidHandoffId(id);
     } catch {
       continue;
     }
-    const h = readJSON<Handoff | null>(join(dir, f), null);
+    if (isJson && byId.has(id)) continue;
+    if (isJson && existsSync(join(dir, `${id}.md`))) continue;
+
+    const h = loadHandoffFromFile(join(dir, f));
     if (!h || typeof h.id !== "string") continue;
-    out.push(h);
+    byId.set(id, h);
   }
-  return out.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+
+  return [...byId.values()].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
 
-/**
- * Recompute active index from on-disk handoff files (repairs drift / lost RMW).
- * Callers that mutate should hold the index lock.
- */
+/** Recompute active index from on-disk handoff files. */
 export function rebuildIndex(cwd: string): HandoffIndex {
   return withIndexLock(cwd, () => rebuildIndexUnlocked(cwd));
 }
@@ -121,23 +150,18 @@ function rebuildIndexUnlocked(cwd: string): HandoffIndex {
 
 function persistHandoff(cwd: string, handoff: Handoff): string {
   const path = writeHandoffFile(cwd, handoff);
-  // Rebuild under lock so concurrent creates never drop each other's pointers.
   withIndexLock(cwd, () => rebuildIndexUnlocked(cwd));
   return path;
 }
 
 export interface CreateOptions {
   summarizer?: HandoffSummarizer;
-  /**
-   * When true, `handoffLlm=on` config may request the LLM path (CLI always
-   * passes this). Without a real `summarizer`, LLM requests fail honestly.
-   */
   allowAutoLlm?: boolean;
 }
 
 /**
  * Create a handoff: deterministic by default.
- * `--llm` / config handoff-llm on requires an injected summarizer — never fakes model_calls.
+ * Writes `.omp/handoffs/<id>.md`. `--llm` requires an injected summarizer.
  */
 export async function createHandoff(
   cwd: string,
@@ -164,8 +188,6 @@ export async function createHandoff(
   let cost_bearing = false;
   let warning: string | undefined;
 
-  // Explicit field overrides: user supplied objective plus at least one non-empty
-  // structured field (empty arrays from the CLI do not count).
   const hasExplicitBody =
     Boolean(input.objective?.trim()) &&
     (Boolean(input.done?.length) ||
@@ -180,7 +202,6 @@ export async function createHandoff(
     const result = await opts.summarizer(draft, input.focus);
     draft = enforceDraftBounds(result.draft);
     model_calls = Math.max(0, Math.floor(result.model_calls));
-    // Truthful accounting: cost-bearing only when a model call actually ran.
     cost_bearing = model_calls > 0;
     warning = result.warning || (cost_bearing ? LLM_COST_WARNING : undefined);
     if (!cost_bearing) {
@@ -215,10 +236,11 @@ export async function createHandoff(
     },
   };
 
-  // Final redaction pass on all string fields (defense in depth).
   redactHandoffInPlace(handoff);
-  if (draftCharCount(handoff as unknown as Parameters<typeof draftCharCount>[0]) > HANDOFF_BOUNDS.maxPacketChars) {
-    // Should be rare after enforceDraftBounds; shrink pending/done further.
+  if (
+    draftCharCount(handoff as unknown as Parameters<typeof draftCharCount>[0]) >
+    HANDOFF_BOUNDS.maxPacketChars
+  ) {
     handoff.done = handoff.done.slice(0, 5);
     handoff.pending = handoff.pending.slice(0, 3);
     handoff.blockers = handoff.blockers.slice(0, 3);
@@ -238,6 +260,7 @@ function redactHandoffInPlace(h: Handoff): void {
   h.next_action = sanitizeHandoffText(h.next_action);
   h.suggested_skills = h.suggested_skills.map(sanitizeHandoffText);
   if (h.focus) h.focus = sanitizeHandoffText(h.focus);
+  if (h.generation.warning) h.generation.warning = sanitizeHandoffText(h.generation.warning);
   h.references = h.references.map((r) => ({
     label: r.label ? sanitizeHandoffText(r.label) : undefined,
     path: r.path ? sanitizeHandoffText(r.path) : undefined,
@@ -245,25 +268,20 @@ function redactHandoffInPlace(h: Handoff): void {
   }));
 }
 
-/** Read a handoff by id. Throws on invalid id; returns null if missing. */
+/** Read a handoff by id. Prefers `.md`, falls back to legacy `.json`. */
 export function readHandoff(cwd: string, id: string): Handoff | null {
   assertValidHandoffId(id);
-  const p = handoffFilePath(cwd, id);
-  const h = readJSON<Handoff | null>(p, null);
-  if (!h || typeof h.id !== "string") return null;
-  return h;
+  const md = loadHandoffFromFile(handoffFilePath(cwd, id));
+  if (md) return md;
+  return loadHandoffFromFile(handoffLegacyJsonPath(cwd, id));
 }
 
 export interface ListHandoffsOptions {
-  /** Include closed/archived (default: active only). */
   all?: boolean;
   state?: HandoffState;
 }
 
-/**
- * List handoffs. Default: active only, scanned from disk (not a fragile index).
- * Index is refreshed best-effort so pointers stay consistent for other readers.
- */
+/** List handoffs. Default: active only, scanned from disk. */
 export function listHandoffs(cwd: string, opts: ListHandoffsOptions = {}): Handoff[] {
   const all = scanHandoffFiles(cwd);
   let filtered: Handoff[];
@@ -273,7 +291,6 @@ export function listHandoffs(cwd: string, opts: ListHandoffsOptions = {}): Hando
     filtered = all;
   } else {
     filtered = all.filter((h) => h.state === "active");
-    // Best-effort index repair (ignore lock contention).
     try {
       withIndexLock(cwd, () => rebuildIndexUnlocked(cwd));
     } catch {
@@ -283,7 +300,7 @@ export function listHandoffs(cwd: string, opts: ListHandoffsOptions = {}): Hando
   return filtered;
 }
 
-/** Active handoff pointers for context surfacing (id + sanitized objective). */
+/** Active handoff pointers for context surfacing. */
 export function listHandoffPointers(cwd: string): HandoffPointer[] {
   return listHandoffs(cwd)
     .filter((h) => h.state === "active")
@@ -309,15 +326,17 @@ export function archiveHandoff(cwd: string, id: string): Handoff {
 }
 
 export interface PruneOptions {
-  /** Remove closed/archived older than this many days (default 30). Must be >= 0. */
   olderThanDays?: number;
 }
 
 /**
  * Remove stale closed/archived handoff files and repair the active index.
- * Never deletes active handoffs. Unparseable timestamps are kept (not deleted).
+ * Never deletes active handoffs.
  */
-export function pruneHandoffs(cwd: string, opts: PruneOptions = {}): { removed: string[]; kept: number } {
+export function pruneHandoffs(
+  cwd: string,
+  opts: PruneOptions = {},
+): { removed: string[]; kept: number } {
   const days = opts.olderThanDays ?? 30;
   if (!Number.isFinite(days) || days < 0) {
     throw new Error("olderThanDays must be a non-negative number");
@@ -328,23 +347,23 @@ export function pruneHandoffs(cwd: string, opts: PruneOptions = {}): { removed: 
 
   if (existsSync(dir)) {
     for (const f of readdirSync(dir)) {
-      if (!f.endsWith(".json") || f === "index.json") continue;
-      const id = f.slice(0, -".json".length);
+      if (f === "index.json" || f.endsWith(".lock")) continue;
+      if (!f.endsWith(".md") && !f.endsWith(".json")) continue;
+      const id = f.replace(/\.md$|\.json$/, "");
       try {
         assertValidHandoffId(id);
       } catch {
         continue;
       }
-      const h = readJSON<Handoff | null>(join(dir, f), null);
+      const h = loadHandoffFromFile(join(dir, f));
       if (!h) continue;
       if (h.state === "active") continue;
       const updated = Date.parse(h.updated_at);
-      // Keep corrupt timestamps rather than deleting unconditionally.
       if (!Number.isFinite(updated)) continue;
       if (updated < cutoff) {
         try {
           unlinkSync(join(dir, f));
-          removed.push(id);
+          if (!removed.includes(id)) removed.push(id);
         } catch {
           // skip unremovable
         }

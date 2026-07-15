@@ -685,14 +685,14 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
               output: {
                 ok: true,
                 handoff: res.handoff,
-                path: res.path,
+                path: res.path, // absolute path to .md artifact
                 cost_bearing: res.cost_bearing,
                 warning: res.warning,
               },
             }
           : {
               ok: true,
-              message: `handoff created: ${res.handoff.id}${res.cost_bearing ? " (LLM/cost-bearing)" : ""}\nobjective: ${res.handoff.objective}\nnext: ${res.handoff.next_action}`,
+              message: `handoff created: ${res.handoff.id}${res.cost_bearing ? " (LLM/cost-bearing)" : ""}\npath: ${res.path}\nobjective: ${res.handoff.objective}\nnext: ${res.handoff.next_action}`,
             };
       } catch (e) {
         return { ok: false, exitCode: 1, message: e instanceof Error ? e.message : String(e) };
@@ -735,12 +735,18 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
       try {
         const handoff = h.readHandoff(cwd, value);
         if (!handoff) return { ok: false, exitCode: 1, message: `handoff not found: ${value}` };
+        const { existsSync } = await import("node:fs");
+        const { resolve } = await import("node:path");
+        const mdPath = resolve(h.handoffFilePath(cwd, handoff.id));
+        const legacyPath = resolve(h.handoffLegacyJsonPath(cwd, handoff.id));
+        const absPath = existsSync(mdPath) ? mdPath : existsSync(legacyPath) ? legacyPath : mdPath;
         return json
-          ? { ok: true, output: { handoff } }
+          ? { ok: true, output: { handoff, path: absPath } }
           : {
               ok: true,
               message: [
                 `id: ${handoff.id}`,
+                `path: ${absPath}`,
                 `state: ${handoff.state}`,
                 `objective: ${handoff.objective}`,
                 `done: ${handoff.done.join("; ") || "(none)"}`,

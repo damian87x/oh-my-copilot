@@ -9,8 +9,14 @@ Task-scoped continuation packets for unfinished work. Handoffs are **temporary**
 (active → closed/archived). Stable knowledge belongs in project memory
 (`/daily-log`, `omp project-memory`), not here.
 
-**Source of truth is the CLI.** Persist only through `omp handoff … --json`.
-Do not write `.omp/handoffs/` yourself.
+**Source of truth is the CLI.** Persist only through `omp handoff …`.
+Do **not** create or edit files under `.omp/handoffs/` yourself (no Write/Edit tools).
+
+On disk, the CLI stores **Markdown** at `.omp/handoffs/<id>.md` (YAML frontmatter +
+readable body). That is **not** something you write by hand.
+
+`--json` on CLI commands means “print machine-readable JSON **on stdout**”.
+It does **not** mean “write a JSON file”.
 
 ## Modes
 
@@ -31,7 +37,7 @@ what the next session should do:
    Do **not** restate their content.
 3. **Redact** API keys, passwords, tokens, and PII. Never put secrets or env
    values into a handoff.
-4. **Persist** with the CLI (deterministic; no model cost):
+4. **Persist** with the CLI only (deterministic; no model cost):
 
 ```text
 omp handoff create --json \
@@ -54,7 +60,11 @@ Prefer deterministic create (no model cost). `--llm` / `handoff-llm on` require
 a real summarizer backend — until one is wired they fail with a clear error
 rather than faking a model call.
 
-5. Reply with the new handoff **id**, objective, and `next_action`.
+5. **Reply to the user with all of:**
+   - handoff **id**
+   - **absolute path** from the CLI (`path` field / `path:` line) — always share the full path
+   - objective
+   - next_action
 
 ### Resume — `/handoff` with no active task (or user asks to continue)
 
@@ -72,6 +82,7 @@ omp handoff read <id> --json
 ```
 
 4. Propose the handoff’s `next_action` and continue from `pending` / `blockers`.
+   When helpful, open the markdown file at the absolute `path` from the CLI.
 5. When the task is finished:
 
 ```text
@@ -92,6 +103,9 @@ Include relevant skill names via `--skill` (e.g. `tdd`, `verify`, `code-review`,
 ## Hard rules
 
 - CLI only for persistence (`create` / `list` / `read` / `close` / `archive` / `prune`).
+- Never invent empty `.json` / `.md` handoff files with editor tools.
+- `--json` = CLI stdout only, not on-disk format (disk is `.md`).
+- After create, always surface the **absolute path** from the CLI.
 - Reference specs/plans/PRs by path or URL — never paste full bodies.
 - Pointers only in managed context; never inject full handoff bodies into
   `copilot-instructions.md`.

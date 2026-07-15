@@ -9,7 +9,8 @@
   "bin": {
     "oh-my-copilot": "dist/src/cli.js",
     "omp": "dist/src/cli.js",
-    "omcc": "dist/src/cli.js"
+    "omcc": "dist/src/cli.js",
+    "omp-v2": "dist/src/cli.js"
   },
   "files": [
     ".github",
