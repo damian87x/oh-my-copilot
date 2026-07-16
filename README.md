@@ -32,7 +32,7 @@ copilot plugin install oh-my-copilot@oh-my-copilot
 omp setup
 ```
 
-(`omp setup` installs the lifecycle hooks into `~/.copilot/hooks/` so end-of-session memory review and cost tracking fire. Bare `omp` also installs them on first run.)
+(`omp setup` installs skills/agents into `~/.copilot/skills` and `~/.copilot/agents` (not the project) and lifecycle hooks into `~/.copilot/hooks/` so end-of-session memory review and cost tracking fire. Use `omp setup --scope project` only when you intentionally want repo-local copies. Bare `omp` installs hooks on first run; `omp update` / the interactive auto-update prompt also refresh user-home skills, agents, and hooks.)
 
 Requires Copilot CLI v1.0.48+. After install, `omp --madmax` works from any shell, and `/omp-autopilot`, `/ralplan`, `/code-review`, `/create-skill`, `/self-evolve`, and the rest are available inside any Copilot session.
 
@@ -60,7 +60,7 @@ That's it.
 - **Chat bridge** — `omp gateway` runs long-lived chat connectors (Slack today, more next) so you can DM Copilot from anywhere
 - **Lifecycle hooks** — `sessionStart`, `userPromptSubmitted`, `preToolUse`, `postToolUse`, `postToolUseFailure`, `sessionEnd`, `errorOccurred`
 - **Doctor included** — `omp doctor` verifies plugin manifest, skills discovery, hooks, and the underlying `copilot` CLI in one shot
-- **Self-update** — when a newer release is published, `omp` (and `omp --version`) offers to update in a TTY; `omp update` self-updates the CLI and refreshes the Copilot plugin so both stay in lockstep. Never prompts in CI / `--json` / non-TTY; opt out with `OMP_NO_UPDATE_CHECK=1`
+- **Self-update** — when a newer release is published, `omp` (and `omp --version`) offers to update in a TTY; `omp update` (and saying yes to the prompt) self-updates the CLI, refreshes the Copilot plugin, and reinstalls user-home skills/agents/hooks under `~/.copilot`. Never prompts in CI / `--json` / non-TTY; opt out with `OMP_NO_UPDATE_CHECK=1`
 
 ---
 
@@ -304,10 +304,10 @@ Disable any time with `omp config set memory-mode off`. Full details: [docs/memo
 ```bash
 omp --help
 omp version                                 # prints version; in a TTY, offers to self-update if one is available
-omp update                                  # self-update the CLI (npm) + refresh the Copilot plugin
+omp update                                  # self-update CLI + refresh ~/.copilot skills/agents/hooks + Copilot plugin
 omp doctor [--deep]                         # verify install + copilot binary (--deep also probes the configured memory-review model)
 omp list                                    # show discovered skills and agents
-omp setup [--dry-run] [--scope project|user]
+omp setup [--dry-run] [--scope user|project]  # default user → ~/.copilot; --scope project → .github/
 omp launch -- [copilot flags…]              # forward arbitrary args to copilot
 omp --madmax -p "edit src/foo.ts"           # bare-flag, maps to copilot --yolo
 omp suggest "fix flaky tests"               # recommend a slash-skill workflow

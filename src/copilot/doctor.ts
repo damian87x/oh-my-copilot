@@ -57,13 +57,17 @@ function checkInstructions(paths: CopilotPaths): DoctorCheck {
 }
 
 function checkSkillsDiscovery(paths: CopilotPaths): DoctorCheck {
+  // Prefer user home (default setup target); fall back to project scope.
+  if (existsSync(paths.userScopeSkills)) {
+    return { name: "skills-discovery", status: "pass", detail: paths.userScopeSkills };
+  }
   if (existsSync(paths.projectScopeSkills)) {
     return { name: "skills-discovery", status: "pass", detail: paths.projectScopeSkills };
   }
   return {
     name: "skills-discovery",
     status: "warn",
-    detail: `no skills directory: ${paths.projectScopeSkills}`,
+    detail: `no skills directory (run \`omp setup\`): ${paths.userScopeSkills}`,
   };
 }
 

@@ -40,27 +40,41 @@ function installForScope(scope: SkillScope, repo: string, source: string, userSk
 }
 
 describe('skill installer', () => {
-  it('dry-runs a fetched skill package without writing files', () => {
+  it('dry-runs a fetched skill package without writing files (default scope=user)', () => {
     const repo = tempRepo();
     const source = tempSkill();
+    const userSkillsRoot = tempUserSkillsRoot(repo);
 
-    const result = installSkill({ cwd: repo, root: repo, source, dryRun: true });
+    const result = installSkill({ cwd: repo, root: repo, source, dryRun: true, userSkillsRoot });
 
     expect(result.skillName).toBe('hello-skill');
-    expect(result.targetDir).toBe(path.join(repo, '.github', 'skills', 'hello-skill'));
+    expect(result.targetDir).toBe(path.join(userSkillsRoot, 'hello-skill'));
     expect(result.files).toEqual(['SKILL.md', 'references/notes.md']);
     expect(existsSync(result.targetDir)).toBe(false);
   });
 
-  it('installs a fetched skill package into .github/skills', () => {
+  it('installs a fetched skill package into ~/.copilot/skills by default', () => {
+    const repo = tempRepo();
+    const source = tempSkill();
+    const userSkillsRoot = tempUserSkillsRoot(repo);
+
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
+
+    expect(result.dryRun).toBe(false);
+    expect(result.targetDir).toBe(path.join(userSkillsRoot, 'hello-skill'));
+    expect(existsSync(path.join(repo, '.github', 'skills'))).toBe(false);
+    expect(readFileSync(path.join(result.targetDir, 'SKILL.md'), 'utf8')).toContain('hello-skill');
+    expect(readFileSync(path.join(result.targetDir, 'references', 'notes.md'), 'utf8')).toContain('Notes');
+  });
+
+  it('installs into .github/skills only with --scope project', () => {
     const repo = tempRepo();
     const source = tempSkill();
 
-    const result = installSkill({ cwd: repo, root: repo, source });
+    const result = installSkill({ cwd: repo, root: repo, source, scope: 'project' });
 
-    expect(result.dryRun).toBe(false);
+    expect(result.targetDir).toBe(path.join(repo, '.github', 'skills', 'hello-skill'));
     expect(readFileSync(path.join(result.targetDir, 'SKILL.md'), 'utf8')).toContain('hello-skill');
-    expect(readFileSync(path.join(result.targetDir, 'references', 'notes.md'), 'utf8')).toContain('Notes');
   });
 
   it.each<SkillScope>(['project', 'user'])('rejects traversal skill names before writing files in %s scope', (scope) => {

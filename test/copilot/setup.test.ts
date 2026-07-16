@@ -3,7 +3,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { formatSetup, installUserHooks, runSetup, userHookPath, userHooksNeedRefresh } from "../../src/copilot/setup.js";
+import {
+  formatSetup,
+  installUserBundle,
+  installUserHooks,
+  refreshUserInstall,
+  runSetup,
+  userHookPath,
+  userHooksNeedRefresh,
+} from "../../src/copilot/setup.js";
 
 function tempProject() {
   const root = mkdtempSync(path.join(tmpdir(), "omc-copilot-setup-"));
@@ -122,44 +130,69 @@ describe("hook command crash safety", () => {
 });
 
 describe("runSetup", () => {
-  it("dry-runs without writing files", () => {
+  it("dry-runs without writing files (default scope=user → home)", () => {
     const project = tempProject();
     const plugin = tempPlugin();
     const home = tempHome();
     const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home, dryRun: true });
 
     expect(result.dryRun).toBe(true);
+    expect(result.scope).toBe("user");
+    expect(existsSync(path.join(home, "skills", "hello", "SKILL.md"))).toBe(false);
     expect(existsSync(path.join(project, ".github", "skills", "hello", "SKILL.md"))).toBe(false);
     expect(existsSync(path.join(project, ".github", "copilot-instructions.md"))).toBe(false);
     expect(existsSync(path.join(home, "hooks", "omp.json"))).toBe(false);
     const targets = result.actions.map((a) => a.target);
-    expect(targets).toContain(path.join(project, ".github", "skills", "hello", "SKILL.md"));
-    expect(targets).toContain(path.join(project, ".github", "agents", "planner.md"));
+    expect(targets).toContain(path.join(home, "skills", "hello", "SKILL.md"));
+    expect(targets).toContain(path.join(home, "agents", "planner.md"));
+    expect(targets).not.toContain(path.join(project, ".github", "skills", "hello", "SKILL.md"));
     expect(targets).toContain(path.join(project, ".github", "copilot-instructions.md"));
     expect(targets).toContain(path.join(project, ".omp", "state"));
     expect(targets).toContain(path.join(home, "hooks", "omp.json"));
   });
 
-  it("copies bundled skills + agents and creates instructions template", () => {
+  it("copies bundled skills + agents into user home by default (not project)", () => {
     const project = tempProject();
     const plugin = tempPlugin();
-    runSetup({ cwd: project, pluginRoot: plugin, copilotHome: tempHome() });
+    const home = tempHome();
+    runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
 
-    expect(existsSync(path.join(project, ".github", "skills", "hello", "SKILL.md"))).toBe(true);
-    expect(existsSync(path.join(project, ".github", "agents", "planner.md"))).toBe(true);
+    expect(existsSync(path.join(home, "skills", "hello", "SKILL.md"))).toBe(true);
+    expect(existsSync(path.join(home, "agents", "planner.md"))).toBe(true);
+    expect(existsSync(path.join(project, ".github", "skills"))).toBe(false);
+    expect(existsSync(path.join(project, ".github", "agents"))).toBe(false);
     const instructions = readFileSync(path.join(project, ".github", "copilot-instructions.md"), "utf8");
     expect(instructions).toContain("oh-my-copilot");
     expect(existsSync(path.join(project, ".omp", "state"))).toBe(true);
   });
 
+  it("--scope project copies skills + agents into the project .github", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const result = runSetup({
+      cwd: project,
+      pluginRoot: plugin,
+      copilotHome: home,
+      scope: "project",
+    });
+
+    expect(result.scope).toBe("project");
+    expect(existsSync(path.join(project, ".github", "skills", "hello", "SKILL.md"))).toBe(true);
+    expect(existsSync(path.join(project, ".github", "agents", "planner.md"))).toBe(true);
+    expect(existsSync(path.join(home, "skills", "hello", "SKILL.md"))).toBe(false);
+    expect(existsSync(path.join(home, "hooks", "omp.json"))).toBe(true); // hooks always user
+  });
+
   it("reports skip-changed (not skip-exists) when a bundled skill differs, and does not overwrite", () => {
     const project = tempProject();
     const plugin = tempPlugin();
-    const localSkill = path.join(project, ".github", "skills", "hello", "SKILL.md");
+    const home = tempHome();
+    const localSkill = path.join(home, "skills", "hello", "SKILL.md");
     mkdirSync(path.dirname(localSkill), { recursive: true });
     writeFileSync(localSkill, "LOCAL EDIT", "utf8");
 
-    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: tempHome() });
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
     const action = result.actions.find((a) => a.target === localSkill);
     expect(action?.kind).toBe("skip-changed");
     expect(readFileSync(localSkill, "utf8")).toBe("LOCAL EDIT"); // untouched
@@ -168,22 +201,24 @@ describe("runSetup", () => {
   it("skips an identical bundled skill as skip-exists", () => {
     const project = tempProject();
     const plugin = tempPlugin();
-    const localSkill = path.join(project, ".github", "skills", "hello", "SKILL.md");
+    const home = tempHome();
+    const localSkill = path.join(home, "skills", "hello", "SKILL.md");
     mkdirSync(path.dirname(localSkill), { recursive: true });
     writeFileSync(localSkill, readFileSync(path.join(plugin, ".github", "skills", "hello", "SKILL.md"), "utf8"));
 
-    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: tempHome() });
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
     expect(result.actions.find((a) => a.target === localSkill)?.kind).toBe("skip-exists");
   });
 
   it("--force overrides a changed bundled skill with the bundled content", () => {
     const project = tempProject();
     const plugin = tempPlugin();
-    const localSkill = path.join(project, ".github", "skills", "hello", "SKILL.md");
+    const home = tempHome();
+    const localSkill = path.join(home, "skills", "hello", "SKILL.md");
     mkdirSync(path.dirname(localSkill), { recursive: true });
     writeFileSync(localSkill, "LOCAL EDIT", "utf8");
 
-    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: tempHome(), force: true });
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home, force: true });
     const action = result.actions.find((a) => a.target === localSkill);
     expect(action?.kind).toBe("update");
     expect(readFileSync(localSkill, "utf8")).toContain("Says hello"); // bundled content restored
@@ -341,7 +376,7 @@ describe("userHooksNeedRefresh", () => {
   });
 });
 
-describe("installUserHooks (used by omp update)", () => {
+describe("installUserHooks", () => {
   it("installs hooks but does NOT scaffold the project's .github", () => {
     const project = tempProject();
     const plugin = tempPlugin();
@@ -349,9 +384,40 @@ describe("installUserHooks (used by omp update)", () => {
     const { actions } = installUserHooks({ cwd: project, pluginRoot: plugin, copilotHome: home });
 
     expect(existsSync(path.join(home, "hooks", "omp.json"))).toBe(true);
-    // update must not copy skills/agents into the cwd
+    // hooks-only path must not copy skills/agents anywhere
     expect(existsSync(path.join(project, ".github", "skills"))).toBe(false);
     expect(existsSync(path.join(project, ".github", "agents"))).toBe(false);
+    expect(existsSync(path.join(home, "skills"))).toBe(false);
+    expect(actions.some((a) => a.target.endsWith("omp.json"))).toBe(true);
+  });
+});
+
+describe("installUserBundle / refreshUserInstall (used by omp update + auto-update)", () => {
+  it("installUserBundle copies skills/agents to user home, not project", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    installUserBundle({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(existsSync(path.join(home, "skills", "hello", "SKILL.md"))).toBe(true);
+    expect(existsSync(path.join(home, "agents", "planner.md"))).toBe(true);
+    expect(existsSync(path.join(project, ".github", "skills"))).toBe(false);
+    expect(existsSync(path.join(project, ".github", "agents"))).toBe(false);
+    expect(existsSync(path.join(home, "hooks", "omp.json"))).toBe(false); // bundle only
+  });
+
+  it("refreshUserInstall installs hooks + user skills/agents without project scaffold", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const { actions } = refreshUserInstall({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(existsSync(path.join(home, "hooks", "omp.json"))).toBe(true);
+    expect(existsSync(path.join(home, "skills", "hello", "SKILL.md"))).toBe(true);
+    expect(existsSync(path.join(home, "agents", "planner.md"))).toBe(true);
+    expect(existsSync(path.join(project, ".github", "skills"))).toBe(false);
+    expect(existsSync(path.join(project, ".github", "agents"))).toBe(false);
+    expect(existsSync(path.join(project, ".github", "copilot-instructions.md"))).toBe(false);
     expect(actions.some((a) => a.target.endsWith("omp.json"))).toBe(true);
   });
 });
@@ -361,7 +427,7 @@ describe("formatSetup", () => {
     const text = formatSetup({
       ok: true,
       dryRun: true,
-      scope: "project",
+      scope: "user",
       actions: [{ source: "(template)", target: "/tmp/x", kind: "create" }],
       paths: {} as never,
     });

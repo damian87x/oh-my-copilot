@@ -20,6 +20,15 @@ describe("resolveCopilotPaths", () => {
     expect(paths.copilotInstructions).toBe(path.join(root, ".github", "copilot-instructions.md"));
   });
 
+  it("derives user skill/agent roots from copilotHome", () => {
+    const root = tempProject();
+    const home = mkdtempSync(path.join(tmpdir(), "omc-copilot-home-"));
+    const paths = resolveCopilotPaths({ cwd: root, copilotHome: home });
+    expect(paths.userScope).toBe(home);
+    expect(paths.userScopeSkills).toBe(path.join(home, "skills"));
+    expect(paths.userScopeAgents).toBe(path.join(home, "agents"));
+  });
+
   it("honours OMC_PLUGIN_ROOT for pluginRoot", () => {
     const projectRoot = tempProject();
     const pluginRoot = tempProject();
