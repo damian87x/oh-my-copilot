@@ -86,7 +86,11 @@ describe("skill-bench evaluator protocol v1", () => {
       expect(result.spawn.shell).toBe(false);
       expect(result.spawn.cwd).not.toBe(process.cwd());
       expect(Object.keys(result.spawn.env)).toEqual(["PATH"]);
-      expect(result.spawn.isolation).toMatch(/restricted/);
+      expect(result.spawn.isolation).toBe(
+        process.platform === "darwin" && existsSync("/usr/bin/sandbox-exec")
+          ? "restricted"
+          : "best-effort",
+      );
     }
   });
 
