@@ -4,7 +4,7 @@ Use only after the human confirms **tracker = jira** and a **project key** (see 
 
 Prefer `omp jira` / `/jira-ticket` over inventing REST calls. Live writes need `JIRA_MODE=live`, configured credentials, and **explicit user confirmation** per write batch. Default is dry-run / fallback payload.
 
-Config discovery: `JIRA_BASE_URL` / `JIRA_SITE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_PROJECT_KEY`, optional `JIRA_DEFAULT_ISSUE_TYPE`. See repo `docs/jira.md`.
+Config discovery: `JIRA_BASE_URL` / `JIRA_SITE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_PROJECT_KEY`, optional `JIRA_DEFAULT_ISSUE_TYPE`. See repo `docs/jira.md` when the skill runs inside oh-my-copilot.
 
 ## Labels → Jira labels
 
@@ -22,11 +22,13 @@ Create map/tickets with those labels in the create payload. Do not invent compon
 
 ## Map
 
-1. Build a ticket file (summary + description with the standard map sections + `tracker: jira` / `project: KEY` in Notes).
+1. Build a ticket file (summary + description with the standard map sections + `tracker: jira` / `pin: KEY` in Notes — same keys as SKILL.md).
 2. Preview: `omp jira render <map-plan.md>`
 3. Create only after user confirms live: `omp jira apply <map-plan.md>` (or paste fallback if dry-run).
 
 Map body sections stay the same Markdown as GitHub (`## Destination`, `## Notes`, …) inside the Jira description (wiki markup if the site requires it — keep sections readable).
+
+When subtask/parent links are unavailable, listing children in the map description is an intentional fallback (otherwise open tickets stay off the map body).
 
 ## Child ticket
 
@@ -45,9 +47,9 @@ Unblocked when every blocker is in a terminal done status the project uses (ask 
 
 ## Frontier query
 
-1. List open issues in the project with map linkage (subtask/parent, Relates, or `Part of` text) — use JQL the human approves, e.g. `project = KEY AND labels = wayfinder-grilling AND statusCategory != Done`.
+1. List open issues in the project with map linkage (subtask/parent, Relates, or `Part of` text) — use JQL the human approves covering **all** wayfinder child types, e.g. `project = KEY AND labels in (wayfinder-research, wayfinder-prototype, wayfinder-grilling, wayfinder-task) AND statusCategory != Done ORDER BY created ASC` (explicit sort approximates map order).
 2. Drop items with open blockers or an assignee (claimed).
-3. First remaining in map order wins.
+3. First remaining in that ordered list wins.
 
 Do not invent broad JQL that mutates or bulk-closes.
 

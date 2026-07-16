@@ -19,7 +19,7 @@ gh api repos/owner/repo/issues/...
 ```
 
 3. Detect candidates with `git remote -v` in cwd and in nested project roots named by the destination — then **ask**, don't auto-pick when more than one remote or a monorepo root is involved.
-4. Put `tracker: owner/repo` in the map `## Notes`.
+4. Put `tracker: github` and `pin: owner/repo` in the map `## Notes` (same keys as SKILL.md — never put the repo slug in `tracker:`).
 
 ## Labels
 
@@ -38,7 +38,8 @@ gh -R owner/repo issue create --label wayfinder:map --title "..." --body "$(cat 
 ## Destination
 ...
 ## Notes
-tracker: owner/repo
+tracker: github
+pin: owner/repo
 ...
 ## Decisions so far
 ## Not yet specified
@@ -46,6 +47,8 @@ tracker: owner/repo
 EOF
 )"
 ```
+
+Open tickets stay off the map body when sub-issues work. The task-list fallback below **intentionally** lists children in the body when sub-issues are unavailable.
 
 ## Child ticket (sub-issue)
 
