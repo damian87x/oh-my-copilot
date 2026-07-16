@@ -2073,6 +2073,112 @@ describe("skill-bench command", () => {
     }
   });
 
+  it("persists a no-winner report when a hard budget stops before the next matched model batch", async () => {
+    const root = tempCwd();
+    const skillDir = writeSkill(root, "dynamic-review");
+    const skillFingerprint = sha256Directory(skillDir);
+    const spec = providerSpecWithEvaluator(root, "budget-stopped-report", {
+      candidateModelIds: ["model-a", "model-b"],
+      skill: {
+        id: "dynamic-review",
+        path: skillDir,
+        fingerprint: skillFingerprint,
+      },
+      budgets: {
+        maxUsd: 0.25,
+        maxCells: 4,
+        maxRuntimeMs: 180_000,
+        maxPremiumRequests: 4,
+        estimatedCellUsd: 0.0625,
+        estimatedCellPremiumRequests: 1,
+      },
+      fingerprint: {
+        status: "current",
+        skill: skillFingerprint,
+        model: "two-model-fingerprint",
+        spec: "budget-stopped-report",
+        evaluation: "eval-fp-live",
+        provider: "provider-fp-live",
+      },
+    });
+    writeApprovedSpec(root, "budget-stopped-report", spec);
+    const calls: string[] = [];
+    setSkillBenchProviderTransportForTests(async (request) => {
+      calls.push(request.modelId);
+      const costUsd = request.skillExposure.selectedSkillId ? 0.072 : 0.05;
+      return {
+        status: "complete",
+        stdout: "found issue",
+        stderr: "",
+        exitCode: 0,
+        usage: {
+          costUsd,
+          premiumRequests: 0,
+          inputTokens: 100,
+          outputTokens: 20,
+          totalTokens: 120,
+          totalProvenance: "provider-total",
+          completeness: "provider-metadata",
+          provenance: "fake-provider",
+        },
+      };
+    });
+    try {
+      const result = await run(
+        [
+          "skill-bench",
+          "run",
+          "budget-stopped-report",
+          "--pilot",
+          "--approve-spend",
+        ],
+        false,
+        root,
+      );
+
+      expect(result).toMatchObject({
+        ok: true,
+        output: {
+          status: "complete",
+          cells: 2,
+          budgetStopReason: "usd-ceiling",
+        },
+      });
+      expect(calls).toEqual(["model-a", "model-a"]);
+      const runId = /run-id=(\S+)/.exec(result.message ?? "")?.[1];
+      expect(runId).toBeTruthy();
+      const runRoot = path.join(root, ".omp", "skill-bench", "runs", runId!);
+      const runArtifact = JSON.parse(
+        readFileSync(path.join(runRoot, "run.json"), "utf8"),
+      );
+      expect(runArtifact).toMatchObject({
+        status: "complete",
+        budgetStop: { family: "budget", detail: "usd-ceiling" },
+        reportInput: {
+          warnings: expect.arrayContaining([
+            expect.stringContaining("budget stopped before next matched batch: usd-ceiling"),
+          ]),
+        },
+        reportView: {
+          decision: {
+            state: "inconclusive",
+            validated: false,
+            noWinnerReason: "budget stopped before next matched batch: usd-ceiling",
+            recommendedRoute: null,
+          },
+          actions: { canApply: false },
+        },
+        summary: { status: "inconclusive", cells: 2 },
+      });
+      expect(existsSync(path.join(runRoot, "sweep_report.html"))).toBe(true);
+      expect(readFileSync(path.join(runRoot, "sweep_report.html"), "utf8")).toContain(
+        "budget stopped before next matched batch: usd-ceiling",
+      );
+    } finally {
+      setSkillBenchProviderTransportForTests(null);
+    }
+  });
+
   it("preflights the frozen evaluator contract before any provider spend", async () => {
     const root = tempCwd();
     const skillDir = writeSkill(root, "dynamic-review");
@@ -2259,6 +2365,108 @@ describe("skill-bench command", () => {
     } finally {
       setSkillBenchProviderTransportForTests(null);
     }
+  });
+
+  it("keeps a budget-stopped validated run inconclusive after pricing refresh", async () => {
+    const root = tempCwd();
+    const spec = syntheticSpec("budget-stop-refresh");
+    spec.deterministicEvaluatorResults = spec.deterministicEvaluatorResults.map((cell) =>
+      cell.modelId === "model-a" && cell.arm === "skill"
+        ? { ...cell, qualityScore: 0.8 }
+        : cell,
+    );
+    writeJson(
+      root,
+      ".omp/skill-bench/specs/budget-stop-refresh/manifest.json",
+      spec,
+    );
+
+    const result = await run(
+      ["skill-bench", "run", "budget-stop-refresh", "--validated"],
+      false,
+      root,
+    );
+    const runId = /run-id=(\S+)/.exec(result.message ?? "")?.[1];
+    expect(runId).toBeTruthy();
+    const runRoot = path.join(root, ".omp", "skill-bench", "runs", runId!);
+    const runPath = path.join(runRoot, "run.json");
+    const artifact = JSON.parse(readFileSync(runPath, "utf8"));
+    expect(artifact.reportView.decision.validated).toBe(true);
+
+    const noWinnerReason = "budget stopped before next matched batch: usd-ceiling";
+    artifact.budgetStop = { family: "budget", detail: "usd-ceiling" };
+    artifact.reportInput.pricing = { source: "unknown", completeness: "unknown" };
+    artifact.reportInput.warnings = [
+      ...new Set([...artifact.reportInput.warnings, noWinnerReason]),
+    ];
+    artifact.reportInput.cells = artifact.reportInput.cells.map(
+      (cell: Record<string, unknown> & { tokens: Record<string, unknown> }) => ({
+        ...cell,
+        costUsd: null,
+        tokens: {
+          ...cell.tokens,
+          input: 100,
+          output: 20,
+          costUsd: null,
+          costProvenance: "unknown",
+        },
+      }),
+    );
+    artifact.reportView.decision = {
+      ...artifact.reportView.decision,
+      state: "inconclusive",
+      validated: false,
+      noWinnerReason,
+      recommendedRoute: null,
+      confidence: {
+        ...artifact.reportView.decision.confidence,
+        verdict: "inconclusive",
+        noWinnerReason,
+      },
+    };
+    artifact.reportView.recommendation = null;
+    artifact.reportView.actions.canApply = false;
+    delete artifact.recommendation;
+    writeFileSync(runPath, `${JSON.stringify(artifact, null, 2)}\n`);
+
+    setSkillBenchPricingResolverForTests(async () => ({
+      source: "public-github-copilot-model-pricing",
+      url: "https://docs.github.com/en/copilot/reference/copilot-billing/models-and-pricing",
+      apiUrl: "https://docs.github.com/api/article/body?pathname=/en/copilot/reference/copilot-billing/models-and-pricing",
+      retrievedAt: "2026-07-16T12:00:00Z",
+      currency: "USD",
+      completeness: "unambiguous-model-rates",
+      models: {
+        "model-a": { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        "model-b": { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+      },
+      unresolvedTieredModels: [],
+    }));
+
+    await expect(
+      run(["skill-bench", "report", runId!, "--no-open"], false, root),
+    ).resolves.toMatchObject({ ok: true });
+    const refreshed = JSON.parse(readFileSync(runPath, "utf8"));
+    expect(
+      refreshed.reportInput.cells.every(
+        (cell: { costUsd: unknown }) => typeof cell.costUsd === "number",
+      ),
+    ).toBe(true);
+    expect(refreshed.reportView).toMatchObject({
+      decision: {
+        state: "inconclusive",
+        validated: false,
+        noWinnerReason,
+        recommendedRoute: null,
+        confidence: { verdict: "inconclusive", noWinnerReason },
+      },
+      recommendation: null,
+      actions: { canApply: false },
+    });
+    expect(refreshed.recommendation).toBeUndefined();
+    expect(readFileSync(path.join(runRoot, "sweep_report.html"), "utf8")).toContain(
+      noWinnerReason,
+    );
   });
 
   it("fails closed before provider spawn for missing evaluator, stale skill source, missing estimates, and unsupported profiles", async () => {

@@ -279,6 +279,9 @@ export function renderSkillBenchReportHtml(view: SkillBenchReportView, options: 
 <p>Confidence sample/coverage: ${escapeHtml(`${formatNumber(view.decision.confidence.sampleCount)} samples, coverage ${formatNumber(view.decision.confidence.coverage)}`)}</p>
 <p>Confidence interval: ${escapeHtml(formatInterval(view.decision.confidence.interval))}</p>
 </div></details>`;
+  const warningsHtml = view.provenance.warnings.length > 0
+    ? `<aside class="run-warnings"><strong>Run warnings</strong><ul>${view.provenance.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul></aside>`
+    : "";
   const comparisonRows = view.rows
     .map(
       (row) => `<tr>
@@ -323,7 +326,7 @@ export function renderSkillBenchReportHtml(view: SkillBenchReportView, options: 
 :root{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f4f7fb;--skill:#215cce;--baseline:#66758a;--prompt:#a55b09;--other:#6f50b5}
 body{max-width:1240px;margin:0 auto;padding:32px;line-height:1.5}h1,h2,h3{line-height:1.2}h1{margin-bottom:.2rem}.run-id{margin-top:0;color:#52627a;font:600 .82rem ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
 section,table,details.technical{background:#fff;border:1px solid #d9e1ec;border-radius:12px;box-shadow:0 4px 16px rgba(34,52,84,.06)}
-section{padding:22px;margin:18px 0}.help{color:#44546a;background:#eef4ff;border-left:4px solid #3b6eea;padding:12px 16px}.pilot-note{background:#fff7df;border-left:4px solid #c88700;padding:12px 16px}
+section{padding:22px;margin:18px 0}.help{color:#44546a;background:#eef4ff;border-left:4px solid #3b6eea;padding:12px 16px}.pilot-note,.run-warnings{background:#fff7df;border-left:4px solid #c88700;padding:12px 16px}.run-warnings ul{margin:.4rem 0 0;padding-left:1.25rem}
 .summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.metric{background:#f7f9fc;border:1px solid #e2e8f0;border-radius:10px;padding:12px}.metric strong{display:block;font-size:.78rem;color:#52627a;text-transform:uppercase;letter-spacing:.04em}.metric span{font-size:1.05rem;font-weight:700}
 .cost-basis{display:grid;grid-template-columns:minmax(150px,.35fr) 1fr;gap:8px 20px;align-items:center;margin:18px 0;padding:14px 16px;border:1px solid #b9cbee;border-radius:10px;background:#f3f7ff}.cost-basis strong{display:block;color:#264f9d}.cost-basis p{margin:0}.cost-basis .proxy-note{font-weight:700;color:#704800}.cost-basis a{color:#164fb8}
 .charts-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.chart-card{margin:0;padding:16px;border:1px solid #d9e1ec;border-radius:12px;background:#fbfcff}.chart-card-wide{grid-column:1/-1}.chart-card figcaption{display:flex;flex-direction:column;margin-bottom:12px}.chart-card figcaption strong{font-size:1rem}.chart-card figcaption span{color:#5b6a80;font-size:.85rem}.quality-cost-plot{display:block;width:100%;height:auto;min-height:250px}.grid-line{stroke:#dbe3ee;stroke-width:1}.axis-line{stroke:#8794a6;stroke-width:1.2}.axis-label,.tick-label,.point-label{fill:#52627a;font:12px ui-sans-serif,system-ui,sans-serif}.point-label{fill:#172033;font-weight:700}.point-pass{stroke-width:2}.point-skill{fill:var(--skill);stroke:var(--skill)}.point-baseline{fill:var(--baseline);stroke:var(--baseline)}.point-prompt{fill:var(--prompt);stroke:var(--prompt)}.point-other{fill:var(--other);stroke:var(--other)}.point-fail{fill:#fff;stroke-width:3}.chart-key{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:8px;font-size:.82rem;color:#52627a}.key-mark{display:inline-block;width:10px;height:10px;margin-right:5px;border-radius:50%;vertical-align:-1px}.key-mark.skill{background:var(--skill)}.key-mark.baseline{background:var(--baseline)}.key-mark.prompt{background:var(--prompt)}
@@ -342,6 +345,7 @@ details{margin:10px 0}details>summary{cursor:pointer;font-weight:700}details>sum
 <section aria-label="Decision summary">
 <h2>Decision summary</h2>
 ${confidenceHtml}
+${warningsHtml}
 <div class="summary-grid">
 <div class="metric"><strong>Overall status</strong><span class="status-${escapeHtml(view.decision.state)}">${escapeHtml(view.decision.state)}</span></div>
 <div class="metric"><strong>Mode</strong><span>${escapeHtml(view.decision.mode)}</span></div>

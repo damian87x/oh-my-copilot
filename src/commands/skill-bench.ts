@@ -30,6 +30,7 @@ import {
   PROVIDER_TRANSPORT_FINGERPRINT,
   REQUIRED_EVIDENCE_ARTIFACTS,
   scheduleCellsWithinCeilings,
+  type BudgetStopReason,
   type ExecutionCell,
   type ExecutionProfileConfig,
 } from "../skill-bench/execute.js";
@@ -4599,10 +4600,11 @@ async function buildProviderRun(
   let actualPremiumRequests = 0;
   let actualCostComplete = true;
   let actualPremiumComplete = true;
+  let budgetStop: BudgetStopReason | null = null;
   const workspaceRoot = createProviderWorkspaceRoot(runId);
 
   try {
-  for (const [scenarioIndex, scenario] of scenarios.entries()) {
+  providerBatches: for (const [scenarioIndex, scenario] of scenarios.entries()) {
     const scenarioId = idFromRecordOrString(scenario, "scenario", scenarioIndex);
     const storedFixturePath = stringFromAnyKey(scenario, [
       "fixturePath",
@@ -4666,10 +4668,10 @@ async function buildProviderRun(
         },
         retryPolicy: { maxAttempts: 1, retryInfrastructure: false },
       });
-      if (schedule.stopReason)
-        return fail(
-          `Skill-bench ${mode} run disabled for ${source.id}: ${schedule.stopReason.detail} before next matched batch.`,
-        );
+      if (schedule.stopReason) {
+        budgetStop = schedule.stopReason;
+        break providerBatches;
+      }
       for (const cell of schedule.cellsToStart) {
         try {
           ensureProviderWorkspace(cell);
@@ -4784,6 +4786,9 @@ async function buildProviderRun(
   const specFp = specContentHash(source.artifact);
   const evalFp = evaluator.evaluator.sha256.toLowerCase();
   const providerFp = PROVIDER_TRANSPORT_FINGERPRINT;
+  const budgetStopMessage = budgetStop
+    ? `budget stopped before next matched batch: ${budgetStop.detail}`
+    : null;
   const reportInput: SkillBenchReportInput = {
     schemaVersion: 1,
     runId,
@@ -4823,6 +4828,7 @@ async function buildProviderRun(
     },
     warnings: [
       ...(mode === "pilot" ? ["pilot mode does not emit a validated winner"] : []),
+      ...(budgetStopMessage ? [budgetStopMessage] : []),
       ...(!actualCostComplete || !actualPremiumComplete
         ? ["actual provider cost/premium telemetry is incomplete; approved conservative estimates enforced the budget"]
         : []),
@@ -4848,6 +4854,7 @@ async function buildProviderRun(
     cells: reportCells,
   };
   const reportView = normalizeSkillBenchReport(reportInput);
+  if (budgetStop) applyBudgetStopDecision(reportView, budgetStop);
   const recommendationTarget =
     mode === "validated" && reportView.decision.validated
       ? selectRecommendationTarget(reportView, source.artifact)
@@ -4912,9 +4919,15 @@ async function buildProviderRun(
     fingerprint: { status: "current" },
     currentFingerprints: { skill: skillFp, model: modelFp, spec: specFp, evaluation: evalFp, provider: providerFp },
     conflicts: { status: "clear" },
-    evidence: evidenceBundles.every((bundle) => bundle.status === "complete")
+    budgetStop: budgetStop ?? undefined,
+    evidence: evidenceBundles.length > 0 &&
+      evidenceBundles.every((bundle) => bundle.status === "complete")
       ? { status: "verified" }
-      : { status: "incomplete-evidence", missingBundles: evidenceBundles.filter((bundle) => bundle.status !== "complete") },
+      : {
+          status: "incomplete-evidence",
+          ...(evidenceBundles.length === 0 ? { reason: "no-completed-cells" } : {}),
+          missingBundles: evidenceBundles.filter((bundle) => bundle.status !== "complete"),
+        },
     recommendation: recommendation ?? undefined,
     routingCapabilities: copilotAdvisoryCapabilities(recommendation),
     cells: runCells,
@@ -4965,13 +4978,14 @@ async function buildProviderRun(
     status: "complete",
     synthetic: false,
     cells: reportCells.length,
+    budgetStopReason: budgetStop?.detail ?? null,
     runPath: displayPath(cwd, path.join(runRoot, "run.json")),
     reportPath: displayPath(cwd, path.join(runRoot, "sweep_report.html")),
   };
   return {
     ok: true,
     output,
-    message: `${mode} provider run completed for ${source.id}\nrun-id=${runId}\ncells=${reportCells.length}\nrun: ${output.runPath}\nreport: ${output.reportPath}`,
+    message: `${mode} provider run completed for ${source.id}${budgetStop ? ` with ${budgetStop.detail} before the next matched batch` : ""}\nrun-id=${runId}\ncells=${reportCells.length}\nrun: ${output.runPath}\nreport: ${output.reportPath}`,
   };
   } finally {
     rmSync(workspaceRoot, { recursive: true, force: true });
@@ -5078,6 +5092,37 @@ function providerPricing(
       stringFromAnyKey(pricing, ["completeness"]) ??
       (source ? "public-snapshot" : "unknown"),
   };
+}
+
+function readBudgetStop(value: unknown): BudgetStopReason | null {
+  if (!isRecord(value) || value.family !== "budget") return null;
+  switch (value.detail) {
+    case "usd-ceiling":
+    case "premium-ceiling":
+    case "runtime-ceiling":
+    case "cell-ceiling":
+      return { family: "budget", detail: value.detail };
+    default:
+      return null;
+  }
+}
+
+function applyBudgetStopDecision(
+  view: SkillBenchReportView,
+  stop: BudgetStopReason,
+): void {
+  const reason = `budget stopped before next matched batch: ${stop.detail}`;
+  view.decision.state = "inconclusive";
+  view.decision.validated = false;
+  view.decision.noWinnerReason = reason;
+  view.decision.recommendedRoute = null;
+  view.decision.confidence = {
+    ...view.decision.confidence,
+    verdict: "inconclusive",
+    noWinnerReason: reason,
+  };
+  view.recommendation = null;
+  view.actions.canApply = false;
 }
 
 function approvedPublicPricing(
@@ -5218,10 +5263,12 @@ async function refreshUnknownRunPricing(
     cells,
   };
   const refreshedView = normalizeSkillBenchReport(refreshedInput);
+  const budgetStop = readBudgetStop(run.artifact.budgetStop);
+  if (budgetStop) applyBudgetStopDecision(refreshedView, budgetStop);
   const previousView = isRecord(run.artifact.reportView)
     ? (run.artifact.reportView as unknown as SkillBenchReportView)
     : null;
-  if (previousView?.decision.recommendedRoute)
+  if (!budgetStop && previousView?.decision.recommendedRoute)
     refreshedView.decision.recommendedRoute = {
       ...previousView.decision.recommendedRoute,
     };
