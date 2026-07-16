@@ -10,6 +10,10 @@ export interface CopilotPaths {
   stateDir: string;
   hooksLogPath: string;
   userScope: string;
+  /** Personal skills root: ~/.copilot/skills (or $COPILOT_HOME/skills). */
+  userScopeSkills: string;
+  /** Personal agents root: ~/.copilot/agents (or $COPILOT_HOME/agents). */
+  userScopeAgents: string;
   projectScopeSkills: string;
   projectScopeAgents: string;
   copilotInstructions: string;
@@ -46,13 +50,18 @@ export function resolveCopilotPaths(options: ResolveCopilotPathsOptions = {}): C
     ? resolve(envPluginRoot)
     : packageRoot;
   const stateDir = join(projectRoot, ".omp", "state");
+  const userScope = resolve(
+    options.copilotHome ?? process.env.COPILOT_HOME ?? join(homedir(), ".copilot"),
+  );
   return {
     packageRoot,
     projectRoot,
     pluginRoot,
     stateDir,
     hooksLogPath: join(stateDir, "hooks.log"),
-    userScope: resolve(options.copilotHome ?? process.env.COPILOT_HOME ?? join(homedir(), ".copilot")),
+    userScope,
+    userScopeSkills: join(userScope, "skills"),
+    userScopeAgents: join(userScope, "agents"),
     projectScopeSkills: join(projectRoot, ".github", "skills"),
     projectScopeAgents: join(projectRoot, ".github", "agents"),
     copilotInstructions: join(projectRoot, ".github", "copilot-instructions.md"),

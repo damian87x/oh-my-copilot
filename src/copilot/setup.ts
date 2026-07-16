@@ -238,9 +238,8 @@ export function userHooksNeedRefresh(options: SetupOptions = {}): boolean {
 }
 
 /** Install just the user-level hooks (the piece copilot won't load from the
- *  plugin dir). Used by `omp update` to refresh hooks after a self-update without
- *  scaffolding the current project's .github (skills/agents ship via the
- *  marketplace plugin). Idempotent. */
+ *  plugin dir). Used by bare launch self-repair when only hooks are stale.
+ *  Idempotent. */
 export function installUserHooks(options: SetupOptions = {}): { actions: SetupAction[]; paths: CopilotPaths } {
   const paths = resolveCopilotPaths(options);
   const actions: SetupAction[] = [];
@@ -248,22 +247,70 @@ export function installUserHooks(options: SetupOptions = {}): { actions: SetupAc
   return { actions, paths };
 }
 
+/** Copy bundled skills/agents into the user home (`~/.copilot/skills|agents`).
+ *  Never touches the project `.github`. Used by `omp update` and interactive
+ *  auto-update so personal installs stay in lockstep with the CLI. */
+export function installUserBundle(
+  options: SetupOptions = {},
+): { actions: SetupAction[]; paths: CopilotPaths } {
+  const paths = resolveCopilotPaths(options);
+  const dryRun = Boolean(options.dryRun);
+  const force = Boolean(options.force);
+  const actions: SetupAction[] = [];
+  copyBundledSkillsAndAgents(paths, "user", actions, dryRun, force);
+  return { actions, paths };
+}
+
+/** Refresh the full user-home install: hooks + skills + agents. No project
+ *  scaffolding. Shared by `omp update` and bare-`omp` "Update now?" yes. */
+export function refreshUserInstall(
+  options: SetupOptions = {},
+): { actions: SetupAction[]; paths: CopilotPaths } {
+  const paths = resolveCopilotPaths(options);
+  const dryRun = Boolean(options.dryRun);
+  const force = Boolean(options.force);
+  const actions: SetupAction[] = [];
+  installHooks(paths, dryRun, actions);
+  copyBundledSkillsAndAgents(paths, "user", actions, dryRun, force);
+  return { actions, paths };
+}
+
+function skillsTargetFor(paths: CopilotPaths, scope: "project" | "user"): string {
+  return scope === "project" ? paths.projectScopeSkills : paths.userScopeSkills;
+}
+
+function agentsTargetFor(paths: CopilotPaths, scope: "project" | "user"): string {
+  return scope === "project" ? paths.projectScopeAgents : paths.userScopeAgents;
+}
+
+function copyBundledSkillsAndAgents(
+  paths: CopilotPaths,
+  scope: "project" | "user",
+  actions: SetupAction[],
+  dryRun: boolean,
+  force: boolean,
+): void {
+  const skillsTarget = skillsTargetFor(paths, scope);
+  const agentsTarget = agentsTargetFor(paths, scope);
+  const bundleSkills = join(paths.pluginRoot, ".github", "skills");
+  if (relative(bundleSkills, skillsTarget) !== "") {
+    copyDirRecursive(bundleSkills, skillsTarget, actions, dryRun, force);
+  }
+  const bundleAgents = join(paths.pluginRoot, ".github", "agents");
+  if (relative(bundleAgents, agentsTarget) !== "") {
+    copyDirRecursive(bundleAgents, agentsTarget, actions, dryRun, force);
+  }
+}
+
 export function runSetup(options: SetupOptions = {}): SetupResult {
   const paths = resolveCopilotPaths(options);
   const dryRun = Boolean(options.dryRun);
   const force = Boolean(options.force);
-  const scope = options.scope ?? "project";
+  // Default user home so setup never pollutes a project unless --scope project.
+  const scope = options.scope ?? "user";
   const actions: SetupAction[] = [];
 
-  const bundleSkills = join(paths.pluginRoot, ".github", "skills");
-  if (relative(bundleSkills, paths.projectScopeSkills) !== "") {
-    copyDirRecursive(bundleSkills, paths.projectScopeSkills, actions, dryRun, force);
-  }
-
-  const bundleAgents = join(paths.pluginRoot, ".github", "agents");
-  if (relative(bundleAgents, paths.projectScopeAgents) !== "") {
-    copyDirRecursive(bundleAgents, paths.projectScopeAgents, actions, dryRun, force);
-  }
+  copyBundledSkillsAndAgents(paths, scope, actions, dryRun, force);
 
   ensureFile(paths.copilotInstructions, COPILOT_INSTRUCTIONS_TEMPLATE, actions, dryRun);
   ensureDir(paths.stateDir, actions, dryRun);
