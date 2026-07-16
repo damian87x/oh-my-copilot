@@ -329,7 +329,7 @@ section,table,details.technical{background:#fff;border:1px solid #d9e1ec;border-
 section{padding:22px;margin:18px 0}.help{color:#44546a;background:#eef4ff;border-left:4px solid #3b6eea;padding:12px 16px}.pilot-note,.run-warnings{background:#fff7df;border-left:4px solid #c88700;padding:12px 16px}.run-warnings ul{margin:.4rem 0 0;padding-left:1.25rem}
 .summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.metric{background:#f7f9fc;border:1px solid #e2e8f0;border-radius:10px;padding:12px}.metric strong{display:block;font-size:.78rem;color:#52627a;text-transform:uppercase;letter-spacing:.04em}.metric span{font-size:1.05rem;font-weight:700}
 .cost-basis{display:grid;grid-template-columns:minmax(150px,.35fr) 1fr;gap:8px 20px;align-items:center;margin:18px 0;padding:14px 16px;border:1px solid #b9cbee;border-radius:10px;background:#f3f7ff}.cost-basis strong{display:block;color:#264f9d}.cost-basis p{margin:0}.cost-basis .proxy-note{font-weight:700;color:#704800}.cost-basis a{color:#164fb8}
-.charts-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.chart-card{margin:0;padding:16px;border:1px solid #d9e1ec;border-radius:12px;background:#fbfcff}.chart-card-wide{grid-column:1/-1}.chart-card figcaption{display:flex;flex-direction:column;margin-bottom:12px}.chart-card figcaption strong{font-size:1rem}.chart-card figcaption span{color:#5b6a80;font-size:.85rem}.quality-cost-plot{display:block;width:100%;height:auto;min-height:250px}.grid-line{stroke:#dbe3ee;stroke-width:1}.axis-line{stroke:#8794a6;stroke-width:1.2}.axis-label,.tick-label,.point-label{fill:#52627a;font:12px ui-sans-serif,system-ui,sans-serif}.point-label{fill:#172033;font-weight:700}.point-pass{stroke-width:2}.point-skill{fill:var(--skill);stroke:var(--skill)}.point-baseline{fill:var(--baseline);stroke:var(--baseline)}.point-prompt{fill:var(--prompt);stroke:var(--prompt)}.point-other{fill:var(--other);stroke:var(--other)}.point-fail{fill:#fff;stroke-width:3}.chart-key{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:8px;font-size:.82rem;color:#52627a}.key-mark{display:inline-block;width:10px;height:10px;margin-right:5px;border-radius:50%;vertical-align:-1px}.key-mark.skill{background:var(--skill)}.key-mark.baseline{background:var(--baseline)}.key-mark.prompt{background:var(--prompt)}
+.charts-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.chart-card{margin:0;padding:16px;border:1px solid #d9e1ec;border-radius:12px;background:#fbfcff}.chart-card-wide{grid-column:1/-1}.chart-card figcaption{display:flex;flex-direction:column;margin-bottom:12px}.chart-card figcaption strong{font-size:1rem}.chart-card figcaption span{color:#5b6a80;font-size:.85rem}.quality-cost-plot{display:block;width:100%;height:auto;min-height:250px}.grid-line{stroke:#dbe3ee;stroke-width:1}.axis-line{stroke:#8794a6;stroke-width:1.2}.axis-label,.tick-label,.point-label{fill:#52627a;font:12px ui-sans-serif,system-ui,sans-serif}.point-label{fill:#172033;font-weight:700}.point-label-model{fill:#52627a;font-weight:600}.point-leader{fill:none;stroke:#9aa7b8;stroke-width:1}.point-pass{stroke-width:2}.point-skill{fill:var(--skill);stroke:var(--skill)}.point-baseline{fill:var(--baseline);stroke:var(--baseline)}.point-prompt{fill:var(--prompt);stroke:var(--prompt)}.point-other{fill:var(--other);stroke:var(--other)}.point-fail{fill:#fff;stroke-width:3}.chart-key{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:8px;font-size:.82rem;color:#52627a}.key-mark{display:inline-block;width:10px;height:10px;margin-right:5px;border-radius:50%;vertical-align:-1px}.key-mark.skill{background:var(--skill)}.key-mark.baseline{background:var(--baseline)}.key-mark.prompt{background:var(--prompt)}
 .bar-list{display:grid;gap:10px}.bar-row{display:grid;grid-template-columns:minmax(130px,1.4fr) minmax(120px,2fr) auto;gap:10px;align-items:center}.bar-label{min-width:0}.bar-label strong,.bar-label small{display:block;overflow-wrap:anywhere}.bar-label small{color:#65748a}.bar-track{height:12px;border-radius:999px;background:#e9eef5;overflow:hidden}.bar-fill{display:block;height:100%;min-width:0;border-radius:inherit;background:var(--other)}.bar-fill.arm-skill{background:var(--skill)}.bar-fill.arm-baseline{background:var(--baseline)}.bar-fill.arm-prompt{background:var(--prompt)}.bar-value{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
 .table-scroll{overflow-x:auto;border-radius:12px}table{width:100%;border-collapse:separate;border-spacing:0;overflow:hidden}th,td{padding:10px 12px;border-bottom:1px solid #e6ebf2;text-align:left;vertical-align:top}thead th{background:#eef3f9}tbody tr:last-child>*{border-bottom:0}tbody tr:nth-child(even){background:#fafcff}
 .wrap{overflow-wrap:anywhere}.status-pass{font-weight:700;color:#17633a}.status-fail{font-weight:700;color:#a3261d}.status-inconclusive{font-weight:700;color:#7a4d00}.number{font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -429,9 +429,10 @@ function renderQualityCostChart(taskId: string, rows: ReportRow[]): string {
       isFiniteNumber(row.costUsd) && isFiniteNumber(row.qualityScore),
   );
   const chartWidth = 720;
-  const chartHeight = 300;
+  const labelGap = 34;
+  const chartHeight = Math.max(300, 106 + Math.max(0, points.length - 1) * labelGap);
   const left = 64;
-  const right = 28;
+  const right = 230;
   const top = 26;
   const bottom = 50;
   const plotWidth = chartWidth - left - right;
@@ -451,18 +452,40 @@ function renderQualityCostChart(taskId: string, rows: ReportRow[]): string {
       return `<line class="grid-line" x1="${x}" y1="${top}" x2="${x}" y2="${top + plotHeight}"></line><text class="tick-label" x="${x}" y="${top + plotHeight + 22}" text-anchor="${anchor}">${escapeHtml(formatUsd(costDomain * fraction))}</text>`;
     })
     .join("");
-  const marks = points
-    .map((row, index) => {
-      const x = left + (row.costUsd / costDomain) * plotWidth;
-      const y = top + (1 - clamp(row.qualityScore, 0, 1)) * plotHeight;
-      const labelLeft = x > left + plotWidth * 0.72;
-      const labelX = x + (labelLeft ? -12 : 12);
-      const labelY = y + (index % 2 === 0 ? -10 : 18);
+  const pointLayouts = points.map((row) => ({
+    row,
+    x: left + (row.costUsd / costDomain) * plotWidth,
+    y: top + (1 - clamp(row.qualityScore, 0, 1)) * plotHeight,
+  }));
+  const minLabelY = top + 12;
+  const maxLabelY = top + plotHeight - 18;
+  const orderedLabels = pointLayouts
+    .map((point, index) => ({ index, targetY: point.y, x: point.x, labelY: 0 }))
+    .sort((a, b) => a.targetY - b.targetY || a.x - b.x);
+  let previousLabelY = minLabelY - labelGap;
+  for (const label of orderedLabels) {
+    label.labelY = Math.max(clamp(label.targetY, minLabelY, maxLabelY), previousLabelY + labelGap);
+    previousLabelY = label.labelY;
+  }
+  for (let index = orderedLabels.length - 1; index >= 0; index -= 1) {
+    const next = orderedLabels[index + 1];
+    orderedLabels[index].labelY = Math.min(
+      orderedLabels[index].labelY,
+      next ? next.labelY - labelGap : maxLabelY,
+    );
+  }
+  const labelYByPoint = new Map(orderedLabels.map((label) => [label.index, label.labelY]));
+  const labelX = left + plotWidth + 18;
+  const marks = pointLayouts
+    .map(({ row, x, y }, index) => {
+      const labelY = labelYByPoint.get(index) ?? y;
+      const modelLabel = compactChartLabel(row.modelId);
+      const modelLabelWidth = Math.min(204, Math.max(1, Array.from(modelLabel).length * 7));
       const title = `${titleCase(row.arm)} / ${row.modelId}: quality ${formatQuality(row.qualityScore)}, estimated cost ${formatUsd(row.costUsd)}, ${row.qualityPassed ? "quality pass" : "quality fail"}`;
       const shape = row.qualityPassed
         ? `<circle cx="${x}" cy="${y}" r="8" class="point-pass point-${armClass(row.arm)}"><title>${escapeHtml(title)}</title></circle>`
         : `<path d="M ${x} ${y - 9} L ${x + 9} ${y} L ${x} ${y + 9} L ${x - 9} ${y} Z" class="point-fail point-${armClass(row.arm)}"><title>${escapeHtml(title)}</title></path>`;
-      return `${shape}<text class="point-label" x="${labelX}" y="${labelY}" text-anchor="${labelLeft ? "end" : "start"}">${escapeHtml(`${titleCase(row.arm)} · ${row.modelId}`)}</text>`;
+      return `${shape}<path class="point-leader" d="M ${x + 10} ${y} L ${labelX - 6} ${labelY - 4}"></path><text class="point-label" x="${labelX}" y="${labelY}" text-anchor="start"><tspan x="${labelX}">${escapeHtml(titleCase(row.arm))}</tspan><tspan class="point-label-model" x="${labelX}" dy="14" textLength="${modelLabelWidth}" lengthAdjust="spacingAndGlyphs">${escapeHtml(modelLabel)}</tspan></text>`;
     })
     .join("");
   const exactValues = rows
@@ -475,6 +498,14 @@ function renderQualityCostChart(taskId: string, rows: ReportRow[]): string {
     ? `<svg class="quality-cost-plot" viewBox="0 0 ${chartWidth} ${chartHeight}" aria-hidden="true" focusable="false">${yTicks}${xTicks}<line class="axis-line" x1="${left}" y1="${top}" x2="${left}" y2="${top + plotHeight}"></line><line class="axis-line" x1="${left}" y1="${top + plotHeight}" x2="${left + plotWidth}" y2="${top + plotHeight}"></line><text class="axis-label" x="${left + plotWidth / 2}" y="${chartHeight - 6}" text-anchor="middle">Estimated cost USD — lower is better</text><text class="axis-label" x="16" y="${top + plotHeight / 2}" text-anchor="middle" transform="rotate(-90 16 ${top + plotHeight / 2})">Quality — higher is better</text>${marks}</svg>`
     : `<p>No cells have both quality and known cost, so this plot is unavailable.</p>`;
   return `<figure class="chart-card chart-card-wide" aria-label="Quality versus estimated cost chart"><figcaption><strong>${escapeHtml(taskId)} — quality vs estimated cost</strong><span>Top-left is best: higher approved quality at lower estimated cost. Filled circles pass quality; hollow diamonds fail.</span></figcaption>${plot}<div class="chart-key" aria-label="Exact chart values">${exactValues}</div></figure>`;
+}
+
+function compactChartLabel(value: string, maxCharacters = 30): string {
+  const characters = Array.from(value);
+  if (characters.length <= maxCharacters) return value;
+  const headLength = Math.ceil((maxCharacters - 1) / 2);
+  const tailLength = maxCharacters - 1 - headLength;
+  return `${characters.slice(0, headLength).join("")}…${characters.slice(-tailLength).join("")}`;
 }
 
 function renderBarChart(

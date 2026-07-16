@@ -474,6 +474,32 @@ describe("skill-bench decision-first report", () => {
     expect(html).toContain("Cell baseline-expensive");
   });
 
+  it("keeps equal-quality chart labels separated and inside the plot", () => {
+    const run = completeMatchedRun();
+    const source = run.cells[1];
+    const longModelId = `provider-${"very-long-model-segment-".repeat(4)}tail`;
+    const cells = [
+      { ...source, id: "same-quality-1", arm: "skill" as const, modelId: "model-alpha", costUsd: 0.01 },
+      { ...source, id: "same-quality-2", arm: "baseline" as const, modelId: "model-beta", costUsd: 0.02 },
+      { ...source, id: "same-quality-3", arm: "skill" as const, modelId: "model-gamma", costUsd: 0.03 },
+      { ...source, id: "same-quality-4", arm: "baseline" as const, modelId: longModelId, costUsd: 0.04 },
+    ].map((cell) => ({ ...cell, qualityScore: 1, qualityPassed: true }));
+    const html = renderSkillBenchReportHtml(normalizeSkillBenchReport({ ...run, cells }));
+    const labelY = [...html.matchAll(/<text class="point-label"[^>]* y="([0-9.]+)"/g)]
+      .map((match) => Number(match[1]));
+    const modelLabels = [...html.matchAll(/<tspan class="point-label-model"[^>]* textLength="([0-9.]+)"[^>]*>([^<]+)<\/tspan>/g)];
+
+    expect(labelY).toHaveLength(4);
+    expect(new Set(labelY).size).toBe(4);
+    expect(Math.min(...labelY)).toBeGreaterThanOrEqual(26);
+    expect(Math.max(...labelY)).toBeLessThanOrEqual(250);
+    expect(html.match(/class="point-leader"/g)).toHaveLength(4);
+    expect(modelLabels).toHaveLength(4);
+    expect(modelLabels.every((match) => Number(match[1]) <= 204)).toBe(true);
+    expect(modelLabels.some((match) => match[2].includes("…"))).toBe(true);
+    expect(html).toContain(longModelId);
+  });
+
   it("renders mode, confidence no-winner reason, proof matrix, and escapes confidence output", () => {
     const view = normalizeSkillBenchReport({
       ...completeMatchedRun(),
