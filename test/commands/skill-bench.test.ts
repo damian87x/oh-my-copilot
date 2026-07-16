@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -448,12 +448,21 @@ function routingRecommendation(runId = "run-ok") {
 }
 
 describe("skill-bench command", () => {
+  let originalHome: string | undefined;
+  let isolatedHome: string;
+
   beforeEach(() => {
+    originalHome = process.env.HOME;
+    isolatedHome = tempCwd();
+    process.env.HOME = isolatedHome;
     setSkillBenchPricingResolverForTests(async () => null);
   });
 
   afterEach(() => {
     setSkillBenchPricingResolverForTests(null);
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    rmSync(isolatedHome, { recursive: true, force: true });
   });
 
   it("is registered with the public grammar", () => {
@@ -702,6 +711,112 @@ describe("skill-bench command", () => {
     });
   });
 
+  it("does not scan history model hints when the user supplied explicit models", async () => {
+    const root = tempCwd();
+    const home = tempCwd();
+    writeSkill(root, "custom-review");
+    const eventsPath = path.join(
+      home,
+      ".copilot",
+      "session-state",
+      "11111111-1111-4111-8111-111111111111",
+      "events.jsonl",
+    );
+    mkdirSync(path.dirname(eventsPath), { recursive: true });
+    writeFileSync(
+      eventsPath,
+      `${JSON.stringify({ type: "assistant.turn_start", data: { model: "history-only-model" } })}\n`,
+    );
+
+    await withHome(home, async () => {
+      const result = await run(
+        ["skill-bench", "custom-review", "--model", "explicit-model"],
+        true,
+        root,
+      );
+      expect(result).toMatchObject({ ok: true });
+      const output = result.output as {
+        models: { candidates: Array<{ id: string }> };
+      };
+      expect(output.models.candidates.map(({ id }) => id)).not.toContain(
+        "history-only-model",
+      );
+    });
+  });
+
+  it("ignores symlinked Copilot history files when discovering model hints", async () => {
+    if (process.platform === "win32") return;
+    const root = tempCwd();
+    const home = tempCwd();
+    writeSkill(root, "custom-review");
+    const externalEvents = path.join(tempCwd(), "external-events.jsonl");
+    writeFileSync(
+      externalEvents,
+      `${JSON.stringify({ type: "assistant.turn_start", data: { model: "symlink-only-model" } })}\n`,
+    );
+    const eventsPath = path.join(
+      home,
+      ".copilot",
+      "session-state",
+      "22222222-2222-4222-8222-222222222222",
+      "events.jsonl",
+    );
+    mkdirSync(path.dirname(eventsPath), { recursive: true });
+    symlinkSync(externalEvents, eventsPath);
+
+    await withHome(home, async () => {
+      const result = await run(
+        ["skill-bench", "custom-review"],
+        true,
+        root,
+      );
+      expect(result).toMatchObject({ ok: true });
+      const output = result.output as {
+        models: { candidates: Array<{ id: string }> };
+      };
+      expect(output.models.candidates.map(({ id }) => id)).not.toContain(
+        "symlink-only-model",
+      );
+    });
+  });
+
+  it("bounds Copilot history model discovery to file-edge samples", async () => {
+    const root = tempCwd();
+    const home = tempCwd();
+    writeSkill(root, "custom-review");
+    const eventsPath = path.join(
+      home,
+      ".copilot",
+      "session-state",
+      "33333333-3333-4333-8333-333333333333",
+      "events.jsonl",
+    );
+    mkdirSync(path.dirname(eventsPath), { recursive: true });
+    const event = (model: string) =>
+      JSON.stringify({ type: "assistant.turn_start", data: { model } });
+    const filler = "x".repeat(256 * 1024);
+    writeFileSync(
+      eventsPath,
+      `${event("head-sampled-model")}\n${filler}\n${event("middle-unsampled-model")}\n${filler}\n${event("tail-sampled-model")}\n`,
+    );
+
+    await withHome(home, async () => {
+      const result = await run(
+        ["skill-bench", "custom-review"],
+        true,
+        root,
+      );
+      expect(result).toMatchObject({ ok: true });
+      const output = result.output as {
+        models: { candidates: Array<{ id: string }> };
+      };
+      const ids = output.models.candidates.map(({ id }) => id);
+      expect(ids).toContain("head-sampled-model");
+      expect(ids).toContain("tail-sampled-model");
+      expect(ids).not.toContain("middle-unsampled-model");
+    });
+  });
+
   it("probes only explicit model ids after opt-in and keeps unknown models selectable", async () => {
     const root = tempCwd();
     writeSkill(root, "custom-review");
@@ -915,6 +1030,30 @@ describe("skill-bench command", () => {
       ok: true,
       message: expect.stringContaining("imported reviewed manifest"),
     });
+    if (process.platform !== "win32") {
+      const draftLedgerPath = path.join(
+        root,
+        ".omp",
+        "skill-bench",
+        "drafts",
+        draftId!,
+        "approvals.jsonl",
+      );
+      const draftLedgerBefore = readFileSync(draftLedgerPath, "utf8");
+      const externalDraftLedger = path.join(tempCwd(), "approvals.jsonl");
+      writeFileSync(externalDraftLedger, draftLedgerBefore);
+      rmSync(draftLedgerPath);
+      symlinkSync(externalDraftLedger, draftLedgerPath);
+      await expect(
+        run(["skill-bench", "resume", draftId!, "--approve", "selection"], false, root),
+      ).resolves.toMatchObject({
+        ok: false,
+        message: expect.stringContaining("approval ledger must be a regular file"),
+      });
+      expect(readFileSync(externalDraftLedger, "utf8")).toBe(draftLedgerBefore);
+      rmSync(draftLedgerPath);
+      writeFileSync(draftLedgerPath, draftLedgerBefore, { flag: "wx" });
+    }
     for (const gate of ["selection", "scenarios", "action-contract", "references", "rubric", "models", "execution-profile", "budgets"]) {
       await expect(run(["skill-bench", "resume", draftId!, "--approve", gate], false, root)).resolves.toMatchObject({
         ok: true,
@@ -925,6 +1064,45 @@ describe("skill-bench command", () => {
       ok: false,
       message: expect.stringContaining("append-only"),
     });
+    if (process.platform !== "win32") {
+      const specOutputDir = path.join(
+        root,
+        ".omp",
+        "skill-bench",
+        "specs",
+        "imported-review",
+      );
+      mkdirSync(path.dirname(specOutputDir), { recursive: true });
+      const outside = tempCwd();
+      writeFileSync(path.join(outside, "sentinel.txt"), "outside\n");
+      symlinkSync(outside, specOutputDir, "dir");
+      await expect(
+        run(["skill-bench", "resume", draftId!, "--freeze"], false, root),
+      ).resolves.toMatchObject({
+        ok: false,
+        message: expect.stringContaining(
+          "cannot reserve frozen spec output safely",
+        ),
+      });
+      expect(readFileSync(path.join(outside, "sentinel.txt"), "utf8")).toBe("outside\n");
+
+      unlinkSync(specOutputDir);
+      mkdirSync(specOutputDir, { recursive: true });
+      const externalLedger = path.join(outside, "approvals.jsonl");
+      writeFileSync(externalLedger, "external sentinel\n");
+      linkSync(externalLedger, path.join(specOutputDir, "approvals.jsonl"));
+      await expect(
+        run(["skill-bench", "resume", draftId!, "--freeze"], false, root),
+      ).resolves.toMatchObject({
+        ok: false,
+        message: expect.stringContaining(
+          "could not materialize frozen spec safely",
+        ),
+      });
+      expect(readFileSync(externalLedger, "utf8")).toBe("external sentinel\n");
+      rmSync(specOutputDir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
     const frozen = await run(["skill-bench", "resume", draftId!, "--freeze"], false, root);
     expect(frozen).toMatchObject({ ok: true, message: expect.stringContaining("frozen spec exported") });
     const specId = /spec-id=(\S+)/.exec(frozen.message ?? "")?.[1];
@@ -1024,7 +1202,27 @@ describe("skill-bench command", () => {
         ok: false,
         message: expect.stringContaining("stale spec"),
       });
-      rmSync(path.join(root, ".omp/skill-bench/runs", runId!, "approvals.jsonl"));
+      const runLedgerPath = path.join(
+        root,
+        ".omp/skill-bench/runs",
+        runId!,
+        "approvals.jsonl",
+      );
+      if (process.platform !== "win32") {
+        const runLedgerBefore = readFileSync(runLedgerPath, "utf8");
+        const externalRunLedger = path.join(tempCwd(), "approvals.jsonl");
+        writeFileSync(externalRunLedger, runLedgerBefore);
+        rmSync(runLedgerPath);
+        symlinkSync(externalRunLedger, runLedgerPath);
+        await expect(run(["skill-bench", "report", runId!, "--no-open"], false, root)).resolves.toMatchObject({
+          ok: false,
+          message: expect.stringContaining("approval ledger must be a regular file"),
+        });
+        expect(readFileSync(externalRunLedger, "utf8")).toBe(runLedgerBefore);
+        rmSync(runLedgerPath);
+      } else {
+        rmSync(runLedgerPath);
+      }
       await expect(run(["skill-bench", "report", runId!, "--no-open"], false, root)).resolves.toMatchObject({
         ok: false,
         message: expect.stringContaining("approval ledger"),
@@ -1163,7 +1361,7 @@ describe("skill-bench command", () => {
         },
       ],
     });
-  });
+  }, 15_000);
 
   it("previews portable exports without writing, requires approval, and rejects stale previews", async () => {
     const root = tempCwd();
@@ -1232,7 +1430,43 @@ describe("skill-bench command", () => {
       true,
       root,
     );
-    const exportId = (refreshed.output as { exportId: string }).exportId;
+    const { exportId, approvalSha256 } = refreshed.output as {
+      exportId: string;
+      approvalSha256: string;
+    };
+    const approvalLedgerPath = path.join(
+      root,
+      ".omp",
+      "skill-bench",
+      "exports",
+      exportId,
+      "approvals.jsonl",
+    );
+    const externalApprovalLedger = path.join(tempCwd(), "approvals.jsonl");
+    const externalApproval = `${JSON.stringify({
+      schemaVersion: 1,
+      type: "export-approval",
+      exportId,
+      approvalSha256,
+      approved: true,
+    })}\n`;
+    if (process.platform !== "win32") {
+      writeFileSync(externalApprovalLedger, externalApproval);
+      symlinkSync(externalApprovalLedger, approvalLedgerPath);
+      await expect(
+        run(
+          ["skill-bench", "export", runId, "--output", "approved-export.json", "--approve"],
+          true,
+          root,
+        ),
+      ).resolves.toMatchObject({
+        ok: false,
+        message: expect.stringContaining("approval ledger must be a regular file"),
+      });
+      expect(existsSync(outputPath)).toBe(false);
+      expect(readFileSync(externalApprovalLedger, "utf8")).toBe(externalApproval);
+      rmSync(approvalLedgerPath);
+    }
     const approved = await run(
       ["skill-bench", "export", runId, "--output", "approved-export.json", "--approve"],
       true,
@@ -1244,11 +1478,35 @@ describe("skill-bench command", () => {
     });
     expect(existsSync(outputPath)).toBe(true);
     const approvalLedger = readFileSync(
-      path.join(root, ".omp", "skill-bench", "exports", exportId, "approvals.jsonl"),
+      approvalLedgerPath,
       "utf8",
     );
     expect(approvalLedger).toContain('"type":"export-approval"');
   });
+
+  it.skipIf(process.platform === "win32")(
+    "rejects a portable export through a symlinked output ancestor",
+    async () => {
+      const root = tempCwd();
+      const outside = tempCwd();
+      const runId = "run-export-output-link";
+      writeCompletedRunWithEvidence(root, runId);
+      symlinkSync(outside, path.join(root, "linked-output"), "dir");
+      const args = [
+        "skill-bench",
+        "export",
+        runId,
+        "--output",
+        "linked-output/bundle.json",
+      ];
+
+      await expect(run(args, true, root)).resolves.toMatchObject({ ok: true });
+      await expect(run([...args, "--approve"], true, root)).resolves.toMatchObject({
+        ok: false,
+      });
+      expect(existsSync(path.join(outside, "bundle.json"))).toBe(false);
+    },
+  );
 
   it("rejects malformed V1 specs through the public loader before run execution", async () => {
     const root = tempCwd();
@@ -1347,13 +1605,17 @@ describe("skill-bench command", () => {
       process.stdout.write(JSON.stringify({ schemaVersion: 1, label: 'answer-quality', score: 1, proofMatrix: { expected: ['find issue'], found: ['find issue'], done: ['find issue'], missed: [], falsePositive: [], incorrect: [], proof: [input.declaredEvidence[0].path] }, evidence: [{ path: input.declaredEvidence[0].path }] }));
     `);
     writeApprovedSpec(root, "provider-preferred", spec);
-    setSkillBenchProviderTransportForTests(async (request) => ({
-      status: "complete",
-      stdout: request.skillExposure.selectedSkillId ? "found issue" : "",
-      stderr: "",
-      exitCode: 0,
-      usage: { premiumRequests: 1, inputTokens: 10, outputTokens: 5, completeness: "provider-metadata", provenance: "fake-provider" },
-    }));
+    let providerCalls = 0;
+    setSkillBenchProviderTransportForTests(async (request) => {
+      providerCalls += 1;
+      return {
+        status: "complete",
+        stdout: request.skillExposure.selectedSkillId ? "found issue" : "",
+        stderr: "",
+        exitCode: 0,
+        usage: { premiumRequests: 1, inputTokens: 10, outputTokens: 5, completeness: "provider-metadata", provenance: "fake-provider" },
+      };
+    });
     try {
       const result = await run(["skill-bench", "run", "provider-preferred", "--pilot", "--approve-spend"], false, root);
       expect(result).toMatchObject({ ok: true, message: expect.stringContaining("pilot provider run completed") });
@@ -1361,8 +1623,321 @@ describe("skill-bench command", () => {
       const runArtifact = JSON.parse(readFileSync(path.join(root, ".omp/skill-bench/runs", runId!, "run.json"), "utf8"));
       expect(runArtifact).toMatchObject({ status: "complete", synthetic: false, mode: "pilot" });
       expect(runArtifact.provider).toMatchObject({ kind: "copilot" });
+      expect(providerCalls).toBe(2);
+
+      if (process.platform !== "win32") {
+        const runRoot = path.join(root, ".omp", "skill-bench", "runs", runId!);
+        const runLedger = path.join(runRoot, "approvals.jsonl");
+        const outside = tempCwd();
+        const externalLedger = path.join(outside, "approvals.jsonl");
+        writeFileSync(externalLedger, "external sentinel\n");
+        rmSync(runLedger);
+        linkSync(externalLedger, runLedger);
+        providerCalls = 0;
+        await expect(
+          run(
+            ["skill-bench", "run", "provider-preferred", "--pilot"],
+            false,
+            root,
+          ),
+        ).resolves.toMatchObject({
+          ok: false,
+          message: expect.stringContaining(
+            "run approval proof could not be persisted safely before provider spend",
+          ),
+        });
+        expect(providerCalls).toBe(0);
+        expect(readFileSync(externalLedger, "utf8")).toBe("external sentinel\n");
+
+        rmSync(runRoot, { recursive: true, force: true });
+        writeFileSync(path.join(outside, "run-root-sentinel.txt"), "outside\n");
+        symlinkSync(outside, runRoot, "dir");
+        providerCalls = 0;
+        await expect(
+          run(
+            ["skill-bench", "run", "provider-preferred", "--pilot"],
+            false,
+            root,
+          ),
+        ).resolves.toMatchObject({
+          ok: false,
+          message: expect.stringContaining(
+            "run output could not be reserved safely before provider spend",
+          ),
+        });
+        expect(providerCalls).toBe(0);
+        expect(readFileSync(path.join(outside, "run-root-sentinel.txt"), "utf8")).toBe("outside\n");
+      }
     } finally {
       setSkillBenchProviderTransportForTests(null);
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("rejects symlinked approval ledgers before provider spend", async () => {
+    const root = tempCwd();
+    const skillDir = writeSkill(root, "dynamic-review");
+    const skillFingerprint = sha256Directory(skillDir);
+    const spec = providerSpecWithEvaluator(root, "symlinked-approval-ledger", {
+      skill: {
+        id: "dynamic-review",
+        path: skillDir,
+        fingerprint: skillFingerprint,
+      },
+      fingerprint: {
+        status: "current",
+        skill: skillFingerprint,
+        model: "model-fp-live",
+        spec: "spec-fp-live",
+        evaluation: "eval-fp-live",
+        provider: "provider-fp-live",
+      },
+    });
+    writeApprovedSpec(root, "symlinked-approval-ledger", spec);
+    const ledgerPath = path.join(
+      root,
+      ".omp",
+      "skill-bench",
+      "specs",
+      "symlinked-approval-ledger",
+      "approvals.jsonl",
+    );
+    const externalLedger = path.join(tempCwd(), "approvals.jsonl");
+    const ledgerBefore = readFileSync(ledgerPath, "utf8");
+    writeFileSync(externalLedger, ledgerBefore);
+    rmSync(ledgerPath);
+    symlinkSync(externalLedger, ledgerPath);
+    let providerCalls = 0;
+    setSkillBenchProviderTransportForTests(async () => {
+      providerCalls += 1;
+      return {
+        status: "complete",
+        stdout: "found issue",
+        stderr: "",
+        exitCode: 0,
+        usage: {
+          premiumRequests: 1,
+          inputTokens: 10,
+          outputTokens: 5,
+          completeness: "provider-metadata",
+          provenance: "fake-provider",
+        },
+      };
+    });
+    try {
+      await expect(
+        run(
+          [
+            "skill-bench",
+            "run",
+            "symlinked-approval-ledger",
+            "--pilot",
+            "--approve-spend",
+          ],
+          false,
+          root,
+        ),
+      ).resolves.toMatchObject({
+        ok: false,
+        message: expect.stringContaining(
+          "approval ledger must be a regular file",
+        ),
+      });
+      expect(providerCalls).toBe(0);
+      expect(readFileSync(externalLedger, "utf8")).toBe(ledgerBefore);
+    } finally {
+      setSkillBenchProviderTransportForTests(null);
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("rejects hardlinked approval ledgers before provider spend", async () => {
+    const root = tempCwd();
+    const skillDir = writeSkill(root, "dynamic-review");
+    const skillFingerprint = sha256Directory(skillDir);
+    const spec = providerSpecWithEvaluator(root, "hardlinked-approval-ledger", {
+      skill: {
+        id: "dynamic-review",
+        path: skillDir,
+        fingerprint: skillFingerprint,
+      },
+      fingerprint: {
+        status: "current",
+        skill: skillFingerprint,
+        model: "model-fp-live",
+        spec: "spec-fp-live",
+        evaluation: "eval-fp-live",
+        provider: "provider-fp-live",
+      },
+    });
+    writeApprovedSpec(root, "hardlinked-approval-ledger", spec);
+    const ledgerPath = path.join(
+      root,
+      ".omp",
+      "skill-bench",
+      "specs",
+      "hardlinked-approval-ledger",
+      "approvals.jsonl",
+    );
+    const externalLedger = path.join(tempCwd(), "approvals.jsonl");
+    const ledgerBefore = readFileSync(ledgerPath, "utf8");
+    writeFileSync(externalLedger, ledgerBefore);
+    rmSync(ledgerPath);
+    linkSync(externalLedger, ledgerPath);
+    let providerCalls = 0;
+    setSkillBenchProviderTransportForTests(async () => {
+      providerCalls += 1;
+      return {
+        status: "complete",
+        stdout: "found issue",
+        stderr: "",
+        exitCode: 0,
+        usage: {
+          premiumRequests: 1,
+          inputTokens: 10,
+          outputTokens: 5,
+          completeness: "provider-metadata",
+          provenance: "fake-provider",
+        },
+      };
+    });
+    try {
+      await expect(
+        run(
+          [
+            "skill-bench",
+            "run",
+            "hardlinked-approval-ledger",
+            "--pilot",
+            "--approve-spend",
+          ],
+          false,
+          root,
+        ),
+      ).resolves.toMatchObject({
+        ok: false,
+        message: expect.stringContaining(
+          "approval ledger must be a regular file",
+        ),
+      });
+      expect(providerCalls).toBe(0);
+      expect(readFileSync(externalLedger, "utf8")).toBe(ledgerBefore);
+    } finally {
+      setSkillBenchProviderTransportForTests(null);
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a symlinked artifact directory before provider spend", async () => {
+    const root = tempCwd();
+    const skillDir = writeSkill(root, "dynamic-review");
+    const skillFingerprint = sha256Directory(skillDir);
+    const id = "symlinked-artifact-directory";
+    const spec = providerSpecWithEvaluator(root, id, {
+      skill: {
+        id: "dynamic-review",
+        path: skillDir,
+        fingerprint: skillFingerprint,
+      },
+      fingerprint: {
+        status: "current",
+        skill: skillFingerprint,
+        model: "model-fp-live",
+        spec: "spec-fp-live",
+        evaluation: "eval-fp-live",
+        provider: "provider-fp-live",
+      },
+    });
+    writeApprovedSpec(root, id, spec);
+    const specDir = path.join(root, ".omp", "skill-bench", "specs", id);
+    const outside = tempCwd();
+    const externalSpecDir = path.join(outside, "spec");
+    renameSync(specDir, externalSpecDir);
+    symlinkSync(externalSpecDir, specDir, "dir");
+    let providerCalls = 0;
+    setSkillBenchProviderTransportForTests(async () => {
+      providerCalls += 1;
+      return {
+        status: "complete",
+        stdout: "found issue",
+        stderr: "",
+        exitCode: 0,
+      };
+    });
+    try {
+      await expect(
+        run(
+          ["skill-bench", "run", id, "--pilot", "--approve-spend"],
+          false,
+          root,
+        ),
+      ).resolves.toMatchObject({
+        ok: false,
+        message: expect.stringContaining("artifact path contains a symlink"),
+      });
+      expect(providerCalls).toBe(0);
+    } finally {
+      setSkillBenchProviderTransportForTests(null);
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a path-target manifest through a symlinked ancestor before reading approval state", async () => {
+    const root = tempCwd();
+    const skillDir = writeSkill(root, "dynamic-review");
+    const skillFingerprint = sha256Directory(skillDir);
+    const id = "path-target-symlinked-ancestor";
+    const spec = providerSpecWithEvaluator(root, id, {
+      skill: {
+        id: "dynamic-review",
+        path: skillDir,
+        fingerprint: skillFingerprint,
+      },
+      fingerprint: {
+        status: "current",
+        skill: skillFingerprint,
+        model: "model-fp-live",
+        spec: "spec-fp-live",
+        evaluation: "eval-fp-live",
+        provider: "provider-fp-live",
+      },
+    });
+    writeApprovedSpec(root, id, spec);
+    const specDir = path.join(root, ".omp", "skill-bench", "specs", id);
+    const outside = tempCwd();
+    const externalSpecDir = path.join(outside, "spec");
+    renameSync(specDir, externalSpecDir);
+    symlinkSync(externalSpecDir, path.join(root, "linked-spec"), "dir");
+    let providerCalls = 0;
+    setSkillBenchProviderTransportForTests(async () => {
+      providerCalls += 1;
+      return {
+        status: "complete",
+        stdout: "found issue",
+        stderr: "",
+        exitCode: 0,
+      };
+    });
+    try {
+      await expect(
+        run(
+          [
+            "skill-bench",
+            "run",
+            "linked-spec/manifest.json",
+            "--pilot",
+            "--approve-spend",
+          ],
+          false,
+          root,
+        ),
+      ).resolves.toMatchObject({
+        ok: false,
+        message: expect.stringContaining(
+          "artifact path must be a regular file",
+        ),
+      });
+      expect(providerCalls).toBe(0);
+    } finally {
+      setSkillBenchProviderTransportForTests(null);
+      rmSync(outside, { recursive: true, force: true });
     }
   });
 
@@ -2270,12 +2845,11 @@ describe("skill-bench command", () => {
       ok: true,
       message: expect.stringContaining("capability=advisory"),
     });
-    expect(existsSync(instructions)).toBe(false);
-
     mkdirSync(path.dirname(instructions), { recursive: true });
     writeFileSync(
       instructions,
       "<!-- BEGIN OMP SKILL-BENCH ROUTE -->\ntruncated\n",
+      { flag: "wx" },
     );
     await expect(
       run(["skill-bench", "apply", "run-advisory-preview"], false, root),
@@ -2336,10 +2910,12 @@ describe("skill-bench command", () => {
     await expect(run(["skill-bench", "export", "run-secret", "--output", "secret.json"], false, root)).resolves.toMatchObject({ ok: false, exitCode: 1, message: expect.stringContaining("Privacy preflight failed") });
     expect(existsSync(path.join(root, "secret.json"))).toBe(false);
 
-    writeJson(root, ".omp/skill-bench/runs/run-link/run.json", { ...completedRun("run-link"), exportManifest: { files: [".omp/skill-bench/runs/run-link/link.txt"] } });
-    symlinkSync(path.join(root, ".omp/skill-bench/runs/run-secret/unsafe.txt"), path.join(root, ".omp/skill-bench/runs/run-link/link.txt"));
-    await expect(run(["skill-bench", "export", "run-link", "--output", "link.json"], false, root)).resolves.toMatchObject({ ok: false, exitCode: 1, message: expect.stringContaining("unresolved symlink") });
-    expect(existsSync(path.join(root, "link.json"))).toBe(false);
+    if (process.platform !== "win32") {
+      writeJson(root, ".omp/skill-bench/runs/run-link/run.json", { ...completedRun("run-link"), exportManifest: { files: [".omp/skill-bench/runs/run-link/link.txt"] } });
+      symlinkSync(path.join(root, ".omp/skill-bench/runs/run-secret/unsafe.txt"), path.join(root, ".omp/skill-bench/runs/run-link/link.txt"));
+      await expect(run(["skill-bench", "export", "run-link", "--output", "link.json"], false, root)).resolves.toMatchObject({ ok: false, exitCode: 1, message: expect.stringContaining("unresolved symlink") });
+      expect(existsSync(path.join(root, "link.json"))).toBe(false);
+    }
 
     writeJson(root, ".omp/skill-bench/runs/run-absolute-export/run.json", { ...completedRun("run-absolute-export"), exportManifest: { files: [path.join(root, ".omp/skill-bench/runs/run-secret/unsafe.txt")] } });
     await expect(run(["skill-bench", "export", "run-absolute-export", "--output", "absolute.json"], false, root)).resolves.toMatchObject({ ok: false, exitCode: 1, message: expect.stringContaining("absolute private path") });
@@ -2348,6 +2924,87 @@ describe("skill-bench command", () => {
     writeJson(root, ".omp/skill-bench/runs/run-traversal-export/run.json", { ...completedRun("run-traversal-export"), exportManifest: { files: [".omp/skill-bench/runs/run-traversal-export/../run-secret/unsafe.txt"] } });
     await expect(run(["skill-bench", "export", "run-traversal-export", "--output", "traversal.json"], false, root)).resolves.toMatchObject({ ok: false, exitCode: 1, message: expect.stringContaining("unsafe relative path") });
     expect(existsSync(path.join(root, "traversal.json"))).toBe(false);
+
+    if (process.platform !== "win32") {
+      const outside = tempCwd();
+      writeFileSync(path.join(outside, "safe.txt"), "apparently safe evidence\n");
+      const escapedRunRoot = path.join(
+        root,
+        ".omp",
+        "skill-bench",
+        "runs",
+        "run-directory-link",
+      );
+      writeJson(root, ".omp/skill-bench/runs/run-directory-link/run.json", {
+        ...completedRun("run-directory-link"),
+        exportManifest: {
+          files: [
+            ".omp/skill-bench/runs/run-directory-link/run.json",
+            ".omp/skill-bench/runs/run-directory-link/linked/safe.txt",
+          ],
+        },
+      });
+      symlinkSync(outside, path.join(escapedRunRoot, "linked"));
+      await expect(
+        run(
+          [
+            "skill-bench",
+            "export",
+            "run-directory-link",
+            "--output",
+            "directory-link.json",
+          ],
+          false,
+          root,
+        ),
+      ).resolves.toMatchObject({
+        ok: false,
+        exitCode: 1,
+        message: expect.stringContaining("symlink escapes skill-bench root"),
+      });
+      expect(existsSync(path.join(root, "directory-link.json"))).toBe(false);
+
+      const hardlinkRunRoot = path.join(
+        root,
+        ".omp",
+        "skill-bench",
+        "runs",
+        "run-hardlink",
+      );
+      writeJson(root, ".omp/skill-bench/runs/run-hardlink/run.json", {
+        ...completedRun("run-hardlink"),
+        exportManifest: {
+          files: [
+            ".omp/skill-bench/runs/run-hardlink/run.json",
+            ".omp/skill-bench/runs/run-hardlink/hardlinked-safe.txt",
+          ],
+        },
+      });
+      linkSync(
+        path.join(outside, "safe.txt"),
+        path.join(hardlinkRunRoot, "hardlinked-safe.txt"),
+      );
+      await expect(
+        run(
+          [
+            "skill-bench",
+            "export",
+            "run-hardlink",
+            "--output",
+            "hardlink.json",
+          ],
+          false,
+          root,
+        ),
+      ).resolves.toMatchObject({
+        ok: false,
+        exitCode: 1,
+        message: expect.stringContaining(
+          "hard-linked files are not portable",
+        ),
+      });
+      expect(existsSync(path.join(root, "hardlink.json"))).toBe(false);
+    }
   });
 
   it("round-trips a portable frozen spec bundle into an unapproved draft and rejects tampering", async () => {

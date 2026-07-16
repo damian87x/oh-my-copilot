@@ -1,5 +1,6 @@
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { closeSync, constants, fsyncSync, ftruncateSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { openRegularFile, writeAllSync } from "../utils/fs.js";
 import { specContentHash, stableHash } from "./types.js";
 import { resolveSkillBenchPaths, writeSkillBenchJsonAtomic, type SkillBenchPaths, type SkillBenchScope } from "./paths.js";
 
@@ -294,8 +295,7 @@ export function approveDesignGate(session: DesignSession, gateId: string, payloa
     approvals: [...session.approvals, { gateId, payload, approvedAt, specHash: currentHash }],
     stopReason: undefined,
   };
-  const saved = saveDesignSession(updated);
-  appendDesignLedgerEvent(saved, {
+  return saveDesignSessionWithLedgerEvent(updated, {
     type: "approval",
     stage: gateId,
     gateId,
@@ -305,7 +305,6 @@ export function approveDesignGate(session: DesignSession, gateId: string, payloa
     source: "approveDesignGate",
     status: "current",
   });
-  return loadDesignSession(saved.statePath);
 }
 
 export function freezeDesignSession(session: DesignSession, options: { saveAndStopIfMissingApprovals?: boolean } = {}): DesignSession {
@@ -351,9 +350,10 @@ export function freezeDesignSession(session: DesignSession, options: { saveAndSt
     freeze: { specHash: approvalState.specHash, invalidated: false, approvalHashes: approvalState.approvalHashes },
     stopReason: undefined,
   };
-  const saved = saveDesignSession(frozen);
-  appendFreezeLedgerEvent(saved, approvalState.specHash, "current");
-  return loadDesignSession(saved.statePath);
+  return saveDesignSessionWithLedgerEvent(
+    frozen,
+    freezeLedgerEvent(approvalState.specHash, "current"),
+  );
 }
 
 export function canRunDesignSession(session: DesignSession): boolean {
@@ -378,9 +378,10 @@ export function editFrozenDesignSpec(session: DesignSession, edit: (spec: Design
       spec: editedSpec,
       approvals,
     };
-    const saved = saveDesignSession(edited);
-    appendEditLedgerEvent(saved, beforeHash, afterHash);
-    return loadDesignSession(saved.statePath);
+    return saveDesignSessionWithLedgerEvent(
+      edited,
+      editLedgerEvent(edited, beforeHash, afterHash),
+    );
   }
   const edited: DesignSession = {
     ...session,
@@ -396,9 +397,10 @@ export function editFrozenDesignSpec(session: DesignSession, edit: (spec: Design
     spec: editedSpec,
     freeze: { ...session.freeze, specHash: session.freeze?.specHash ?? beforeHash, invalidated: beforeHash !== afterHash || session.freeze?.invalidated === true },
   };
-  const saved = saveDesignSession(edited);
-  appendEditLedgerEvent(saved, beforeHash, afterHash);
-  return loadDesignSession(saved.statePath);
+  return saveDesignSessionWithLedgerEvent(
+    edited,
+    editLedgerEvent(edited, beforeHash, afterHash),
+  );
 }
 
 function designApprovalState(session: DesignSession): {
@@ -435,18 +437,24 @@ function stopAndSave(
   stopReason: string,
   ledger?: { type: "freeze"; status: DesignLedgerStatus; specHash: string; staleGateIds?: string[]; missingGateIds?: string[] },
 ): DesignSession {
-  const saved = saveDesignSession({ ...session, status: "stopped", stopReason });
-  if (ledger) appendFreezeLedgerEvent(saved, ledger.specHash, ledger.status, { stopReason, staleGateIds: ledger.staleGateIds, missingGateIds: ledger.missingGateIds });
-  return loadDesignSession(saved.statePath);
+  const stopped = { ...session, status: "stopped" as const, stopReason };
+  if (!ledger) return saveDesignSession(stopped);
+  return saveDesignSessionWithLedgerEvent(
+    stopped,
+    freezeLedgerEvent(ledger.specHash, ledger.status, {
+      stopReason,
+      staleGateIds: ledger.staleGateIds,
+      missingGateIds: ledger.missingGateIds,
+    }),
+  );
 }
 
-function appendFreezeLedgerEvent(
-  session: DesignSession,
+function freezeLedgerEvent(
   specHash: string,
   status: DesignLedgerStatus,
   details: { stopReason?: string; staleGateIds?: string[]; missingGateIds?: string[] } = {},
-): void {
-  appendDesignLedgerEvent(session, {
+): Omit<DesignLedgerEvent, "scope" | "rootDir" | "storageRoot" | "sessionId"> {
+  return {
     type: "freeze",
     stage: "freeze",
     artifactHash: specHash,
@@ -457,12 +465,25 @@ function appendFreezeLedgerEvent(
     stopReason: details.stopReason,
     staleGateIds: details.staleGateIds,
     missingGateIds: details.missingGateIds,
-  });
+  };
 }
 
-function appendEditLedgerEvent(session: DesignSession, beforeHash: string, afterHash: string): void {
+function appendFreezeLedgerEvent(
+  session: DesignSession,
+  specHash: string,
+  status: DesignLedgerStatus,
+  details: { stopReason?: string; staleGateIds?: string[]; missingGateIds?: string[] } = {},
+): void {
+  appendDesignLedgerEvent(session, freezeLedgerEvent(specHash, status, details));
+}
+
+function editLedgerEvent(
+  session: DesignSession,
+  beforeHash: string,
+  afterHash: string,
+): Omit<DesignLedgerEvent, "scope" | "rootDir" | "storageRoot" | "sessionId"> {
   const staleGateIds = beforeHash === afterHash ? [] : session.approvals.filter((approval) => approval.specHash === beforeHash).map((approval) => approval.gateId);
-  appendDesignLedgerEvent(session, {
+  return {
     type: "edit",
     stage: "edit",
     artifactHash: afterHash,
@@ -472,15 +493,32 @@ function appendEditLedgerEvent(session: DesignSession, beforeHash: string, after
     source: "editFrozenDesignSpec",
     status: beforeHash === afterHash ? "current" : "stale",
     staleGateIds,
-  });
+  };
 }
 
-function appendDesignLedgerEvent(
+function openDesignLedger(session: DesignSession): { fd: number; size: number } {
+  const ledgerPath = path.join(path.dirname(session.statePath), "approvals.jsonl");
+  mkdirSync(path.dirname(ledgerPath), { recursive: true });
+  const opened = openRegularFile(
+    ledgerPath,
+    constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT,
+    {
+      rejectHardlinks: true,
+      trustedRoot: path.dirname(path.dirname(session.storageRoot)),
+    },
+  );
+  if (opened.ok) return { fd: opened.fd, size: Number(opened.stat.size) };
+  if (opened.reason === "unavailable") {
+    throw new Error("approval ledger could not be opened safely");
+  }
+  throw new Error("approval ledger must be a regular file and remain stable");
+}
+
+function writeDesignLedgerEvent(
+  fd: number,
   session: DesignSession,
   event: Omit<DesignLedgerEvent, "scope" | "rootDir" | "storageRoot" | "sessionId">,
 ): void {
-  const ledgerPath = path.join(path.dirname(session.statePath), "approvals.jsonl");
-  mkdirSync(path.dirname(ledgerPath), { recursive: true });
   const normalized: DesignLedgerEvent = {
     ...event,
     scope: session.storageScope,
@@ -488,7 +526,46 @@ function appendDesignLedgerEvent(
     storageRoot: session.storageRoot,
     sessionId: session.id,
   };
-  appendFileSync(ledgerPath, `${JSON.stringify(normalized)}\n`, "utf8");
+  writeAllSync(fd, `${JSON.stringify(normalized)}\n`);
+  fsyncSync(fd);
+}
+
+function appendDesignLedgerEvent(
+  session: DesignSession,
+  event: Omit<DesignLedgerEvent, "scope" | "rootDir" | "storageRoot" | "sessionId">,
+): void {
+  const { fd } = openDesignLedger(session);
+  try {
+    writeDesignLedgerEvent(fd, session, event);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function saveDesignSessionWithLedgerEvent(
+  session: DesignSession,
+  event: Omit<DesignLedgerEvent, "scope" | "rootDir" | "storageRoot" | "sessionId">,
+): DesignSession {
+  const { fd, size } = openDesignLedger(session);
+  try {
+    writeDesignLedgerEvent(fd, session, event);
+    try {
+      return saveDesignSession(session);
+    } catch (error) {
+      try {
+        ftruncateSync(fd, size);
+        fsyncSync(fd);
+      } catch {
+        throw new Error(
+          "design state save failed and approval ledger rollback failed",
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function saveDesignSession(session: DesignSession): DesignSession {

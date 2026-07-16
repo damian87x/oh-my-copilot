@@ -1,12 +1,18 @@
 import { createHash } from "node:crypto";
 import {
+  closeSync,
+  constants,
   cpSync,
   existsSync,
+  fstatSync,
+  fsyncSync,
   lstatSync,
   mkdirSync,
+  opendirSync,
   realpathSync,
   readdirSync,
   readFileSync,
+  readSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -52,7 +58,13 @@ import {
 import { resolveCopilotPaths } from "../copilot/paths.js";
 import { probeModels, type ProbeResult } from "../copilot/models.js";
 import { createReviewSpawn } from "../memory-review/spawn.js";
-import { atomicWrite, ensureDir } from "../utils/fs.js";
+import {
+  atomicWriteTrustedFile,
+  ensureDir,
+  openRegularFile,
+  type OpenRegularFileFailureReason,
+  writeAllSync,
+} from "../utils/fs.js";
 import {
   comparePairedDifferences,
   decideValidatedSampling,
@@ -89,6 +101,7 @@ import { runEvaluatorV1, type FrozenEvaluatorDescriptorV1 } from "../skill-bench
 import {
   resolveSkillBenchPaths,
   resolveSkillBenchOutputPath,
+  writeSkillBenchFileAtomic,
   writeSkillBenchJsonAtomic,
   type SkillBenchPaths,
   type SkillBenchScope,
@@ -126,6 +139,7 @@ type LoadedArtifact = {
   kind: ArtifactKind;
   id: string;
   path: string;
+  trustedRoot: string;
   artifact: Record<string, unknown>;
 };
 
@@ -149,6 +163,76 @@ async function probeRequestedModels(modelIds: string[]): Promise<ProbeResult[]> 
 
 function fail(message: string): CliResult {
   return { ok: false, exitCode: 1, message };
+}
+
+function readRegularFileUtf8(
+  filePath: string,
+  trustedRoot: string,
+):
+  | { ok: true; content: string }
+  | { ok: false; reason: OpenRegularFileFailureReason } {
+  const opened = openRegularFile(filePath, constants.O_RDONLY, {
+    rejectHardlinks: true,
+    trustedRoot,
+  });
+  if (!opened.ok) return opened;
+  try {
+    return { ok: true, content: readFileSync(opened.fd, "utf8") };
+  } catch {
+    return { ok: false, reason: "unavailable" };
+  } finally {
+    closeSync(opened.fd);
+  }
+}
+
+function createTextFileIfMissing(
+  filePath: string,
+  content: () => string,
+  trustedRoot: string,
+): boolean {
+  const existing = openRegularFile(filePath, constants.O_RDONLY, {
+    rejectHardlinks: true,
+    trustedRoot,
+  });
+  if (existing.ok) {
+    closeSync(existing.fd);
+    return false;
+  }
+  if (existing.reason !== "missing")
+    throw new Error(regularFileFailureReason(existing.reason, "file"));
+  const text = content();
+  atomicWriteTrustedFile(filePath, text, {
+    rejectHardlinks: true,
+    trustedRoot,
+  });
+  return true;
+}
+
+function writeTrustedFile(
+  filePath: string,
+  content: string | Buffer,
+  trustedRoot: string,
+): void {
+  atomicWriteTrustedFile(filePath, content, {
+    rejectHardlinks: true,
+    trustedRoot,
+  });
+}
+
+function approvalLedgerFailureReason(
+  reason: OpenRegularFileFailureReason,
+): string {
+  return regularFileFailureReason(reason, "approval ledger");
+}
+
+function regularFileFailureReason(
+  reason: OpenRegularFileFailureReason,
+  label: string,
+): string {
+  if (reason === "missing") return `${label} required`;
+  if (reason === "unavailable")
+    return `${label} could not be opened safely`;
+  return `${label} must be a regular file and remain stable`;
 }
 
 function stripCommand(argv: string[]): string[] {
@@ -313,7 +397,8 @@ async function designOutput(parsed: ParsedDesign, cwd: string) {
     probeResults.map((result) => [result.model, result.status]),
   );
   const modelResolution = await resolveModelCandidates({
-    historyObservedIds: historyObservedModelIds(),
+    historyObservedIds:
+      parsed.modelIds.length === 0 ? historyObservedModelIds() : [],
     configuredIds: configuredModelIds(cwd),
     hostDefaultIds: ["auto"],
     explicitIds: parsed.modelIds,
@@ -623,15 +708,73 @@ function configuredUnavailableModelIds(cwd: string): string[] {
   ]);
 }
 
+const HISTORY_MODEL_MAX_FILES = 256;
+const HISTORY_MODEL_MAX_DIRECTORY_ENTRIES = 1_024;
+const HISTORY_MODEL_EDGE_BYTES = 32 * 1024;
+
+function readHistoryModelSample(fd: number): string {
+  const size = fstatSync(fd).size;
+  const headLength = Math.min(size, HISTORY_MODEL_EDGE_BYTES);
+  const tailStart = Math.max(headLength, size - HISTORY_MODEL_EDGE_BYTES);
+  const chunks: string[] = [];
+  for (const [position, length] of [
+    [0, headLength],
+    [tailStart, size - tailStart],
+  ] as const) {
+    if (length <= 0) continue;
+    const buffer = Buffer.allocUnsafe(length);
+    const bytesRead = readSync(fd, buffer, 0, length, position);
+    chunks.push(buffer.subarray(0, bytesRead).toString("utf8"));
+  }
+  return chunks.join("\n");
+}
+
 function historyObservedModelIds(): string[] {
   const root = path.join(process.env.HOME ?? homedir(), ".copilot", "session-state");
   const ids: string[] = [];
-  if (!existsSync(root)) return ids;
   try {
-    for (const session of readdirSync(root)) {
-      const filePath = path.join(root, session, "events.jsonl");
-      if (!existsSync(filePath)) continue;
-      for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    if (!lstatSync(root).isDirectory()) return [];
+    const eventFiles: Array<{ filePath: string; mtimeMs: number }> = [];
+    const directory = opendirSync(root);
+    try {
+      for (
+        let visited = 0;
+        visited < HISTORY_MODEL_MAX_DIRECTORY_ENTRIES;
+        visited += 1
+      ) {
+        const session = directory.readSync();
+        if (!session) break;
+        if (!session.isDirectory()) continue;
+        const filePath = path.join(root, session.name, "events.jsonl");
+        try {
+          const stats = lstatSync(filePath);
+          if (stats.isFile())
+            eventFiles.push({ filePath, mtimeMs: stats.mtimeMs });
+        } catch {
+          // Optional history hints skip unreadable session entries.
+        }
+      }
+    } finally {
+      directory.closeSync();
+    }
+    eventFiles.sort(
+      (left, right) =>
+        right.mtimeMs - left.mtimeMs ||
+        left.filePath.localeCompare(right.filePath),
+    );
+    for (const { filePath } of eventFiles.slice(0, HISTORY_MODEL_MAX_FILES)) {
+      const opened = openRegularFile(filePath, constants.O_RDONLY, {
+        rejectHardlinks: true,
+        trustedRoot: root,
+      });
+      if (!opened.ok) continue;
+      let sample: string;
+      try {
+        sample = readHistoryModelSample(opened.fd);
+      } finally {
+        closeSync(opened.fd);
+      }
+      for (const line of sample.split(/\r?\n/)) {
         if (!line.trim()) continue;
         try {
           const parsed = JSON.parse(line);
@@ -732,12 +875,12 @@ function persistDesign(
   const root = scope === "project" ? paths.projectRoot : paths.globalRoot;
   const approvalsPath = path.join(root, "drafts", output.id, "approvals.jsonl");
   mkdirSync(path.dirname(approvalsPath), { recursive: true });
-  if (!existsSync(approvalsPath)) {
-    writeFileSync(
-      approvalsPath,
+  createTextFileIfMissing(
+    approvalsPath,
+    () =>
       `${canonicalJson({ schemaVersion: 1, draftId: output.id, stage: "created", approved: false, source: "omp skill-bench", artifactPath: persistedPath })}\n`,
-    );
-  }
+    path.dirname(path.dirname(root)),
+  );
   return { ...output, draftPath: persistedPath };
 }
 
@@ -817,8 +960,11 @@ function nestedRecord(
   return isRecord(child) ? child : {};
 }
 
-function loadJsonFile(filePath: string): unknown {
-  return JSON.parse(readFileSync(filePath, "utf8"));
+function loadJsonFile(filePath: string, trustedRoot: string): unknown {
+  const loaded = readRegularFileUtf8(filePath, trustedRoot);
+  if (!loaded.ok)
+    throw new Error(regularFileFailureReason(loaded.reason, "JSON file"));
+  return JSON.parse(loaded.content) as unknown;
 }
 
 function safeArtifactId(id: string): boolean {
@@ -828,7 +974,7 @@ function safeArtifactId(id: string): boolean {
 function validateApprovedArtifact(
   id: string,
   artifact: unknown,
-  options: { stage?: ApprovalStage; artifactPath?: string } = {},
+  options: { stage?: ApprovalStage; artifactPath?: string; trustedRoot?: string } = {},
 ): CliResult | undefined {
   if (!isRecord(artifact))
     return fail(
@@ -868,7 +1014,12 @@ function validateApprovedArtifact(
     );
 
   if (options.stage === "source") {
-    const ledgerFailure = validateApprovalLedger(id, artifact, options.artifactPath);
+    const ledgerFailure = validateApprovalLedger(
+      id,
+      artifact,
+      options.artifactPath,
+      options.trustedRoot,
+    );
     if (ledgerFailure) return ledgerFailure;
   }
 
@@ -879,6 +1030,7 @@ function validateApprovedArtifact(
       id,
       artifact,
       options.artifactPath,
+      options.trustedRoot,
     );
     if (ledgerFailure) return ledgerFailure;
   }
@@ -921,16 +1073,20 @@ function validateApprovalLedger(
   id: string,
   artifact: Record<string, unknown>,
   artifactPath: string | undefined,
+  trustedRoot: string | undefined,
 ): CliResult | undefined {
-  if (!artifactPath)
+  if (!artifactPath || !trustedRoot)
     return fail(`Skill-bench artifact ${id} is not approved: approval ledger required.`);
   const ledgerPath = path.join(path.dirname(artifactPath), "approvals.jsonl");
-  if (!existsSync(ledgerPath))
-    return fail(`Skill-bench artifact ${id} is not approved: approval ledger required.`);
+  const ledger = readRegularFileUtf8(ledgerPath, trustedRoot);
+  if (!ledger.ok)
+    return fail(
+      `Skill-bench artifact ${id} is not approved: ${approvalLedgerFailureReason(ledger.reason)}.`,
+    );
   try {
     const validation = resolveApprovalLedgerBinding(
       artifact,
-      readFileSync(ledgerPath, "utf8"),
+      ledger.content,
       true,
     );
     if (!validation.ok)
@@ -988,24 +1144,42 @@ function resolveApprovalLedgerBinding(
 
 function recordLiveSpendApproval(source: LoadedArtifact): CliResult | undefined {
   const ledgerPath = path.join(path.dirname(source.path), "approvals.jsonl");
-  if (!existsSync(ledgerPath))
-    return fail(`Skill-bench artifact ${source.id} is not approved: approval ledger required before spend.`);
-  const specHash = specContentHash(source.artifact);
-  const current = currentSpendApproval(readFileSync(ledgerPath, "utf8"), specHash);
-  if (!current.ok)
-    return fail(`Skill-bench artifact ${source.id} spend approval ledger is invalid: ${current.reason}.`);
-  if (!current.approved) {
-    writeFileSync(
-      ledgerPath,
-      `${JSON.stringify({
-        schemaVersion: 1,
-        type: "spend-approval",
-        approved: true,
-        specContentHash: specHash,
-        approvedAt: new Date().toISOString(),
-      })}\n`,
-      { flag: "a" },
+  const opened = openRegularFile(
+    ledgerPath,
+    constants.O_RDWR | constants.O_APPEND,
+    { rejectHardlinks: true, trustedRoot: source.trustedRoot },
+  );
+  if (!opened.ok)
+    return fail(
+      `Skill-bench artifact ${source.id} is not approved: ${approvalLedgerFailureReason(opened.reason)} before spend.`,
     );
+  try {
+    const specHash = specContentHash(source.artifact);
+    const current = currentSpendApproval(
+      readFileSync(opened.fd, "utf8"),
+      specHash,
+    );
+    if (!current.ok)
+      return fail(`Skill-bench artifact ${source.id} spend approval ledger is invalid: ${current.reason}.`);
+    if (!current.approved) {
+      writeAllSync(
+        opened.fd,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          type: "spend-approval",
+          approved: true,
+          specContentHash: specHash,
+          approvedAt: new Date().toISOString(),
+        })}\n`,
+      );
+      fsyncSync(opened.fd);
+    }
+  } catch {
+    return fail(
+      `Skill-bench artifact ${source.id} spend approval ledger could not be updated safely.`,
+    );
+  } finally {
+    closeSync(opened.fd);
   }
   return undefined;
 }
@@ -1014,10 +1188,13 @@ function liveSpendApprovalStatus(
   source: LoadedArtifact,
 ): { ok: true; approved: boolean } | CliResult {
   const ledgerPath = path.join(path.dirname(source.path), "approvals.jsonl");
-  if (!existsSync(ledgerPath))
-    return fail(`Skill-bench ${source.id} live-cell approval requires an approval ledger.`);
+  const ledger = readRegularFileUtf8(ledgerPath, source.trustedRoot);
+  if (!ledger.ok)
+    return fail(
+      `Skill-bench ${source.id} live-cell approval failed: ${approvalLedgerFailureReason(ledger.reason)}.`,
+    );
   const current = currentSpendApproval(
-    readFileSync(ledgerPath, "utf8"),
+    ledger.content,
     specContentHash(source.artifact),
   );
   if (!current.ok)
@@ -1060,21 +1237,26 @@ function validateRunSourceApprovalLedger(
   id: string,
   artifact: Record<string, unknown>,
   artifactPath: string | undefined,
+  trustedRoot: string | undefined,
 ): CliResult | undefined {
   const binding = nestedRecord(artifact, "sourceApproval");
   if (
     typeof binding.specContentHash !== "string" ||
     typeof binding.ledgerSha256 !== "string" ||
-    !artifactPath
+    !artifactPath ||
+    !trustedRoot
   ) {
     return fail(
       `Skill-bench run ${id} is not approved: source approval binding required.`,
     );
   }
   const ledgerPath = path.join(path.dirname(artifactPath), "approvals.jsonl");
-  if (!existsSync(ledgerPath))
-    return fail(`Skill-bench run ${id} is not approved: approval ledger required.`);
-  const ledger = readFileSync(ledgerPath, "utf8");
+  const ledgerFile = readRegularFileUtf8(ledgerPath, trustedRoot);
+  if (!ledgerFile.ok)
+    return fail(
+      `Skill-bench run ${id} is not approved: ${approvalLedgerFailureReason(ledgerFile.reason)}.`,
+    );
+  const ledger = ledgerFile.content;
   if (sha256Text(ledger) !== binding.ledgerSha256)
     return fail(
       `Skill-bench run ${id} is not approved: approval ledger hash mismatch.`,
@@ -1269,7 +1451,7 @@ function loadArtifact(
         filePath: path.join(root, "runs", id, "run.json"),
       });
   }
-  const existing: Array<{ kind: ArtifactKind; filePath: string }> = [];
+  const existing: Array<{ kind: ArtifactKind; filePath: string; trustedRoot: string }> = [];
   for (const candidate of candidates) {
     const resolved = secureArtifactPath(
       id,
@@ -1279,7 +1461,11 @@ function loadArtifact(
     );
     if (resolved.status === "rejected") return fail(resolved.message);
     if (resolved.status === "found")
-      existing.push({ kind: candidate.kind, filePath: resolved.filePath });
+      existing.push({
+        kind: candidate.kind,
+        filePath: resolved.filePath,
+        trustedRoot: path.dirname(path.dirname(candidate.root)),
+      });
   }
   if (existing.length === 0) {
     if (kinds.length === 1 && kinds[0] === "draft")
@@ -1295,12 +1481,21 @@ function loadArtifact(
       `Skill-bench artifact ${id} is not approved: conflicting artifacts found.`,
     );
   try {
-    const artifact = loadJsonFile(existing[0].filePath);
+    const artifact = loadJsonFile(
+      existing[0].filePath,
+      existing[0].trustedRoot,
+    );
     if (!isRecord(artifact))
       return fail(
         `Skill-bench artifact ${id} is not approved: artifact is invalid.`,
       );
-    return { kind: existing[0].kind, id, path: existing[0].filePath, artifact };
+    return {
+      kind: existing[0].kind,
+      id,
+      path: existing[0].filePath,
+      trustedRoot: existing[0].trustedRoot,
+      artifact,
+    };
   } catch {
     return fail(
       `Skill-bench artifact ${id} is not approved: artifact is invalid.`,
@@ -1325,6 +1520,7 @@ function loadApprovedSpec(
     const failure = validateApprovedArtifact(id, loaded.artifact, {
       stage: "source",
       artifactPath: loaded.path,
+      trustedRoot: loaded.trustedRoot,
     });
     if (failure) return failure;
     const shapeFailure = validatePublicArtifactShape(id, loaded.artifact, "spec");
@@ -1352,6 +1548,20 @@ function looksLikePathTarget(target: string): boolean {
   );
 }
 
+function trustedRootForSpecPath(
+  paths: SkillBenchPaths,
+  cwd: string,
+  filePath: string,
+): string {
+  const candidates = [
+    path.resolve(cwd),
+    path.dirname(path.dirname(paths.projectRoot)),
+    path.dirname(path.dirname(paths.globalRoot)),
+  ].filter((root) => pathContainedInRoot(root, filePath));
+  candidates.sort((left, right) => right.length - left.length);
+  return candidates[0] ?? path.dirname(filePath);
+}
+
 function loadApprovedSpecPath(
   target: string,
   cwd: string,
@@ -1375,17 +1585,31 @@ function loadApprovedSpecPath(
     !isPathInside(cwd, absoluteTarget)
   )
     return fail(`Unsafe skill-bench artifact path: ${target}.`);
-  const filePath =
-    existsSync(absoluteTarget) && lstatSync(absoluteTarget).isDirectory()
+  let filePath: string;
+  try {
+    const targetStat = lstatSync(absoluteTarget);
+    if (targetStat.isSymbolicLink())
+      return fail(`Unsafe skill-bench artifact path: ${target}.`);
+    filePath = targetStat.isDirectory()
       ? path.join(absoluteTarget, "manifest.json")
       : absoluteTarget;
-  if (!existsSync(filePath) || !lstatSync(filePath).isFile())
+  } catch {
     return fail(`Missing approved skill-bench spec path: ${target}.`);
+  }
   const normalized = path.resolve(filePath);
   const artifactClassFailure = validateSpecPathClass(target, normalized);
   if (artifactClassFailure) return artifactClassFailure;
+  const trustedRoot = trustedRootForSpecPath(paths, cwd, normalized);
+  const loaded = readRegularFileUtf8(normalized, trustedRoot);
+  if (!loaded.ok) {
+    if (loaded.reason === "missing")
+      return fail(`Missing approved skill-bench spec path: ${target}.`);
+    return fail(
+      `Skill-bench artifact path ${target} is not approved: ${regularFileFailureReason(loaded.reason, "artifact path")}.`,
+    );
+  }
   try {
-    const artifact = loadJsonFile(normalized);
+    const artifact = JSON.parse(loaded.content) as unknown;
     if (!isRecord(artifact))
       return fail(
         `Skill-bench artifact path ${target} is not approved: artifact is invalid.`,
@@ -1398,11 +1622,15 @@ function loadApprovedSpecPath(
       return fail(
         `Skill-bench artifact path ${target} is not approved: artifact id is invalid.`,
       );
-    const failure = validateApprovedArtifact(id, artifact, { stage: "source", artifactPath: normalized });
+    const failure = validateApprovedArtifact(id, artifact, {
+      stage: "source",
+      artifactPath: normalized,
+      trustedRoot,
+    });
     if (failure) return failure;
     const shapeFailure = validatePublicArtifactShape(id, artifact, "spec");
     if (shapeFailure) return shapeFailure;
-    return { kind: "spec", id, path: normalized, artifact };
+    return { kind: "spec", id, path: normalized, trustedRoot, artifact };
   } catch {
     return fail(
       `Skill-bench artifact path ${target} is not approved: artifact is invalid.`,
@@ -1490,7 +1718,18 @@ function draftCurrentSpec(draft: LoadedArtifact): Record<string, unknown> | null
 function appendDraftLedger(draft: LoadedArtifact, event: Record<string, unknown>): void {
   const ledgerPath = draftLedgerPath(draft);
   mkdirSync(path.dirname(ledgerPath), { recursive: true });
-  writeFileSync(ledgerPath, `${JSON.stringify(event)}\n`, { flag: "a" });
+  const opened = openRegularFile(
+    ledgerPath,
+    constants.O_RDWR | constants.O_APPEND | constants.O_CREAT,
+    { rejectHardlinks: true, trustedRoot: draft.trustedRoot },
+  );
+  if (!opened.ok) throw new Error(approvalLedgerFailureReason(opened.reason));
+  try {
+    writeAllSync(opened.fd, `${JSON.stringify(event)}\n`);
+    fsyncSync(opened.fd);
+  } finally {
+    closeSync(opened.fd);
+  }
 }
 
 function materializeReviewedManifest(
@@ -1659,12 +1898,12 @@ function importReviewedManifest(
     return fail(`Missing reviewed skill-bench manifest: ${target}.`);
   try {
     let reviewedPath = importPath;
-    let manifest = loadJsonFile(reviewedPath);
+    let manifest = loadJsonFile(reviewedPath, path.resolve(cwd));
     if (isRecord(manifest) && manifest.bundleType === "skill-bench-json-v1") {
       const extracted = extractPortableReviewedManifest(manifest, draft);
       if (isCliFailure(extracted)) return extracted;
       reviewedPath = extracted;
-      manifest = loadJsonFile(reviewedPath);
+      manifest = loadJsonFile(reviewedPath, draft.trustedRoot);
     }
     if (!isRecord(manifest)) return fail(`Reviewed skill-bench manifest ${target} is invalid.`);
     const validation = validateSkillBenchSpecV1(manifest);
@@ -1691,7 +1930,7 @@ function importReviewedManifest(
       importedSpecContentHash: specContentHash(materialized),
       approvals: { frozen: false, budget: false, liveCellsAllowed: false },
     };
-    writeJsonFile(draft.path, updated);
+    writeJsonFile(draft.path, updated, draft.trustedRoot);
     appendDraftLedger({ ...draft, artifact: updated }, {
       schemaVersion: 1,
       type: "import",
@@ -1777,8 +2016,8 @@ function extractPortableReviewedManifest(
     if (!isPathInside(stagingRoot, destination)) {
       return fail(`Portable skill-bench import path escapes staging root: ${file.path}.`);
     }
-    ensureDir(destination);
-    atomicWrite(destination, file.bytes);
+    mkdirSync(path.dirname(destination), { recursive: true });
+    writeTrustedFile(destination, file.bytes, draft.trustedRoot);
   }
   const manifestPath = path.resolve(stagingRoot, sourcePath);
   return isPathInside(stagingRoot, manifestPath) && existsSync(manifestPath)
@@ -1793,26 +2032,40 @@ function approveDraftGate(id: string, draft: LoadedArtifact, gate: string): CliR
   if (!allowed.has(gate)) return fail(`unknown design gate: ${gate}`);
   const hash = specContentHash(spec);
   const ledgerPath = draftLedgerPath(draft);
-  if (existsSync(ledgerPath)) {
-    for (const line of readFileSync(ledgerPath, "utf8").split(/\r?\n/)) {
+  mkdirSync(path.dirname(ledgerPath), { recursive: true });
+  const opened = openRegularFile(
+    ledgerPath,
+    constants.O_RDWR | constants.O_APPEND | constants.O_CREAT,
+    { rejectHardlinks: true, trustedRoot: draft.trustedRoot },
+  );
+  if (!opened.ok)
+    return fail(
+      `Skill-bench draft ${id} ${approvalLedgerFailureReason(opened.reason)}.`,
+    );
+  try {
+    for (const line of readFileSync(opened.fd, "utf8").split(/\r?\n/)) {
       if (!line.trim()) continue;
-      try {
-        const event = JSON.parse(line) as unknown;
-        if (isRecord(event) && event.type === "approval" && event.gateId === gate && event.specContentHash === hash)
-          return fail(`Skill-bench draft ${id} approval for ${gate} is append-only for current spec hash.`);
-      } catch {
-        return fail(`Skill-bench draft ${id} approval ledger is invalid.`);
-      }
+      const event = JSON.parse(line) as unknown;
+      if (isRecord(event) && event.type === "approval" && event.gateId === gate && event.specContentHash === hash)
+        return fail(`Skill-bench draft ${id} approval for ${gate} is append-only for current spec hash.`);
     }
+    writeAllSync(
+      opened.fd,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        type: "approval",
+        gateId: gate,
+        approved: true,
+        specContentHash: hash,
+        approvedAt: new Date().toISOString(),
+      })}\n`,
+    );
+    fsyncSync(opened.fd);
+  } catch {
+    return fail(`Skill-bench draft ${id} approval ledger is invalid.`);
+  } finally {
+    closeSync(opened.fd);
   }
-  appendDraftLedger(draft, {
-    schemaVersion: 1,
-    type: "approval",
-    gateId: gate,
-    approved: true,
-    specContentHash: hash,
-    approvedAt: new Date().toISOString(),
-  });
   return {
     ok: true,
     message: `Resumed skill-bench draft ${id}: approved gate ${gate}\nspec-hash=${hash}`,
@@ -1824,8 +2077,8 @@ function freezeDraftSpec(id: string, draft: LoadedArtifact, cwd: string): CliRes
   const spec = draftCurrentSpec(draft);
   if (!spec) return fail(`Skill-bench draft ${id} has no imported manifest to freeze.`);
   const hash = specContentHash(spec);
-  const gateFailure = validateDraftLedgerForFreeze(id, draft, hash);
-  if (gateFailure) return gateFailure;
+  const approvedLedger = validatedDraftLedgerForFreeze(id, draft, hash);
+  if (isCliFailure(approvedLedger)) return approvedLedger;
   const freezeRequirementFailure = validateReviewedManifestFreezeRequirements(id, spec);
   if (freezeRequirementFailure) return freezeRequirementFailure;
   const frozenSpec = freezeReviewedManifestV1(spec);
@@ -1840,36 +2093,58 @@ function freezeDraftSpec(id: string, draft: LoadedArtifact, cwd: string): CliRes
   const paths = resolveSkillBenchPaths({ cwd });
   const scope = artifactScope(paths, draft.path);
   const manifestRelative = path.posix.join("specs", specId, "manifest.json");
-  const specDir = path.join(artifactRoot(paths, scope), "specs", specId);
   const draftBundle = path.join(path.dirname(draft.path), "bundle");
-  if (existsSync(path.join(specDir, "manifest.json"))) {
-    return fail(`Skill-bench spec ${specId} is already frozen and immutable.`);
-  }
   if (!existsSync(draftBundle)) {
     return fail(`Skill-bench draft ${id} is missing its reviewed frozen bundle.`);
   }
-  mkdirSync(specDir, { recursive: true });
-  cpSync(draftBundle, path.join(specDir, "bundle"), {
-    recursive: true,
-    force: false,
-    dereference: false,
-  });
-  const manifestPath = writeSkillBenchJsonAtomic(
-    paths,
-    scope,
-    manifestRelative,
-    frozenSpec,
-  );
-  const specLedger = path.join(path.dirname(manifestPath), "approvals.jsonl");
-  mkdirSync(path.dirname(specLedger), { recursive: true });
-  writeFileSync(specLedger, readFileSync(draftLedgerPath(draft), "utf8"));
-  writeFileSync(specLedger, `${JSON.stringify({ schemaVersion: 1, type: "freeze", status: "frozen", specContentHash: hash, approvedAt: new Date().toISOString() })}\n`, { flag: "a" });
-  writeJsonFile(draft.path, {
-    ...draft.artifact,
-    frozenSpecId: specId,
-    frozenSpecPath: manifestPath,
-    approvals: { frozen: true, budget: true, liveCellsAllowed: false },
-  });
+  let specDir: string;
+  try {
+    specDir = reserveSkillBenchArtifactRoot(
+      paths,
+      scope,
+      path.posix.join("specs", specId),
+      "spec",
+      specId,
+    );
+  } catch (error) {
+    return fail(
+      `Skill-bench draft ${id} cannot reserve frozen spec output safely: ${error instanceof Error ? error.message : String(error)}.`,
+    );
+  }
+  if (existsSync(path.join(specDir, "manifest.json"))) {
+    return fail(`Skill-bench spec ${specId} is already frozen and immutable.`);
+  }
+  let manifestPath: string;
+  try {
+    cpSync(draftBundle, path.join(specDir, "bundle"), {
+      recursive: true,
+      force: false,
+      dereference: false,
+    });
+    manifestPath = writeSkillBenchJsonAtomic(
+      paths,
+      scope,
+      manifestRelative,
+      frozenSpec,
+    );
+    const specLedger = path.join(path.dirname(manifestPath), "approvals.jsonl");
+    mkdirSync(path.dirname(specLedger), { recursive: true });
+    writeTrustedFile(
+      specLedger,
+      `${approvedLedger.content}${JSON.stringify({ schemaVersion: 1, type: "freeze", status: "frozen", specContentHash: hash, approvedAt: new Date().toISOString() })}\n`,
+      scopeBaseFromPaths(paths, scope),
+    );
+    writeJsonFile(draft.path, {
+      ...draft.artifact,
+      frozenSpecId: specId,
+      frozenSpecPath: manifestPath,
+      approvals: { frozen: true, budget: true, liveCellsAllowed: false },
+    }, draft.trustedRoot);
+  } catch (error) {
+    return fail(
+      `Skill-bench draft ${id} could not materialize frozen spec safely: ${error instanceof Error ? error.message : String(error)}.`,
+    );
+  }
   return {
     ok: true,
     message: `Resumed skill-bench draft ${id}: frozen spec exported\nspec-id=${specId}\nspec: ${displayPath(cwd, manifestPath)}\nlive-cells=blocked\nnext: omp skill-bench run ${specId} --pilot --approve-spend`,
@@ -1877,17 +2152,25 @@ function freezeDraftSpec(id: string, draft: LoadedArtifact, cwd: string): CliRes
   };
 }
 
-function validateDraftLedgerForFreeze(id: string, draft: LoadedArtifact, hash: string): CliResult | undefined {
+function validatedDraftLedgerForFreeze(
+  id: string,
+  draft: LoadedArtifact,
+  hash: string,
+): { ok: true; content: string } | CliResult {
   const ledgerPath = draftLedgerPath(draft);
-  if (!existsSync(ledgerPath)) return fail(`Skill-bench draft ${id} missing approvals ledger.`);
+  const ledger = readRegularFileUtf8(ledgerPath, draft.trustedRoot);
+  if (!ledger.ok)
+    return fail(
+      `Skill-bench draft ${id} ${approvalLedgerFailureReason(ledger.reason)}.`,
+    );
   try {
     const validation = validateDesignApprovalLedgerV1(
-      readFileSync(ledgerPath, "utf8"),
+      ledger.content,
       hash,
       { requireFreeze: false },
     );
     return validation.ok
-      ? undefined
+      ? { ok: true, content: ledger.content }
       : fail(`Skill-bench draft ${id} ${validation.reason}.`);
   } catch {
     return fail(`Skill-bench draft ${id} approval ledger is invalid.`);
@@ -1900,6 +2183,7 @@ function loadCompletedRun(id: string, cwd: string): LoadedArtifact | CliResult {
     const failure = validateApprovedArtifact(id, loaded.artifact, {
       stage: "completed-run",
       artifactPath: loaded.path,
+      trustedRoot: loaded.trustedRoot,
     });
     if (failure) return failure;
     const shapeFailure = validatePublicArtifactShape(id, loaded.artifact, "run");
@@ -1914,6 +2198,7 @@ function loadApplicableRun(id: string, cwd: string): LoadedArtifact | CliResult 
     const failure = validateApprovedArtifact(id, loaded.artifact, {
       stage: "applicable-run",
       artifactPath: loaded.path,
+      trustedRoot: loaded.trustedRoot,
     });
     if (failure) return failure;
     const shapeFailure = validatePublicArtifactShape(id, loaded.artifact, "run");
@@ -1931,6 +2216,7 @@ function loadExportableSpecOrRun(
     const failure = validateApprovedArtifact(id, loaded.artifact, {
       stage: loaded.kind === "run" ? "completed-run" : "source",
       artifactPath: loaded.path,
+      trustedRoot: loaded.trustedRoot,
     });
     if (failure) return failure;
     const shapeFailure = validatePublicArtifactShape(id, loaded.artifact, loaded.kind === "run" ? "run" : "spec");
@@ -1978,6 +2264,32 @@ function sourceScope(
 
 function artifactRoot(paths: SkillBenchPaths, scope: SkillBenchScope): string {
   return scope === "project" ? paths.projectRoot : paths.globalRoot;
+}
+
+function reserveSkillBenchArtifactRoot(
+  paths: SkillBenchPaths,
+  scope: SkillBenchScope,
+  relativeRoot: string,
+  kind: "run" | "spec",
+  id: string,
+): string {
+  const reservationPath = resolveSkillBenchOutputPath(
+    paths,
+    scope,
+    path.posix.join(relativeRoot, ".skill-bench-reservation.json"),
+  );
+  mkdirSync(path.dirname(reservationPath), { recursive: true });
+  const trustedRoot = scopeBaseFromPaths(paths, scope);
+  const content = `${canonicalJson({ schemaVersion: 1, kind, id })}\n`;
+  createTextFileIfMissing(reservationPath, () => content, trustedRoot);
+  const persisted = readRegularFileUtf8(reservationPath, trustedRoot);
+  if (!persisted.ok)
+    throw new Error(
+      regularFileFailureReason(persisted.reason, `${kind} output reservation`),
+    );
+  if (persisted.content !== content)
+    throw new Error(`${kind} output reservation does not match ${id}`);
+  return path.dirname(reservationPath);
 }
 
 function artifactRelativePath(
@@ -2088,18 +2400,23 @@ function sha256Json(value: unknown): string {
 function persistRunApprovalProof(
   source: LoadedArtifact,
   runRoot: string,
+  trustedRoot: string,
 ): { specContentHash: string; ledgerSha256: string } {
   const sourceLedgerPath = path.join(path.dirname(source.path), "approvals.jsonl");
-  if (!existsSync(sourceLedgerPath)) throw new Error("source approval ledger required");
-  const ledger = readFileSync(sourceLedgerPath, "utf8");
+  const sourceLedger = readRegularFileUtf8(
+    sourceLedgerPath,
+    source.trustedRoot,
+  );
+  if (!sourceLedger.ok)
+    throw new Error(approvalLedgerFailureReason(sourceLedger.reason));
+  const ledger = sourceLedger.content;
   const validation = resolveApprovalLedgerBinding(
     source.artifact,
     ledger,
     true,
   );
   if (!validation.ok) throw new Error(validation.reason);
-  mkdirSync(runRoot, { recursive: true });
-  writeFileSync(path.join(runRoot, "approvals.jsonl"), ledger, "utf8");
+  writeTrustedFile(path.join(runRoot, "approvals.jsonl"), ledger, trustedRoot);
   return {
     specContentHash: validation.specContentHash,
     ledgerSha256: sha256Text(ledger),
@@ -2314,7 +2631,10 @@ function withLiveRerunFingerprints(
     return { ...artifact, currentFingerprints: current };
   }
   try {
-    const sourceArtifact = loadJsonFile(sourcePath);
+    const sourceArtifact = loadJsonFile(
+      sourcePath,
+      path.dirname(path.dirname(artifactRoot(paths, scope))),
+    );
     if (!isRecord(sourceArtifact)) throw new Error("source manifest is invalid");
     const sourceFingerprint = stringField(artifact, "sourceFingerprint");
     if (sourceFingerprint && stableId(sourceArtifact) !== sourceFingerprint) {
@@ -2327,7 +2647,11 @@ function withLiveRerunFingerprints(
     const validationFailure = validateApprovedArtifact(
       stringField(artifact, "sourceId") ?? "source",
       sourceArtifact,
-      { stage: "source", artifactPath: sourcePath },
+      {
+        stage: "source",
+        artifactPath: sourcePath,
+        trustedRoot: path.dirname(path.dirname(artifactRoot(paths, scope))),
+      },
     );
     current.spec = validationFailure
       ? `invalid-source-${stableId(validationFailure.message ?? "approval")}`
@@ -2542,11 +2866,15 @@ function readExportFiles(
     bytes: Buffer;
     symlinkTarget?: string | null;
   }[] = [];
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = realpathSync(artifactRoot(paths, scope));
+  } catch {
+    return fail("Privacy preflight failed: skill-bench root cannot be verified.");
+  }
   for (const file of resolved) {
-    if (!existsSync(file.absolute))
-      return fail(`Privacy preflight failed: ${file.path}: missing file.`);
-    const stat = lstatSync(file.absolute);
-    if (stat.isSymbolicLink()) {
+    const opened = openRegularFile(file.absolute, constants.O_RDONLY);
+    if (!opened.ok && opened.reason === "symlink") {
       output.push({
         path: file.path,
         content: "",
@@ -2555,15 +2883,46 @@ function readExportFiles(
       });
       continue;
     }
-    if (!stat.isFile())
+    if (!opened.ok && opened.reason === "missing")
+      return fail(`Privacy preflight failed: ${file.path}: missing file.`);
+    if (!opened.ok && opened.reason === "not-regular")
       return fail(`Privacy preflight failed: ${file.path}: not a file.`);
-    const bytes = readFileSync(file.absolute);
-    output.push({
-      path: file.path,
-      content: bytes.toString("utf8"),
-      bytes,
-      symlinkTarget: null,
-    });
+    if (!opened.ok)
+      return fail(
+        `Privacy preflight failed: ${file.path}: file cannot be opened safely.`,
+      );
+    try {
+      if (opened.stat.nlink !== 1)
+        return fail(
+          `Privacy preflight failed: ${file.path}: hard-linked files are not portable.`,
+        );
+      const canonicalPath = realpathSync(file.absolute);
+      if (!isPathInside(canonicalRoot, canonicalPath))
+        return fail(
+          `Privacy preflight failed: ${file.path}: symlink escapes skill-bench root.`,
+        );
+      const canonicalStat = statSync(canonicalPath);
+      if (
+        canonicalStat.dev !== opened.stat.dev ||
+        canonicalStat.ino !== opened.stat.ino
+      )
+        return fail(
+          `Privacy preflight failed: ${file.path}: file changed during verification.`,
+        );
+      const bytes = readFileSync(opened.fd);
+      output.push({
+        path: file.path,
+        content: bytes.toString("utf8"),
+        bytes,
+        symlinkTarget: null,
+      });
+    } catch {
+      return fail(
+        `Privacy preflight failed: ${file.path}: file cannot be read safely.`,
+      );
+    } finally {
+      closeSync(opened.fd);
+    }
   }
   return output;
 }
@@ -2571,6 +2930,7 @@ function readExportFiles(
 type PreparedPortableExport = {
   exportId: string;
   outputAbsolute: string;
+  outputTrustedRoot: string;
   output: Record<string, unknown>;
   bundleText: string;
   bundleSha256: string;
@@ -2593,6 +2953,9 @@ function preparePortableExport(input: {
   const outputAbsolute = path.isAbsolute(input.outputPath)
     ? input.outputPath
     : path.resolve(input.cwd, input.outputPath);
+  const outputTrustedRoot = path.isAbsolute(input.outputPath)
+    ? path.parse(outputAbsolute).root
+    : path.resolve(input.cwd);
   const bundledFiles = input.exportFiles.map((file) => ({
     path: file.path,
     encoding: "base64" as const,
@@ -2690,6 +3053,7 @@ function preparePortableExport(input: {
   return {
     exportId,
     outputAbsolute,
+    outputTrustedRoot,
     output,
     bundleText,
     bundleSha256,
@@ -2700,16 +3064,30 @@ function preparePortableExport(input: {
   };
 }
 
-function exportApprovalExists(
+function recordExportApproval(
   ledgerPath: string,
+  trustedRoot: string,
   exportId: string,
   approvalSha256: string,
-): boolean | CliResult {
-  if (!existsSync(ledgerPath)) return false;
-  let approved = false;
-  for (const line of readFileSync(ledgerPath, "utf8").split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    try {
+  id: string,
+  artifactKind: ArtifactKind,
+): CliResult | undefined {
+  const opened = openRegularFile(
+    ledgerPath,
+    constants.O_RDWR | constants.O_APPEND | constants.O_CREAT,
+    {
+      rejectHardlinks: true,
+      trustedRoot,
+    },
+  );
+  if (!opened.ok)
+    return fail(
+      `Portable export ${exportId} ${approvalLedgerFailureReason(opened.reason)}.`,
+    );
+  try {
+    let approved = false;
+    for (const line of readFileSync(opened.fd, "utf8").split(/\r?\n/)) {
+      if (!line.trim()) continue;
       const event = JSON.parse(line) as unknown;
       if (
         isRecord(event) &&
@@ -2720,16 +3098,38 @@ function exportApprovalExists(
       ) {
         approved = true;
       }
-    } catch {
-      return fail(`Portable export ${exportId} approval ledger is invalid.`);
     }
+    if (!approved) {
+      writeAllSync(
+        opened.fd,
+        `${canonicalJson({
+          schemaVersion: 1,
+          type: "export-approval",
+          exportId,
+          id,
+          artifactKind,
+          approvalSha256,
+          approved: true,
+          approvedAt: new Date().toISOString(),
+        })}\n`,
+      );
+      fsyncSync(opened.fd);
+    }
+  } catch {
+    return fail(`Portable export ${exportId} approval ledger is invalid.`);
+  } finally {
+    closeSync(opened.fd);
   }
-  return approved;
+  return undefined;
 }
 
-function writeJsonFile(filePath: string, value: unknown): void {
+function writeJsonFile(
+  filePath: string,
+  value: unknown,
+  trustedRoot: string,
+): void {
   mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, `${canonicalJson(value)}\n`);
+  writeTrustedFile(filePath, `${canonicalJson(value)}\n`, trustedRoot);
 }
 
 type ManagedRouteRecord = RouteRule & {
@@ -2791,7 +3191,10 @@ function readManagedRouteRecords(
 ): ManagedRouteRecord[] {
   const statePath = managedRoutingPath(paths, scope);
   if (!existsSync(statePath)) return [];
-  const state = loadJsonFile(statePath);
+  const state = loadJsonFile(
+    statePath,
+    path.dirname(path.dirname(artifactRoot(paths, scope))),
+  );
   if (!isRecord(state) || state.schemaVersion !== 1) {
     throw new Error(`managed routing state is invalid: ${statePath}`);
   }
@@ -2927,13 +3330,23 @@ function writeAdvisoryRouteInstructions(input: {
   recommendation: RoutingRecommendationV1;
 }): string {
   const target = advisoryRouteInstructionPath(input.cwd, input.scope);
-  const existing = existsSync(target) ? readFileSync(target, "utf8") : "";
+  const trustedRoot = path.dirname(path.dirname(target));
+  mkdirSync(path.dirname(target), { recursive: true });
+  const loaded = readRegularFileUtf8(target, trustedRoot);
+  if (!loaded.ok && loaded.reason !== "missing")
+    throw new Error(regularFileFailureReason(loaded.reason, "advisory instructions"));
+  const existing = loaded.ok ? loaded.content : "";
   const next = renderAdvisoryInstructionBlock(input.recommendation, existing);
   if (next !== existing) {
-    ensureDir(target);
-    atomicWrite(target, next.endsWith("\n") ? next : `${next}\n`);
+    atomicWriteTrustedFile(target, next.endsWith("\n") ? next : `${next}\n`, {
+      rejectHardlinks: true,
+      trustedRoot,
+    });
   }
-  const persisted = readFileSync(target, "utf8");
+  const persistedFile = readRegularFileUtf8(target, trustedRoot);
+  if (!persistedFile.ok)
+    throw new Error("skill-bench advisory instructions could not be rebound safely");
+  const persisted = persistedFile.content;
   const expected = next.endsWith("\n") ? next : `${next}\n`;
   if (persisted !== expected) {
     throw new Error("skill-bench advisory instructions failed verification");
@@ -3340,6 +3753,27 @@ function buildSyntheticRun(
       `Skill-bench ${mode} run disabled for ${source.id}: ${cellEvidence.message}.`,
     );
   const cells = cellEvidence;
+  let sourceApproval: { specContentHash: string; ledgerSha256: string };
+  try {
+    const reservedRunRoot = reserveSkillBenchArtifactRoot(
+      paths,
+      scope,
+      runRelativeRoot,
+      "run",
+      runId,
+    );
+    if (reservedRunRoot !== runRoot)
+      throw new Error("run output reservation resolved to an unexpected path");
+    sourceApproval = persistRunApprovalProof(
+      source,
+      runRoot,
+      scopeBaseFromPaths(paths, scope),
+    );
+  } catch (error) {
+    return fail(
+      `Skill-bench ${mode} run disabled for ${source.id}: run output could not be reserved safely: ${error instanceof Error ? error.message : String(error)}.`,
+    );
+  }
 
   const evidenceBundles = cells.map((cell) => {
     const bundle = writeSyntheticCell(paths, scope, cell.cellRelative, {
@@ -3522,7 +3956,6 @@ function buildSyntheticRun(
     arms,
     models,
   };
-  const sourceApproval = persistRunApprovalProof(source, runRoot);
   const runArtifact = {
     schemaVersion: 1,
     id: runId,
@@ -3590,9 +4023,10 @@ function buildSyntheticRun(
     path.posix.join(runRelativeRoot, "run.json"),
     runArtifact,
   );
-  mkdirSync(runRoot, { recursive: true });
-  writeFileSync(
-    path.join(runRoot, "sweep_report.html"),
+  writeSkillBenchFileAtomic(
+    paths,
+    scope,
+    path.posix.join(runRelativeRoot, "sweep_report.html"),
     renderSkillBenchReportHtml(reportView),
   );
   const output = {
@@ -3922,13 +4356,20 @@ function writeSyntheticCell(
     artifactRoot(paths, scope),
     ...cellRelative.split("/"),
   );
-  writeFileSync(path.join(cellRoot, "diff.patch"), "");
-  writeFileSync(path.join(cellRoot, "tests.txt"), "synthetic tests passed\n");
-  writeFileSync(
-    path.join(cellRoot, "transcript.txt"),
+  writeSkillBenchFileAtomic(paths, scope, path.posix.join(cellRelative, "diff.patch"), "");
+  writeSkillBenchFileAtomic(
+    paths,
+    scope,
+    path.posix.join(cellRelative, "tests.txt"),
+    "synthetic tests passed\n",
+  );
+  writeSkillBenchFileAtomic(
+    paths,
+    scope,
+    path.posix.join(cellRelative, "transcript.txt"),
     `${canonicalJson({ event: "synthetic", status: "complete" })}\n`,
   );
-  return finalizeEvidenceBundle(cellRoot);
+  return finalizeEvidenceBundle(cellRoot, scopeBaseFromPaths(paths, scope));
 }
 
 function writeBlockedPreflight(
@@ -4105,6 +4546,24 @@ async function buildProviderRun(
       `Skill-bench ${mode} run disabled for ${source.id}: evaluator contract preflight failed before provider spend: ${evaluatorPreflight.errors.join("; ")}. Correct the reviewed evaluator, then import, approve, and freeze a new spec. No provider cell was started, and this command did not modify the frozen spec or approval ledger.`,
     );
   }
+  const runId = `${mode}-${source.id}-${stableId({ source: source.artifact, sourcePath: source.path, mode, provider: true })}`;
+  const runRelativeRoot = path.posix.join("runs", runId);
+  const runRoot = path.join(artifactRoot(paths, scope), "runs", runId);
+  try {
+    const reservedRunRoot = reserveSkillBenchArtifactRoot(
+      paths,
+      scope,
+      runRelativeRoot,
+      "run",
+      runId,
+    );
+    if (reservedRunRoot !== runRoot)
+      throw new Error("run output reservation resolved to an unexpected path");
+  } catch (error) {
+    return fail(
+      `Skill-bench ${mode} run disabled for ${source.id}: run output could not be reserved safely before provider spend: ${error instanceof Error ? error.message : String(error)}.`,
+    );
+  }
   if (approveSpend) {
     const recordFailure = recordLiveSpendApproval(source);
     if (recordFailure) return recordFailure;
@@ -4112,9 +4571,18 @@ async function buildProviderRun(
   const spendApprovalFailure = validateLiveSpendApproval(source);
   if (spendApprovalFailure) return spendApprovalFailure;
   approvals = { ...approvals, liveCellsAllowed: true };
-  const runId = `${mode}-${source.id}-${stableId({ source: source.artifact, sourcePath: source.path, mode, provider: true })}`;
-  const runRelativeRoot = path.posix.join("runs", runId);
-  const runRoot = path.join(artifactRoot(paths, scope), "runs", runId);
+  let sourceApproval: { specContentHash: string; ledgerSha256: string };
+  try {
+    sourceApproval = persistRunApprovalProof(
+      source,
+      runRoot,
+      scopeBaseFromPaths(paths, scope),
+    );
+  } catch (error) {
+    return fail(
+      `Skill-bench ${mode} run disabled for ${source.id}: run approval proof could not be persisted safely before provider spend: ${error instanceof Error ? error.message : String(error)}.`,
+    );
+  }
   const publicPricing =
     embeddedPublicPricing ?? (await resolveGitHubCopilotPricing());
   const state = {
@@ -4424,7 +4892,6 @@ async function buildProviderRun(
     synthetic: false,
     cells: reportCells.length,
   };
-  const sourceApproval = persistRunApprovalProof(source, runRoot);
   const pricingRelativePath = publicPricing
     ? path.posix.join(runRelativeRoot, "pricing.json")
     : null;
@@ -4483,8 +4950,12 @@ async function buildProviderRun(
   writeSkillBenchJsonAtomic(paths, scope, path.posix.join(runRelativeRoot, "summary.json"), summary);
   if (recommendation) writeSkillBenchJsonAtomic(paths, scope, path.posix.join(runRelativeRoot, "recommendation.json"), recommendation);
   writeSkillBenchJsonAtomic(paths, scope, path.posix.join(runRelativeRoot, "run.json"), runArtifact);
-  mkdirSync(runRoot, { recursive: true });
-  writeFileSync(path.join(runRoot, "sweep_report.html"), renderSkillBenchReportHtml(reportView));
+  writeSkillBenchFileAtomic(
+    paths,
+    scope,
+    path.posix.join(runRelativeRoot, "sweep_report.html"),
+    renderSkillBenchReportHtml(reportView),
+  );
   const output = {
     schemaVersion: 1,
     phase: "run",
@@ -4687,7 +5158,7 @@ async function refreshUnknownRunPricing(
   const storedPricingPath = path.join(runRoot, "pricing.json");
   let publicPricing: PublicPricingSnapshot | null = null;
   if (existsSync(storedPricingPath)) {
-    const stored = loadJsonFile(storedPricingPath);
+    const stored = loadJsonFile(storedPricingPath, run.trustedRoot);
     if (isRecord(stored)) {
       const approved = approvedPublicPricing({ pricing: stored });
       if (approved && !isCliFailure(approved)) publicPricing = approved;
@@ -4789,9 +5260,10 @@ async function refreshUnknownRunPricing(
     artifactRelativePath(paths, scope, run.path),
     refreshedArtifact,
   );
-  mkdirSync(runRoot, { recursive: true });
-  writeFileSync(
-    path.join(runRoot, "sweep_report.html"),
+  writeSkillBenchFileAtomic(
+    paths,
+    scope,
+    path.posix.join(runRelativeRoot, "sweep_report.html"),
     renderSkillBenchReportHtml(refreshedView),
   );
   return {
@@ -5028,10 +5500,15 @@ function writeProviderCell(
     ...timestamps,
   });
   const cellRoot = path.join(artifactRoot(paths, scope), ...cellRelative.split("/"));
-  writeFileSync(path.join(cellRoot, "diff.patch"), "");
-  writeFileSync(path.join(cellRoot, "tests.txt"), "");
-  writeFileSync(path.join(cellRoot, "transcript.txt"), `${canonicalJson({ cellId: cell.id, status: result.status })}\n`);
-  return finalizeEvidenceBundle(cellRoot);
+  writeSkillBenchFileAtomic(paths, scope, path.posix.join(cellRelative, "diff.patch"), "");
+  writeSkillBenchFileAtomic(paths, scope, path.posix.join(cellRelative, "tests.txt"), "");
+  writeSkillBenchFileAtomic(
+    paths,
+    scope,
+    path.posix.join(cellRelative, "transcript.txt"),
+    `${canonicalJson({ cellId: cell.id, status: result.status })}\n`,
+  );
+  return finalizeEvidenceBundle(cellRoot, scopeBaseFromPaths(paths, scope));
 }
 
 async function runSubcommand(
@@ -5132,21 +5609,21 @@ next: continue design, then freeze/export an approved spec before running`,
     run = pricingRefresh.run;
     const expectedReportPath = reportPathForRun(paths, scope, id);
     let effectiveReportPath = expectedReportPath;
-    if (!existsSync(effectiveReportPath)) {
-      const reportView = isRecord(run.artifact.reportView)
-        ? (run.artifact.reportView as unknown as SkillBenchReportView)
-        : null;
-      const reportInput = isRecord(run.artifact.reportInput)
-        ? (run.artifact.reportInput as unknown as SkillBenchReportInput)
-        : null;
-      if (reportView || reportInput) {
+    const reportView = isRecord(run.artifact.reportView)
+      ? (run.artifact.reportView as unknown as SkillBenchReportView)
+      : null;
+    const reportInput = isRecord(run.artifact.reportInput)
+      ? (run.artifact.reportInput as unknown as SkillBenchReportInput)
+      : null;
+    if (reportView || reportInput) {
+      effectiveReportPath = expectedReportPath;
+      mkdirSync(path.dirname(effectiveReportPath), { recursive: true });
+      createTextFileIfMissing(effectiveReportPath, () => {
         const view =
           reportView ??
           normalizeSkillBenchReport(reportInput as SkillBenchReportInput);
-        effectiveReportPath = expectedReportPath;
-        mkdirSync(path.dirname(effectiveReportPath), { recursive: true });
-        writeFileSync(effectiveReportPath, renderSkillBenchReportHtml(view));
-      }
+        return renderSkillBenchReportHtml(view);
+      }, run.trustedRoot);
     }
     if (!existsSync(effectiveReportPath)) {
       return fail(
@@ -5427,9 +5904,15 @@ next: continue design, then freeze/export an approved spec before running`,
     });
     if (isCliFailure(prepared)) return prepared;
     if (!approve) {
-      ensureDir(prepared.previewPath);
-      atomicWrite(prepared.previewPath, `${canonicalJson(prepared.preview)}\n`);
-      const persistedPreview = loadJsonFile(prepared.previewPath);
+      writeJsonFile(
+        prepared.previewPath,
+        prepared.preview,
+        artifact.trustedRoot,
+      );
+      const persistedPreview = loadJsonFile(
+        prepared.previewPath,
+        artifact.trustedRoot,
+      );
       if (canonicalJson(persistedPreview) !== canonicalJson(prepared.preview)) {
         return fail(
           `Portable export ${prepared.exportId} preview failed verification.`,
@@ -5449,7 +5932,10 @@ next: continue design, then freeze/export an approved spec before running`,
     }
     let persistedPreview: unknown;
     try {
-      persistedPreview = loadJsonFile(prepared.previewPath);
+      persistedPreview = loadJsonFile(
+        prepared.previewPath,
+        artifact.trustedRoot,
+      );
     } catch {
       return fail(
         `Portable export ${prepared.exportId} preview is invalid; rerun without --approve.`,
@@ -5460,33 +5946,36 @@ next: continue design, then freeze/export an approved spec before running`,
         `Portable export ${prepared.exportId} preview is stale; rerun without --approve and review the changed files.`,
       );
     }
-    const approval = exportApprovalExists(
+    ensureDir(prepared.approvalLedgerPath);
+    const approvalFailure = recordExportApproval(
       prepared.approvalLedgerPath,
+      artifact.trustedRoot,
       prepared.exportId,
       prepared.approvalSha256,
+      id,
+      artifact.kind,
     );
-    if (isCliFailure(approval)) return approval;
-    if (!approval) {
-      ensureDir(prepared.approvalLedgerPath);
-      writeFileSync(
-        prepared.approvalLedgerPath,
-        `${canonicalJson({
-          schemaVersion: 1,
-          type: "export-approval",
-          exportId: prepared.exportId,
-          id,
-          artifactKind: artifact.kind,
-          approvalSha256: prepared.approvalSha256,
-          approved: true,
-          approvedAt: new Date().toISOString(),
-        })}\n`,
-        { flag: "a" },
+    if (approvalFailure) return approvalFailure;
+    if (!existsSync(path.dirname(prepared.outputAbsolute)))
+      return fail("Portable export output directory must already exist.");
+    try {
+      atomicWriteTrustedFile(prepared.outputAbsolute, prepared.bundleText, {
+        rejectHardlinks: true,
+        trustedRoot: prepared.outputTrustedRoot,
+      });
+    } catch (error) {
+      return fail(
+        `Portable export output could not be written safely: ${error instanceof Error ? error.message : String(error)}.`,
       );
     }
-    ensureDir(prepared.outputAbsolute);
-    atomicWrite(prepared.outputAbsolute, prepared.bundleText);
+    const written = readRegularFileUtf8(
+      prepared.outputAbsolute,
+      prepared.outputTrustedRoot,
+    );
+    if (!written.ok)
+      return fail("Portable export output could not be rebound safely.");
     const writtenSha256 = createHash("sha256")
-      .update(readFileSync(prepared.outputAbsolute))
+      .update(written.content)
       .digest("hex");
     if (writtenSha256 !== prepared.bundleSha256) {
       return fail(

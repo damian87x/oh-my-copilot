@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { canonicalJson } from "./types.js";
 import { ompRoot } from "../omp-root.js";
-import { atomicWrite } from "../utils/fs.js";
+import { atomicWriteTrustedFile } from "../utils/fs.js";
 
 export interface SkillBenchPaths {
   projectRoot: string;
@@ -74,8 +74,25 @@ function assertNoSymlinkEscape(root: string, target: string): void {
 }
 
 export function writeSkillBenchJsonAtomic(paths: SkillBenchPaths, scope: SkillBenchScope, relativePath: string, value: unknown): string {
+  return writeSkillBenchFileAtomic(
+    paths,
+    scope,
+    relativePath,
+    `${canonicalJson(value)}\n`,
+  );
+}
+
+export function writeSkillBenchFileAtomic(
+  paths: SkillBenchPaths,
+  scope: SkillBenchScope,
+  relativePath: string,
+  content: string | Buffer,
+): string {
   const target = resolveSkillBenchOutputPath(paths, scope, relativePath);
   mkdirSync(path.dirname(target), { recursive: true });
-  atomicWrite(target, `${canonicalJson(value)}\n`);
+  atomicWriteTrustedFile(target, content, {
+    rejectHardlinks: true,
+    trustedRoot: path.dirname(path.dirname(rootFor(paths, scope))),
+  });
   return target;
 }

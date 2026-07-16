@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, sy
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveSkillBenchOutputPath, resolveSkillBenchPaths, writeSkillBenchJsonAtomic } from "../../src/skill-bench/paths.js";
+import { resolveSkillBenchOutputPath, resolveSkillBenchPaths, writeSkillBenchFileAtomic, writeSkillBenchJsonAtomic } from "../../src/skill-bench/paths.js";
 
 let cwd: string;
 let home: string;
@@ -58,6 +58,18 @@ describe("skill-bench paths", () => {
     expect(existsSync(out)).toBe(true);
     expect(JSON.parse(readFileSync(out, "utf8"))).toEqual({ a: 2, b: 1 });
     expect(lstatSync(out).isFile()).toBe(true);
+  });
+
+  it("atomically writes text artifacts under the selected safe root", () => {
+    const paths = resolveSkillBenchPaths({ cwd, home });
+    const out = writeSkillBenchFileAtomic(
+      paths,
+      "project",
+      "runs/run-a/sweep_report.html",
+      "<html>safe</html>\n",
+    );
+
+    expect(readFileSync(out, "utf8")).toBe("<html>safe</html>\n");
   });
 
   it("rejects a symlinked project output root before writing outside the workspace", () => {

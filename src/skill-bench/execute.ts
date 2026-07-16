@@ -1,6 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  closeSync,
+  constants,
   cpSync,
   existsSync,
   lstatSync,
@@ -15,6 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { resolveCopilotBin } from "../copilot/launch.js";
+import { atomicWriteTrustedFile, openRegularFile } from "../utils/fs.js";
 
 export type FailureClassV1 =
   | "quality"
@@ -675,10 +678,29 @@ export const REQUIRED_EVIDENCE_ARTIFACTS = [
   "timestamps.json",
 ] as const;
 
-export function finalizeEvidenceBundle(root: string): { status: "complete" | "incomplete-evidence"; missingArtifacts: string[] } {
-  const missingArtifacts = REQUIRED_EVIDENCE_ARTIFACTS.filter((artifact) => !existsSync(path.join(root, artifact)));
+export function finalizeEvidenceBundle(
+  root: string,
+  trustedRoot = path.dirname(root),
+): { status: "complete" | "incomplete-evidence"; missingArtifacts: string[] } {
+  const missingArtifacts = REQUIRED_EVIDENCE_ARTIFACTS.filter((artifact) => {
+    const opened = openRegularFile(
+      path.join(root, artifact),
+      constants.O_RDONLY,
+      { rejectHardlinks: true, trustedRoot },
+    );
+    if (!opened.ok) return true;
+    closeSync(opened.fd);
+    return false;
+  });
   if (missingArtifacts.length > 0) return { status: "incomplete-evidence", missingArtifacts };
-  writeFileSync(path.join(root, "COMPLETE"), "complete\n");
+  try {
+    atomicWriteTrustedFile(path.join(root, "COMPLETE"), "complete\n", {
+      rejectHardlinks: true,
+      trustedRoot,
+    });
+  } catch {
+    return { status: "incomplete-evidence", missingArtifacts: ["COMPLETE"] };
+  }
   return { status: "complete", missingArtifacts: [] };
 }
 

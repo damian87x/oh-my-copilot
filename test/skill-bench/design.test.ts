@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -161,6 +161,106 @@ describe("skill-bench guided/direct pair design state", () => {
     expect(session.status).toBe("frozen");
     expect(canRunDesignSession(session)).toBe(true);
     expect(loadDesignSession(session.statePath).freeze?.invalidated).toBe(false);
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a symlinked design approval ledger before changing session state", () => {
+    const session = startDesignSession({
+      rootDir: root,
+      mode: "guided",
+      skillName: "tdd",
+    });
+    const ledgerPath = path.join(
+      path.dirname(session.statePath),
+      "approvals.jsonl",
+    );
+    const outside = mkdtempSync(path.join(path.dirname(root), "omp-design-ledger-"));
+    const externalLedger = path.join(outside, "approvals.jsonl");
+    try {
+      writeFileSync(externalLedger, "external sentinel\n");
+      symlinkSync(externalLedger, ledgerPath);
+
+      expect(() =>
+        approveDesignGate(session, "selection", { selectedSkill: "tdd" }),
+      ).toThrow(/approval ledger must be a regular file/i);
+      expect(readFileSync(externalLedger, "utf8")).toBe("external sentinel\n");
+      expect(loadDesignSession(session.statePath).approvals).toEqual([]);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a hardlinked design approval ledger before changing session state", () => {
+    const session = startDesignSession({
+      rootDir: root,
+      mode: "guided",
+      skillName: "tdd",
+    });
+    const ledgerPath = path.join(
+      path.dirname(session.statePath),
+      "approvals.jsonl",
+    );
+    const outside = mkdtempSync(path.join(path.dirname(root), "omp-design-ledger-"));
+    const externalLedger = path.join(outside, "approvals.jsonl");
+    try {
+      writeFileSync(externalLedger, "external sentinel\n");
+      linkSync(externalLedger, ledgerPath);
+
+      expect(() =>
+        approveDesignGate(session, "selection", { selectedSkill: "tdd" }),
+      ).toThrow(/approval ledger must be a regular file/i);
+      expect(readFileSync(externalLedger, "utf8")).toBe("external sentinel\n");
+      expect(loadDesignSession(session.statePath).approvals).toEqual([]);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a symlinked design directory before changing session state", () => {
+    const session = startDesignSession({
+      rootDir: root,
+      mode: "guided",
+      skillName: "tdd",
+    });
+    const designDir = path.dirname(session.statePath);
+    const outside = mkdtempSync(path.join(path.dirname(root), "omp-design-parent-"));
+    const externalDesignDir = path.join(outside, "design");
+    renameSync(designDir, externalDesignDir);
+    symlinkSync(externalDesignDir, designDir, "dir");
+
+    try {
+      expect(() =>
+        approveDesignGate(session, "selection", { selectedSkill: "tdd" }),
+      ).toThrow(/approval ledger must be a regular file/i);
+      const persisted = JSON.parse(
+        readFileSync(
+          path.join(externalDesignDir, path.basename(session.statePath)),
+          "utf8",
+        ),
+      );
+      expect(persisted.approvals).toEqual([]);
+      expect(existsSync(path.join(externalDesignDir, "approvals.jsonl"))).toBe(false);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("rolls back a staged ledger event when design state persistence fails", () => {
+    const session = startDesignSession({
+      rootDir: root,
+      mode: "guided",
+      skillName: "tdd",
+    });
+    const ledgerPath = path.join(
+      path.dirname(session.statePath),
+      "approvals.jsonl",
+    );
+    rmSync(session.statePath);
+    mkdirSync(session.statePath);
+
+    expect(() =>
+      approveDesignGate(session, "selection", { selectedSkill: "tdd" }),
+    ).toThrow();
+    expect(readFileSync(ledgerPath, "utf8")).toBe("");
   });
 
 

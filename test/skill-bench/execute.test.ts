@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, existsSync, mkdirSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,6 +12,7 @@ import {
   fingerprintSkillDirectory,
   finalizeEvidenceBundle,
   parseCopilotJsonUsage,
+  REQUIRED_EVIDENCE_ARTIFACTS,
   scheduleCellsWithinCeilings,
 } from "../../src/skill-bench/execute.js";
 
@@ -379,6 +380,28 @@ process.stdout.write(JSON.stringify({ type: "assistant.message", data: { outputT
     expect(finalizeEvidenceBundle(partial)).toEqual({ status: "incomplete-evidence", missingArtifacts: expect.arrayContaining(["response.json", "scorer.json"]) });
     expect(existsSync(path.join(partial, "COMPLETE"))).toBe(false);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "does not complete evidence through a symlink-swapped cell directory",
+    () => {
+      const trustedRoot = runRoot();
+      const cellRoot = path.join(trustedRoot, "cell");
+      const original = path.join(trustedRoot, "original-cell");
+      const outside = runRoot();
+      mkdirSync(cellRoot, { recursive: true });
+      for (const artifact of REQUIRED_EVIDENCE_ARTIFACTS) {
+        writeFileSync(path.join(cellRoot, artifact), artifact);
+        writeFileSync(path.join(outside, artifact), artifact);
+      }
+      renameSync(cellRoot, original);
+      symlinkSync(outside, cellRoot, "dir");
+
+      expect(finalizeEvidenceBundle(cellRoot, trustedRoot)).toMatchObject({
+        status: "incomplete-evidence",
+      });
+      expect(existsSync(path.join(outside, "COMPLETE"))).toBe(false);
+    },
+  );
 
   it("classifies failures into quality process infrastructure availability quota scorer incomplete and parity buckets", () => {
     expect(classifyCellFailure({ evaluatorLabel: "quality" })).toBe("quality");
