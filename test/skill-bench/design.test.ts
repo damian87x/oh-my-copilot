@@ -12,6 +12,7 @@ import {
   nextDesignGate,
   startDesignSession,
 } from "../../src/skill-bench/design.js";
+import { specContentHash } from "../../src/skill-bench/types.js";
 
 let root: string;
 let home: string;
@@ -32,6 +33,26 @@ describe("skill-bench guided/direct pair design state", () => {
       status: "frozen",
       approvals: { frozen: true, budget: true, liveCellsAllowed: false },
     });
+  });
+
+  it("keeps approved content stable once fingerprint freshness is established", () => {
+    for (const manifest of [
+      {
+        id: "spec-with-freshness-only",
+        status: "draft",
+        fingerprint: { status: "current" },
+      },
+      {
+        id: "spec-with-semantic-fingerprint",
+        status: "draft",
+        fingerprint: { status: "current", skill: "skill-sha" },
+      },
+    ]) {
+      const frozen = freezeReviewedManifestV1(manifest);
+
+      expect(specContentHash(frozen)).toBe(specContentHash(manifest));
+      expect(frozen.fingerprint).toEqual(manifest.fingerprint);
+    }
   });
 
   it("starts history-guided drafts with 30d/all, direct drafts bypass history ranking, and both use identical approval gates", () => {

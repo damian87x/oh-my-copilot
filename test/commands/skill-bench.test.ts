@@ -874,6 +874,7 @@ describe("skill-bench command", () => {
       status: "draft",
       approvals: { frozen: false, budget: false, liveCellsAllowed: false },
       provider: { kind: "copilot", approved: true },
+      fingerprint: undefined,
       candidateModelIds: ["provider:model.v1"],
       judgeModelIds: ["judge:model.v1"],
       skill: { id: "dynamic-review", path: skillDir, fingerprint: sha256Directory(skillDir) },
@@ -928,7 +929,14 @@ describe("skill-bench command", () => {
     expect(frozen).toMatchObject({ ok: true, message: expect.stringContaining("frozen spec exported") });
     const specId = /spec-id=(\S+)/.exec(frozen.message ?? "")?.[1];
     expect(specId).toBeTruthy();
-    const frozenManifest = JSON.parse(readFileSync(path.join(root, ".omp/skill-bench/specs", specId!, "manifest.json"), "utf8"));
+    const frozenManifestPath = path.join(
+      root,
+      ".omp/skill-bench/specs",
+      specId!,
+      "manifest.json",
+    );
+    const frozenManifestText = readFileSync(frozenManifestPath, "utf8");
+    const frozenManifest = JSON.parse(frozenManifestText);
     expect(frozenManifest).toMatchObject({
       status: "frozen",
       approvals: { frozen: true, budget: true, liveCellsAllowed: false },
@@ -972,6 +980,9 @@ describe("skill-bench command", () => {
       ]);
       const runId = /run-id=(\S+)/.exec(result.message ?? "")?.[1];
       expect(readFileSync(path.join(root, ".omp/skill-bench/specs", specId!, "approvals.jsonl"), "utf8")).toContain('"type":"spend-approval"');
+      expect(readFileSync(frozenManifestPath, "utf8")).toBe(
+        frozenManifestText,
+      );
       const runArtifact = JSON.parse(readFileSync(path.join(root, ".omp/skill-bench/runs", runId!, "run.json"), "utf8"));
       expect(runArtifact.reportInput.cells.map((cell: { qualityScore: number }) => cell.qualityScore)).toEqual([0, 1]);
       expect(runArtifact.reportInput.budget).toMatchObject({
@@ -1018,6 +1029,88 @@ describe("skill-bench command", () => {
         ok: false,
         message: expect.stringContaining("approval ledger"),
       });
+    } finally {
+      setSkillBenchProviderTransportForTests(null);
+    }
+  });
+
+  it("accepts legacy frozen specs when freeze only added fingerprint freshness after approval", async () => {
+    const root = tempCwd();
+    const id = "legacy-freeze-fingerprint";
+    const skillDir = writeSkill(root, "dynamic-review");
+    const preFreeze = {
+      ...withoutKeys(
+        providerSpecWithEvaluator(root, id, {
+          candidateModelIds: ["model-a", "model-b"],
+          skill: {
+            id: "dynamic-review",
+            path: skillDir,
+            fingerprint: sha256Directory(skillDir),
+          },
+        }),
+        ["fingerprint"],
+      ),
+      status: "draft",
+      approvals: { frozen: false, budget: false, liveCellsAllowed: false },
+    };
+    const approvedHash = specContentHash(preFreeze);
+    const frozen = freezeReviewedManifestV1(preFreeze);
+    const manifestPath = `.omp/skill-bench/specs/${id}/manifest.json`;
+    writeJson(root, manifestPath, frozen);
+    writeFileSync(
+      path.join(root, ".omp", "skill-bench", "specs", id, "approvals.jsonl"),
+      approvalLedgerText(approvedHash),
+    );
+
+    await expect(
+      run(["skill-bench", "run", id, "--pilot"], false, root),
+    ).resolves.toMatchObject({
+      ok: false,
+      message: expect.stringContaining("live-cell approval required"),
+    });
+
+    setSkillBenchProviderTransportForTests(async (request) => ({
+      status: "complete",
+      stdout: request.skillExposure.selectedSkillId ? "found issue" : "",
+      stderr: "",
+      exitCode: 0,
+    }));
+    try {
+      const result = await run(
+        ["skill-bench", "run", id, "--pilot", "--approve-spend"],
+        false,
+        root,
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        message: expect.stringContaining("pilot provider run completed"),
+      });
+      const runId = /run-id=(\S+)/.exec(result.message ?? "")?.[1];
+      const runArtifact = JSON.parse(
+        readFileSync(
+          path.join(root, ".omp", "skill-bench", "runs", runId!, "run.json"),
+          "utf8",
+        ),
+      );
+      expect(runArtifact.sourceApproval.specContentHash).toBe(approvedHash);
+      expect(runArtifact.cells).toHaveLength(4);
+      expect(new Set(runArtifact.cells.map((cell: { id: string }) => cell.id)).size).toBe(4);
+      for (const cell of runArtifact.cells as Array<{ id: string }>) {
+        expect(
+          existsSync(
+            path.join(
+              root,
+              ".omp",
+              "skill-bench",
+              "runs",
+              runId!,
+              "cells",
+              cell.id,
+              "result.json",
+            ),
+          ),
+        ).toBe(true);
+      }
     } finally {
       setSkillBenchProviderTransportForTests(null);
     }
@@ -1400,6 +1493,136 @@ describe("skill-bench command", () => {
           expect(existsSync(path.join(cellRoot, artifact)), `${proof.cellId} missing ${artifact}`).toBe(true);
         }
       }
+    } finally {
+      setSkillBenchProviderTransportForTests(null);
+    }
+  });
+
+  it("preflights the frozen evaluator contract before any provider spend", async () => {
+    const root = tempCwd();
+    const skillDir = writeSkill(root, "dynamic-review");
+    const spec = attachEvaluator(root, {
+      ...approvedSpec("invalid-evaluator-contract"),
+      approvals: {
+        frozen: true,
+        budget: true,
+        liveCellsAllowed: false,
+      },
+      provider: { kind: "copilot", approved: true },
+      skill: {
+        id: "dynamic-review",
+        path: skillDir,
+        fingerprint: sha256Directory(skillDir),
+      },
+      execution: { allowlistedTools: ["view"] },
+      budgets: {
+        ...approvedSpec("invalid-evaluator-contract").budgets,
+        estimatedCellUsd: 0.01,
+        estimatedCellPremiumRequests: 1,
+      },
+    }, `
+      import { readFileSync } from 'node:fs';
+      const input = JSON.parse(readFileSync(0, 'utf8'));
+      process.stdout.write(JSON.stringify({ schemaVersion: 1, label: 'scenario-specific-label', score: 0, proofMatrix: { expected: [], found: [], done: [], missed: [], falsePositive: [], incorrect: [], proof: [input.declaredEvidence[0].path] }, evidence: [{ path: input.declaredEvidence[0].path }] }));
+    `);
+    writeApprovedSpec(root, "invalid-evaluator-contract", spec);
+    const specRoot = path.join(
+      root,
+      ".omp",
+      "skill-bench",
+      "specs",
+      "invalid-evaluator-contract",
+    );
+    const manifestPath = path.join(specRoot, "manifest.json");
+    const ledgerPath = path.join(specRoot, "approvals.jsonl");
+    const manifestBefore = readFileSync(manifestPath, "utf8");
+    const ledgerBefore = readFileSync(ledgerPath, "utf8");
+    let providerCalls = 0;
+    setSkillBenchProviderTransportForTests(async () => {
+      providerCalls += 1;
+      return {
+        status: "complete",
+        stdout: "found issue",
+        stderr: "",
+        exitCode: 0,
+      };
+    });
+    try {
+      const result = await run(
+        [
+          "skill-bench",
+          "run",
+          "invalid-evaluator-contract",
+          "--pilot",
+          "--approve-spend",
+        ],
+        false,
+        root,
+      );
+
+      expect(result).toMatchObject({
+        ok: false,
+        message: expect.stringContaining(
+          "evaluator contract preflight failed before provider spend: unknown label",
+        ),
+      });
+      expect(providerCalls).toBe(0);
+      expect(readFileSync(manifestPath, "utf8")).toBe(manifestBefore);
+      expect(readFileSync(ledgerPath, "utf8")).toBe(ledgerBefore);
+    } finally {
+      setSkillBenchProviderTransportForTests(null);
+    }
+  });
+
+  it("rejects duplicate effective models before any provider spend", async () => {
+    const root = tempCwd();
+    const skillDir = writeSkill(root, "dynamic-review");
+    const skillFingerprint = sha256Directory(skillDir);
+    const spec = providerSpecWithEvaluator(root, "duplicate-models", {
+      candidateModelIds: ["model-a", "model-a"],
+      skill: {
+        id: "dynamic-review",
+        path: skillDir,
+        fingerprint: skillFingerprint,
+      },
+      fingerprint: {
+        status: "current",
+        skill: skillFingerprint,
+        model: "model-fp-live",
+        spec: "spec-fp-live",
+        evaluation: "eval-fp-live",
+        provider: "provider-fp-live",
+      },
+    });
+    writeApprovedSpec(root, "duplicate-models", spec);
+    let providerCalls = 0;
+    setSkillBenchProviderTransportForTests(async () => {
+      providerCalls += 1;
+      return {
+        status: "complete",
+        stdout: "found issue",
+        stderr: "",
+        exitCode: 0,
+      };
+    });
+    try {
+      const result = await run(
+        [
+          "skill-bench",
+          "run",
+          "duplicate-models",
+          "--pilot",
+          "--approve-spend",
+        ],
+        false,
+        root,
+      );
+
+      expect(result).toMatchObject({
+        ok: false,
+        message: expect.stringContaining("duplicate approved model ids"),
+      });
+      expect(providerCalls).toBe(0);
     } finally {
       setSkillBenchProviderTransportForTests(null);
     }

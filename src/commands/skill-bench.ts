@@ -927,12 +927,11 @@ function validateApprovalLedger(
   const ledgerPath = path.join(path.dirname(artifactPath), "approvals.jsonl");
   if (!existsSync(ledgerPath))
     return fail(`Skill-bench artifact ${id} is not approved: approval ledger required.`);
-  const currentHash = specContentHash(artifact);
   try {
-    const validation = validateDesignApprovalLedgerV1(
+    const validation = resolveApprovalLedgerBinding(
+      artifact,
       readFileSync(ledgerPath, "utf8"),
-      currentHash,
-      { requireFreeze: true },
+      true,
     );
     if (!validation.ok)
       return fail(
@@ -944,7 +943,50 @@ function validateApprovalLedger(
   return undefined;
 }
 
-function approveLiveSpend(source: LoadedArtifact): LoadedArtifact | CliResult {
+function approvalHashCandidates(
+  artifact: Record<string, unknown>,
+): string[] {
+  const currentHash = specContentHash(artifact);
+  const fingerprint = nestedRecord(artifact, "fingerprint");
+  if (artifact.status !== "frozen" || fingerprint.status !== "current") {
+    return [currentHash];
+  }
+
+  const { status: _status, ...approvedFingerprint } = fingerprint;
+  const approvedArtifact = { ...artifact };
+  if (Object.keys(approvedFingerprint).length === 0) {
+    delete approvedArtifact.fingerprint;
+  } else {
+    approvedArtifact.fingerprint = approvedFingerprint;
+  }
+  const approvedHash = specContentHash(approvedArtifact);
+  return approvedHash === currentHash
+    ? [currentHash]
+    : [currentHash, approvedHash];
+}
+
+function resolveApprovalLedgerBinding(
+  artifact: Record<string, unknown>,
+  ledger: string,
+  requireFreeze: boolean,
+):
+  | { ok: true; specContentHash: string }
+  | { ok: false; reason: string } {
+  let currentFailure: string | undefined;
+  for (const candidate of approvalHashCandidates(artifact)) {
+    const validation = validateDesignApprovalLedgerV1(ledger, candidate, {
+      requireFreeze,
+    });
+    if (validation.ok) return { ok: true, specContentHash: candidate };
+    currentFailure ??= validation.reason;
+  }
+  return {
+    ok: false,
+    reason: currentFailure ?? "approval ledger does not match the frozen spec",
+  };
+}
+
+function recordLiveSpendApproval(source: LoadedArtifact): CliResult | undefined {
   const ledgerPath = path.join(path.dirname(source.path), "approvals.jsonl");
   if (!existsSync(ledgerPath))
     return fail(`Skill-bench artifact ${source.id} is not approved: approval ledger required before spend.`);
@@ -965,16 +1007,12 @@ function approveLiveSpend(source: LoadedArtifact): LoadedArtifact | CliResult {
       { flag: "a" },
     );
   }
-  const approvals = nestedRecord(source.artifact, "approvals");
-  const artifact = {
-    ...source.artifact,
-    approvals: { ...approvals, liveCellsAllowed: true },
-  };
-  writeJsonFile(source.path, artifact);
-  return { ...source, artifact };
+  return undefined;
 }
 
-function validateLiveSpendApproval(source: LoadedArtifact): CliResult | undefined {
+function liveSpendApprovalStatus(
+  source: LoadedArtifact,
+): { ok: true; approved: boolean } | CliResult {
   const ledgerPath = path.join(path.dirname(source.path), "approvals.jsonl");
   if (!existsSync(ledgerPath))
     return fail(`Skill-bench ${source.id} live-cell approval requires an approval ledger.`);
@@ -984,6 +1022,12 @@ function validateLiveSpendApproval(source: LoadedArtifact): CliResult | undefine
   );
   if (!current.ok)
     return fail(`Skill-bench ${source.id} spend approval ledger is invalid: ${current.reason}.`);
+  return current;
+}
+
+function validateLiveSpendApproval(source: LoadedArtifact): CliResult | undefined {
+  const current = liveSpendApprovalStatus(source);
+  if (isCliFailure(current)) return current;
   return current.approved
     ? undefined
     : fail(`Skill-bench ${source.id} live-cell approval is not bound to the frozen spec.`);
@@ -1540,6 +1584,7 @@ function materializeReviewedManifest(
     };
   });
   const specId = String(manifest.id);
+  const fingerprint = nestedRecord(manifest, "fingerprint");
   const specPrefix = path.posix.join("specs", specId);
   const bundleFiles = listRegularFiles(bundleDir).map((file) =>
     path.posix.join(
@@ -1549,6 +1594,7 @@ function materializeReviewedManifest(
   );
   return {
     ...manifest,
+    fingerprint: { ...fingerprint, status: "current" },
     skill: { ...safeSkill, path: "bundle/skill", fingerprint: skillFingerprint },
     scenarios,
     evaluation: {
@@ -2046,14 +2092,18 @@ function persistRunApprovalProof(
   const sourceLedgerPath = path.join(path.dirname(source.path), "approvals.jsonl");
   if (!existsSync(sourceLedgerPath)) throw new Error("source approval ledger required");
   const ledger = readFileSync(sourceLedgerPath, "utf8");
-  const contentHash = specContentHash(source.artifact);
-  const validation = validateDesignApprovalLedgerV1(ledger, contentHash, {
-    requireFreeze: true,
-  });
+  const validation = resolveApprovalLedgerBinding(
+    source.artifact,
+    ledger,
+    true,
+  );
   if (!validation.ok) throw new Error(validation.reason);
   mkdirSync(runRoot, { recursive: true });
   writeFileSync(path.join(runRoot, "approvals.jsonl"), ledger, "utf8");
-  return { specContentHash: contentHash, ledgerSha256: sha256Text(ledger) };
+  return {
+    specContentHash: validation.specContentHash,
+    ledgerSha256: sha256Text(ledger),
+  };
 }
 
 function runRecommendation(
@@ -2967,6 +3017,29 @@ function specModels(artifact: Record<string, unknown>): string[] {
   );
 }
 
+function duplicateValues(values: string[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) duplicates.add(value);
+    else seen.add(value);
+  }
+  return [...duplicates];
+}
+
+function duplicateModelFailure(
+  source: LoadedArtifact,
+  mode: "pilot" | "validated",
+  models: string[],
+): CliResult | undefined {
+  const duplicates = duplicateValues(models);
+  return duplicates.length === 0
+    ? undefined
+    : fail(
+        `Skill-bench ${mode} run disabled for ${source.id}: duplicate approved model ids: ${duplicates.join(", ")}. Remove duplicates and freeze a new reviewed spec before running.`,
+      );
+}
+
 function syntheticExecutionEnabled(artifact: Record<string, unknown>): boolean {
   return (
     artifact.synthetic === true &&
@@ -3247,6 +3320,8 @@ function buildSyntheticRun(
     return fail(
       `Skill-bench ${mode} run disabled for ${source.id}: approved spec has no models.`,
     );
+  const duplicateModels = duplicateModelFailure(source, mode, models);
+  if (duplicateModels) return duplicateModels;
 
   const fingerprint = nestedRecord(source.artifact, "fingerprint");
   const skill = nestedRecord(source.artifact, "skill");
@@ -3920,14 +3995,15 @@ async function buildProviderRun(
   paths: SkillBenchPaths,
   scope: SkillBenchScope,
   cwd: string,
+  approveSpend: boolean,
 ): Promise<CliResult> {
-  const approvals = nestedRecord(source.artifact, "approvals");
-  if (approvals.liveCellsAllowed !== true)
+  let approvals = nestedRecord(source.artifact, "approvals");
+  const recordedSpendApproval = liveSpendApprovalStatus(source);
+  if (isCliFailure(recordedSpendApproval)) return recordedSpendApproval;
+  if (!recordedSpendApproval.approved && !approveSpend)
     return fail(
       `Skill-bench ${mode} run disabled for ${source.id}: live-cell approval required; rerun with --approve-spend after reviewing the frozen spec and budget.`,
     );
-  const spendApprovalFailure = validateLiveSpendApproval(source);
-  if (spendApprovalFailure) return spendApprovalFailure;
   const provider = nestedRecord(source.artifact, "provider");
   if (provider.kind !== "copilot" || provider.approved !== true)
     return fail(
@@ -3959,6 +4035,8 @@ async function buildProviderRun(
     return fail(
       `Skill-bench ${mode} run disabled for ${source.id}: approved spec has no models.`,
     );
+  const duplicateModels = duplicateModelFailure(source, mode, models);
+  if (duplicateModels) return duplicateModels;
 
   const fingerprint = nestedRecord(source.artifact, "fingerprint");
   const skill = nestedRecord(source.artifact, "skill");
@@ -3991,9 +4069,6 @@ async function buildProviderRun(
   } catch (error) {
     return fail(`Skill-bench ${mode} run disabled for ${source.id}: frozen skill source cannot be verified: ${error instanceof Error ? error.message : String(error)}.`);
   }
-  const runId = `${mode}-${source.id}-${stableId({ source: source.artifact, sourcePath: source.path, mode, provider: true })}`;
-  const runRelativeRoot = path.posix.join("runs", runId);
-  const runRoot = path.join(artifactRoot(paths, scope), "runs", runId);
   const budgets = nestedRecord(source.artifact, "budgets");
   const ceilings = {
     maxUsd: numberFrom(budgets.maxUsd, 1),
@@ -4021,6 +4096,25 @@ async function buildProviderRun(
     estimatedCellPremiumRequests < 0
   )
     return fail(`Skill-bench ${mode} run disabled for ${source.id}: approved conservative per-cell estimates required before scheduling.`);
+  const evaluatorPreflight = await preflightProviderEvaluator(
+    evaluator,
+    source.id,
+  );
+  if (evaluatorPreflight.status !== "ok") {
+    return fail(
+      `Skill-bench ${mode} run disabled for ${source.id}: evaluator contract preflight failed before provider spend: ${evaluatorPreflight.errors.join("; ")}. Correct the reviewed evaluator, then import, approve, and freeze a new spec. No provider cell was started, and this command did not modify the frozen spec or approval ledger.`,
+    );
+  }
+  if (approveSpend) {
+    const recordFailure = recordLiveSpendApproval(source);
+    if (recordFailure) return recordFailure;
+  }
+  const spendApprovalFailure = validateLiveSpendApproval(source);
+  if (spendApprovalFailure) return spendApprovalFailure;
+  approvals = { ...approvals, liveCellsAllowed: true };
+  const runId = `${mode}-${source.id}-${stableId({ source: source.artifact, sourcePath: source.path, mode, provider: true })}`;
+  const runRelativeRoot = path.posix.join("runs", runId);
+  const runRoot = path.join(artifactRoot(paths, scope), "runs", runId);
   const publicPricing =
     embeddedPublicPricing ?? (await resolveGitHubCopilotPricing());
   const state = {
@@ -4735,6 +4829,53 @@ type ProviderCellScore =
   | { status: "complete"; qualityScore: number; proofMatrix: { expected: string[]; found: string[]; done: string[]; missed: string[]; falsePositive: string[]; incorrect: string[]; proof: string[] }; scorer: unknown }
   | { status: "scorer-failure"; errors: string[]; scorer: unknown };
 
+async function preflightProviderEvaluator(
+  evaluator: { argv: string[]; evaluator: FrozenEvaluatorDescriptorV1 },
+  sourceId: string,
+): Promise<{ status: "ok" } | { status: "scorer-failure"; errors: string[] }> {
+  const workspaceRoot = createProviderWorkspaceRoot(
+    `evaluator-preflight-${sourceId}`,
+  );
+  try {
+    const preflightRoot = path.join(
+      workspaceRoot,
+      "evaluator-contract-preflight",
+    );
+    mkdirSync(preflightRoot, { recursive: true });
+    const responsePath = path.join(preflightRoot, "response.json");
+    writeFileSync(
+      responsePath,
+      `${canonicalJson({
+        schemaVersion: 1,
+        status: "complete",
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+      })}\n`,
+    );
+    const evaluated = await runEvaluatorV1({
+      command: { argv: evaluator.argv, evaluator: evaluator.evaluator },
+      request: {
+        schemaVersion: 1,
+        cellId: "evaluator-contract-preflight",
+        evaluator: evaluator.evaluator,
+        declaredEvidence: [
+          { path: responsePath, sha256: hashFile(responsePath) },
+        ],
+      },
+      evidenceRoot: preflightRoot,
+      timeoutMs: 30_000,
+      maxStdoutBytes: 128_000,
+      envAllowlist: { PATH: process.env.PATH ?? "" },
+    });
+    return evaluated.status === "ok"
+      ? { status: "ok" }
+      : { status: "scorer-failure", errors: evaluated.errors };
+  } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+}
+
 async function scoreProviderCell(
   paths: SkillBenchPaths,
   scope: SkillBenchScope,
@@ -4953,18 +5094,21 @@ next: continue design, then freeze/export an approved spec before running`,
     const approveSpend = args.includes("--approve-spend");
     const stray = rejectStray(args, new Set(["--pilot", "--validated", "--approve-spend"]), 2);
     if (stray) return stray;
-    let source = loadApprovedSpecTarget(id, context.cwd);
+    const source = loadApprovedSpecTarget(id, context.cwd);
     if (isCliFailure(source)) return source;
-    if (approveSpend && source.artifact.synthetic !== true) {
-      source = approveLiveSpend(source);
-      if (isCliFailure(source)) return source;
-    }
     const paths = resolveSkillBenchPaths({ cwd: context.cwd });
     const scope = sourceScope(paths, source.path);
     const mode = pilot ? "pilot" : "validated";
     const result = source.artifact.synthetic === true
       ? buildSyntheticRun(source, mode, paths, scope, context.cwd)
-      : await buildProviderRun(source, mode, paths, scope, context.cwd);
+      : await buildProviderRun(
+          source,
+          mode,
+          paths,
+          scope,
+          context.cwd,
+          approveSpend,
+        );
     return context.json && result.ok
       ? { ok: true, output: result.output }
       : result;

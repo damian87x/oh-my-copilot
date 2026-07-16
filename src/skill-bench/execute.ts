@@ -154,42 +154,67 @@ export function createProviderWorkspaceRoot(runId: string): string {
   return mkdtempSync(path.join(realpathSync(tmpdir()), `omp-skill-bench-${safeRunId}-`));
 }
 
+function readableExecutionSegment(value: string): string {
+  return (
+    value
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "value"
+  );
+}
+
+function executionCellId(
+  plan: MatchedCellPlan,
+  arm: ExecutionCell["arm"],
+): string {
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify([plan.runId, plan.scenarioId, plan.modelId, arm]),
+    )
+    .digest("hex")
+    .slice(0, 12);
+  return `${readableExecutionSegment(plan.scenarioId)}-${readableExecutionSegment(plan.modelId)}-${arm}-${digest}`;
+}
+
 export function buildMatchedExecutionCells(plan: MatchedCellPlan): ExecutionCell[] {
   validateProfile(plan.executionProfile);
   const arms: Array<ExecutionCell["arm"]> = ["baseline", "skill"];
   if (plan.promptArm?.approved) arms.push("prompt");
-  return arms.map((arm) => ({
-    id: `${plan.runId}-${plan.scenarioId}-${arm}`,
-    arm,
-    runId: plan.runId,
-    scenarioId: plan.scenarioId,
-    task: plan.task,
-    visibleFixtureFingerprint: plan.visibleFixtureFingerprint,
-    modelId: plan.modelId,
-    permissions: [...plan.permissions],
-    timeoutMs: plan.timeoutMs,
-    contextFingerprint: plan.contextFingerprint,
-    seed: plan.seed,
-    workspaceSource: {
-      kind: plan.workspaceSource.kind,
-      fingerprint: plan.workspaceSource.fingerprint,
-    },
-    workspaceSourcePath: plan.workspaceSource.sourcePath,
-    executionProfile: { ...plan.executionProfile, allowlistedTools: [...(plan.executionProfile.allowlistedTools ?? [])] },
-    workspacePath: path.join(plan.workspaceRoot ?? plan.runRoot, "workspaces", `${plan.scenarioId}-${arm}-${plan.seed}`),
-    skillExposure:
-      arm === "baseline"
-        ? { selectedSkillId: null, prompt: null }
-        : arm === "skill"
-          ? {
-              selectedSkillId: plan.selectedSkillId,
-              sourcePath: plan.selectedSkillPath ?? undefined,
-              fingerprint: plan.selectedSkillFingerprint ?? undefined,
-              requiredTool: "skill",
-              prompt: null,
-            }
-          : { selectedSkillId: null, prompt: plan.promptArm?.prompt ?? null },
-  }));
+  return arms.map((arm): ExecutionCell => {
+    const id = executionCellId(plan, arm);
+    return {
+      id,
+      arm,
+      runId: plan.runId,
+      scenarioId: plan.scenarioId,
+      task: plan.task,
+      visibleFixtureFingerprint: plan.visibleFixtureFingerprint,
+      modelId: plan.modelId,
+      permissions: [...plan.permissions],
+      timeoutMs: plan.timeoutMs,
+      contextFingerprint: plan.contextFingerprint,
+      seed: plan.seed,
+      workspaceSource: {
+        kind: plan.workspaceSource.kind,
+        fingerprint: plan.workspaceSource.fingerprint,
+      },
+      workspaceSourcePath: plan.workspaceSource.sourcePath,
+      executionProfile: { ...plan.executionProfile, allowlistedTools: [...(plan.executionProfile.allowlistedTools ?? [])] },
+      workspacePath: path.join(plan.workspaceRoot ?? plan.runRoot, "workspaces", id),
+      skillExposure:
+        arm === "baseline"
+          ? { selectedSkillId: null, prompt: null }
+          : arm === "skill"
+            ? {
+                selectedSkillId: plan.selectedSkillId,
+                sourcePath: plan.selectedSkillPath ?? undefined,
+                fingerprint: plan.selectedSkillFingerprint ?? undefined,
+                requiredTool: "skill",
+                prompt: null,
+              }
+            : { selectedSkillId: null, prompt: plan.promptArm?.prompt ?? null },
+    };
+  });
 }
 
 export function buildCandidateRequest(cell: ExecutionCell): CandidateRequest {

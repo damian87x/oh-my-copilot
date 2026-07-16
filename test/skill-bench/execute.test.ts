@@ -74,6 +74,23 @@ describe("skill-bench matched execution cells", () => {
     });
   });
 
+  it("keeps cell ids and workspaces unique across models", () => {
+    const first = buildMatchedExecutionCells({
+      ...basePlan(),
+      modelId: "gpt-5.4-mini",
+    });
+    const second = buildMatchedExecutionCells({
+      ...basePlan(),
+      modelId: "claude:sonnet-4.6",
+    });
+    const cells = [...first, ...second];
+
+    expect(new Set(cells.map((cell) => cell.id)).size).toBe(cells.length);
+    expect(new Set(cells.map((cell) => cell.workspacePath)).size).toBe(
+      cells.length,
+    );
+  });
+
   it("includes prompt arm only when explicitly approved", () => {
     expect(buildMatchedExecutionCells(basePlan()).map((cell) => cell.arm)).toEqual(["baseline", "skill"]);
     const approved = basePlan();
