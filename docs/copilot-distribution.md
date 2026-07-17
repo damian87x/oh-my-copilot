@@ -52,11 +52,11 @@ Use `omcc skill install` when you want the same simple OMC-style copy flow, or a
 
 ```bash
 omcc skill install ./skills/my-skill --dry-run
-omcc skill install ./skills/my-skill --root /path/to/repo
-omcc skill install ./skills/my-skill --scope user
+omcc skill install ./skills/my-skill --scope project --root /path/to/repo
+omcc skill install ./skills/my-skill              # default: ~/.copilot/skills
 ```
 
-The installer validates `SKILL.md` frontmatter, previews copied files with `--dry-run`, preserves optional resource folders, and writes to `.github/skills/<name>` by default.
+The installer validates `SKILL.md` frontmatter, previews copied files with `--dry-run`, preserves optional resource folders, and writes to `~/.copilot/skills/<name>` by default. Pass `--scope project` only when you intentionally want a repo-local copy under `.github/skills/<name>`.
 
 ## GitHub CLI path
 
@@ -80,7 +80,7 @@ The `oh-my-copilot` installer should stay thin:
 1. Fetch a skill directory from a GitHub repository.
 2. Validate `SKILL.md` frontmatter: `name` and `description`.
 3. Preview the file tree before writing.
-4. Copy the directory unchanged to `.github/skills/<name>` for project scope or `~/.copilot/skills/<name>` for user scope.
+4. Copy the directory unchanged to `~/.copilot/skills/<name>` by default (user scope), or `.github/skills/<name>` when `--scope project` is set.
 5. Preserve optional `references/`, `scripts/`, and `assets/`.
 6. Write provenance metadata only if needed for updates; do not require catalog entries.
 

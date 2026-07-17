@@ -77,6 +77,8 @@ describe("maybePromptUpdate", () => {
     expect(asked).toHaveLength(1);
     expect(prints.some((p) => p.includes("Updated to v9.9.9"))).toBe(true);
     expect(prints.some((p) => p.includes("Copilot plugin updated"))).toBe(true);
+    // After a successful self-update we also refresh user-home install.
+    expect(prints.some((p) => p.includes("User skills/agents") || p.includes("Hooks"))).toBe(true);
     expect(outcome.updated).toBe(true);
   });
 

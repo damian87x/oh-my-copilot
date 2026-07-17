@@ -70,10 +70,11 @@ export function installSkill(options: SkillInstallOptions): SkillInstallResult {
   if (!frontmatter.description) throw new Error(`missing skill description in ${skillFile}`);
   assertSafeSkillName(skillName, skillFile);
 
-  const scope = options.scope ?? 'project';
-  const targetRoot = scope === 'user'
-    ? resolve(options.userSkillsRoot ?? join(homedir(), '.copilot', 'skills'))
-    : join(resolveProjectPaths({ cwd, packageRoot: options.root }).packageRoot, '.github', 'skills');
+  // Default user home so a one-off install never lands in the project tree.
+  const scope = options.scope ?? 'user';
+  const targetRoot = scope === 'project'
+    ? join(resolveProjectPaths({ cwd, packageRoot: options.root }).packageRoot, '.github', 'skills')
+    : resolve(options.userSkillsRoot ?? join(homedir(), '.copilot', 'skills'));
   const targetDir = join(targetRoot, skillName);
   assertTargetInsideRoot(targetRoot, targetDir);
   const files = listFiles(sourceDir);

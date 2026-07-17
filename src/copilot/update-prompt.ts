@@ -174,6 +174,28 @@ export async function maybePromptUpdate(options: MaybePromptUpdateOptions): Prom
     // Keep the in-session Copilot plugin in lockstep with the CLI.
     options.io.print("Refreshing Copilot plugin…");
     options.io.print(formatPluginStatus(await updatePlugin()));
+    // Same as `omp update`: refresh user-home hooks + skills + agents so the
+    // personal install tracks the new CLI. Never scaffolds project .github.
+    try {
+      const { refreshUserInstall } = await import("./setup.js");
+      const { actions } = refreshUserInstall({
+        cwd: options.cwd,
+        importMetaUrl: options.importMetaUrl,
+      });
+      const hook = actions.find((a) => a.target.endsWith("omp.json"));
+      if (hook?.kind === "create") options.io.print("  Hooks installed (~/.copilot/hooks/omp.json).");
+      else if (hook?.kind === "update") options.io.print("  Hooks refreshed (~/.copilot/hooks/omp.json).");
+      const bundleWrites = actions.filter(
+        (a) => (a.kind === "copy" || a.kind === "update") && !a.target.endsWith("omp.json"),
+      ).length;
+      if (bundleWrites > 0) {
+        options.io.print(`  User skills/agents refreshed (${bundleWrites} file(s)).`);
+      } else {
+        options.io.print("  User skills/agents: up to date (or no bundle).");
+      }
+    } catch {
+      options.io.print("  User install refresh skipped (run: omp setup).");
+    }
     options.io.print(`Updated to v${update.latest} — re-run \`omp\`.`);
     return { updated: true };
   }

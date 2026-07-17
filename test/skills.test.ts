@@ -54,26 +54,43 @@ function installForScope(scope: SkillScope, repo: string, source: string, userSk
 }
 
 describe('skill installer', () => {
-  it('dry-runs a fetched skill package without writing files', () => {
+  it('dry-runs a fetched skill package without writing files (default scope=user)', () => {
     const repo = tempRepo();
     const source = tempSkill({ dir: 'hello-skill' });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
 
-    const result = installSkill({ cwd: repo, root: repo, source, dryRun: true });
+    const result = installSkill({ cwd: repo, root: repo, source, dryRun: true, userSkillsRoot });
 
     // Identity comes from the directory, not the frontmatter name.
     expect(result.skillName).toBe('hello-skill');
-    expect(result.targetDir).toBe(path.join(repo, '.github', 'skills', 'hello-skill'));
+    expect(result.targetDir).toBe(path.join(userSkillsRoot, 'hello-skill'));
     expect(result.files).toEqual(['SKILL.md', 'references/notes.md']);
     expect(existsSync(result.targetDir)).toBe(false);
   });
 
-  it('installs a fetched skill package into .github/skills', () => {
+  it('installs a fetched skill package into ~/.copilot/skills by default', () => {
+    const repo = tempRepo();
+    const source = tempSkill({ dir: 'hello-skill' });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
+
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
+
+    expect(result.dryRun).toBe(false);
+    expect(result.targetDir).toBe(path.join(userSkillsRoot, 'hello-skill'));
+    expect(existsSync(path.join(repo, '.github', 'skills'))).toBe(false);
+    expect(readFileSync(path.join(result.targetDir, 'SKILL.md'), 'utf8')).toContain('hello-skill');
+    expect(readFileSync(path.join(result.targetDir, 'references', 'notes.md'), 'utf8')).toContain('Notes');
+  });
+
+  it('installs into .github/skills only with --scope project', () => {
     const repo = tempRepo();
     const source = tempSkill({ dir: 'hello-skill' });
 
-    const result = installSkill({ cwd: repo, root: repo, source });
+    const result = installSkill({ cwd: repo, root: repo, source, scope: 'project' });
 
     expect(result.dryRun).toBe(false);
+    expect(result.targetDir).toBe(path.join(repo, '.github', 'skills', 'hello-skill'));
+    expect(readFileSync(path.join(result.targetDir, 'SKILL.md'), 'utf8')).toContain('hello-skill');
     expect(readFileSync(path.join(result.targetDir, 'SKILL.md'), 'utf8')).toContain('description:');
     expect(readFileSync(path.join(result.targetDir, 'references', 'notes.md'), 'utf8')).toContain('Notes');
   });
@@ -81,8 +98,9 @@ describe('skill installer', () => {
   it('formats installs with directory identity and frontmatter display name', () => {
     const repo = tempRepo();
     const source = tempSkill({ dir: 'clawteam', name: 'ClawTeam' });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
 
-    const result = installSkill({ cwd: repo, root: repo, source });
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
     const text = formatSkillInstall(result);
 
     expect(text).toContain('PASS: skill install /clawteam (ClawTeam)');
@@ -92,19 +110,21 @@ describe('skill installer', () => {
   it('uses the directory as identity and accepts a Title-Case display name (the ClawTeam case)', () => {
     const repo = tempRepo();
     const source = tempSkill({ dir: 'clawteam', name: 'ClawTeam' });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
 
-    const result = installSkill({ cwd: repo, root: repo, source });
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
 
     expect(result.skillName).toBe('clawteam');
     expect(result.displayName).toBe('ClawTeam');
-    expect(result.targetDir).toBe(path.join(repo, '.github', 'skills', 'clawteam'));
+    expect(result.targetDir).toBe(path.join(userSkillsRoot, 'clawteam'));
   });
 
   it('accepts a display name with spaces and ampersands', () => {
     const repo = tempRepo();
     const source = tempSkill({ dir: 'verification-quality', name: 'Verification & Quality Assurance' });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
 
-    const result = installSkill({ cwd: repo, root: repo, source });
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
 
     expect(result.skillName).toBe('verification-quality');
     expect(result.displayName).toBe('Verification & Quality Assurance');
@@ -113,8 +133,9 @@ describe('skill installer', () => {
   it('treats frontmatter name as optional, defaulting the display to the directory', () => {
     const repo = tempRepo();
     const source = tempSkill({ dir: 'no-name-skill', name: null });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
 
-    const result = installSkill({ cwd: repo, root: repo, source });
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
 
     expect(result.skillName).toBe('no-name-skill');
     expect(result.displayName).toBe('no-name-skill');
@@ -123,10 +144,11 @@ describe('skill installer', () => {
   it('parses frontmatter even when a license comment precedes it', () => {
     const repo = tempRepo();
     const source = tempSkill({ dir: 'commented-skill', leadingComment: true });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
 
     // Would previously throw "missing skill description" because the parser
     // required the file to *start* with `---`.
-    const result = installSkill({ cwd: repo, root: repo, source });
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
 
     expect(result.skillName).toBe('commented-skill');
   });
@@ -134,8 +156,9 @@ describe('skill installer', () => {
   it('throws when the skill has no description', () => {
     const repo = tempRepo();
     const source = tempSkill({ dir: 'no-desc', description: null });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
 
-    expect(() => installSkill({ cwd: repo, root: repo, source })).toThrow(/missing skill description/);
+    expect(() => installSkill({ cwd: repo, root: repo, source, userSkillsRoot })).toThrow(/missing skill description/);
   });
 
   it.each<SkillScope>(['project', 'user'])(
