@@ -5164,9 +5164,10 @@ function trySalvagePartialRun(
       mode: "pilot",
       status: "complete",
       synthetic: false,
-      approvals: { frozen: true, budget: true, liveCellsAllowed: true },
-      fingerprint: { status: "current" },
-      conflicts: { status: "clear" },
+      // Report-only shell: never claim freeze/spend approvals for salvaged evidence.
+      approvals: { frozen: false, budget: false, liveCellsAllowed: false, salvaged: true },
+      fingerprint: { status: "salvaged" },
+      conflicts: { status: "unknown" },
       evidence: {
         status: "incomplete-evidence",
         reason: "salvaged-from-partial-run",
@@ -5210,6 +5211,40 @@ function trySalvagePartialRun(
       trustedRoot,
       artifact: runArtifact,
     };
+  }
+  return fail(`Missing verified skill-bench run: ${id}.`);
+}
+
+/** Load a previously salvaged run.json for report-only re-entry (no approval claims). */
+function tryLoadSalvagedRunForReport(
+  id: string,
+  cwd: string,
+): LoadedArtifact | CliResult {
+  if (!safeArtifactId(id)) return fail(`Missing verified skill-bench run: ${id}.`);
+  const paths = resolveSkillBenchPaths({ cwd });
+  const candidates: Array<{ scope: SkillBenchScope; root: string }> = [
+    { scope: "project", root: paths.projectRoot },
+    { scope: "global", root: paths.globalRoot },
+  ];
+  for (const candidate of candidates) {
+    const runPath = path.join(candidate.root, "runs", id, "run.json");
+    if (!existsSync(runPath)) continue;
+    try {
+      const text = readFileSync(runPath, "utf8");
+      const artifact = JSON.parse(text) as unknown;
+      if (!isRecord(artifact) || artifact.salvaged !== true) continue;
+      if (typeof artifact.id === "string" && artifact.id !== id) continue;
+      const trustedRoot = path.dirname(path.dirname(candidate.root));
+      return {
+        kind: "run",
+        id,
+        path: runPath,
+        trustedRoot,
+        artifact,
+      };
+    } catch {
+      continue;
+    }
   }
   return fail(`Missing verified skill-bench run: ${id}.`);
 }
@@ -5929,15 +5964,24 @@ next: continue design, then freeze/export an approved spec before running`,
     let salvaged = false;
     let run = loadCompletedRun(id, context.cwd);
     if (isCliFailure(run)) {
-      // Only rebuild from cells when the completed run artifact is absent.
-      // Keep fail-closed for existing but unapproved/malformed run.json.
-      const missingRun = /Missing verified skill-bench run/i.test(
-        run.message ?? "",
-      );
-      if (!missingRun) return run;
-      const partial = trySalvagePartialRun(id, context.cwd);
-      if (isCliFailure(partial)) return run;
-      run = partial;
+      // Report-only re-entry for previously salvaged runs (no freeze/spend claims).
+      const priorSalvage = tryLoadSalvagedRunForReport(id, context.cwd);
+      if (!isCliFailure(priorSalvage)) {
+        run = priorSalvage;
+        salvaged = true;
+      } else {
+        // Only rebuild from cells when the completed run artifact is absent.
+        // Keep fail-closed for existing but unapproved/malformed run.json.
+        const missingRun = /Missing verified skill-bench run/i.test(
+          run.message ?? "",
+        );
+        if (!missingRun) return run;
+        const partial = trySalvagePartialRun(id, context.cwd);
+        if (isCliFailure(partial)) return run;
+        run = partial;
+        salvaged = true;
+      }
+    } else if (run.artifact.salvaged === true) {
       salvaged = true;
     }
     const open = args.includes("--open") && !context.json;

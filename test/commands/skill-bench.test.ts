@@ -2971,9 +2971,34 @@ describe("skill-bench command", () => {
     expect(html).toContain("tokens 140");
     const runArtifact = JSON.parse(readFileSync(runPath, "utf8"));
     expect(runArtifact.salvaged).toBe(true);
+    expect(runArtifact.approvals).toMatchObject({
+      frozen: false,
+      budget: false,
+      liveCellsAllowed: false,
+      salvaged: true,
+    });
     expect(runArtifact.reportInput.warnings).toEqual(
       expect.arrayContaining([expect.stringContaining("salvaged from partial run")]),
     );
+
+    // Second report must re-enter the salvaged artifact without fail-closed.
+    const second = await run(["skill-bench", "report", runId, "--no-open"], false, root);
+    expect(second).toMatchObject({
+      ok: true,
+      message: expect.stringMatching(/report (ready|rebuilt)/),
+    });
+    expect(second.message).toContain("salvaged=true");
+
+    // Apply / export / rerun remain fail-closed on salvaged shells.
+    await expect(run(["skill-bench", "apply", runId, "--dry-run"], false, root)).resolves.toMatchObject({
+      ok: false,
+    });
+    await expect(run(["skill-bench", "rerun", runId], false, root)).resolves.toMatchObject({
+      ok: false,
+    });
+    await expect(
+      run(["skill-bench", "export", runId, "--output", path.join(root, "out-bundle")], false, root),
+    ).resolves.toMatchObject({ ok: false });
   });
 
   it("applies Copilot recommendations as marker-bounded advisory instructions without claiming enforcement", async () => {
