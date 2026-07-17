@@ -456,6 +456,48 @@ describe("skill-bench decision-first report", () => {
     expect(html).toContain("Exact rerun: omp skill-bench rerun run-20260714-alpha");
   });
 
+  it("pairs monetary cost with total token spend across decision surfaces", () => {
+    const html = renderSkillBenchReportHtml(normalizeSkillBenchReport(completeMatchedRun()));
+
+    expect(html).toContain("<th scope=\"col\">Cheapest passing (cost + tokens)</th>");
+    expect(html).toContain("<th scope=\"col\">Highest quality (cost + tokens)</th>");
+    expect(html).toContain("gpt-5.5 / baseline; quality 74%; cost $0.01; tokens 150");
+    expect(html).toContain("gpt-5.5 / skill; quality 91%; cost $0.04; tokens 170");
+    expect(html).toContain("<strong>Token basis</strong>");
+    expect(html).toContain("<strong>Baseline · gpt-5.5</strong> 74% · $0.01 · 150 tokens");
+    expect(html).toContain("estimated cost $0.01, total tokens 150, quality pass");
+    expect(html).toContain("<th scope=\"col\">Est. cost USD</th><th scope=\"col\">Total tokens</th>");
+  });
+
+  it("leads with a plain-language run outcome for pilot and budget-stop cases", () => {
+    const pilotHtml = renderSkillBenchReportHtml(
+      normalizeSkillBenchReport({ ...completeMatchedRun(), mode: "pilot" as const }),
+    );
+    expect(pilotHtml).toContain('aria-label="Run outcome"');
+    expect(pilotHtml).toContain("Pilot complete — evidence only");
+    expect(pilotHtml).toContain("What next");
+    expect(pilotHtml).toContain("Machine status detail");
+
+    const budgetView = normalizeSkillBenchReport({
+      ...completeMatchedRun(),
+      mode: "pilot" as const,
+      warnings: ["budget stopped before next matched batch: usd-ceiling"],
+    });
+    budgetView.decision.noWinnerReason = "budget stopped before next matched batch: usd-ceiling";
+    const budgetHtml = renderSkillBenchReportHtml(budgetView);
+    expect(budgetHtml).toContain("Stopped early — budget ceiling reached");
+    expect(budgetHtml).toContain("USD hard ceiling was reached");
+    expect(budgetHtml).toContain("Technical reason");
+
+    const salvageView = normalizeSkillBenchReport({
+      ...completeMatchedRun(),
+      mode: "pilot" as const,
+      warnings: ["salvaged from partial run: report rebuilt from on-disk cell evidence"],
+    });
+    const salvageHtml = renderSkillBenchReportHtml(salvageView);
+    expect(salvageHtml).toContain("Partial report rebuilt from cell evidence");
+  });
+
   it("renders pilot reports as a compact decision view with expandable technical detail", () => {
     const view = normalizeSkillBenchReport({
       ...completeMatchedRun(),

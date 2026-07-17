@@ -2894,11 +2894,86 @@ describe("skill-bench command", () => {
     writeJson(root, ".omp/skill-bench/runs/run-unverified/run.json", { ...completedRun("run-unverified"), routingCapabilities: [] });
     writeJson(root, ".omp/skill-bench/runs/run-json-only/run.json", completedRun("run-json-only"));
 
-    await expect(run(["skill-bench", "report", "run-no-report", "--no-open"], false, root)).resolves.toEqual({ ok: false, exitCode: 1, message: "No report artifact exists for skill-bench run run-no-report; expected .omp/skill-bench/runs/run-no-report/sweep_report.html." });
+    await expect(run(["skill-bench", "report", "run-no-report", "--no-open"], false, root)).resolves.toEqual({
+      ok: false,
+      exitCode: 1,
+      message: "No report artifact exists for skill-bench run run-no-report; expected .omp/skill-bench/runs/run-no-report/sweep_report.html. Re-run is required when no cell evidence is present.",
+    });
     await expect(run(["skill-bench", "apply", "run-unverified"], false, root)).resolves.toEqual({ ok: false, exitCode: 1, message: "Skill-bench apply disabled for run-unverified: missing verified OMP effective route evidence or Copilot advisory capability." });
     await expect(run(["skill-bench", "apply", "run-unverified", "--dry-run"], false, root)).resolves.toMatchObject({ ok: true, message: expect.stringContaining("verified=false") });
     await expect(run(["skill-bench", "apply", "run-json-only"], false, root)).resolves.toEqual({ ok: false, exitCode: 1, message: "Skill-bench apply disabled for run-json-only: missing verified OMP effective route evidence or Copilot advisory capability." });
     await expect(run(["skill-bench", "apply", "run-json-only", "--dry-run"], false, root)).resolves.toMatchObject({ ok: true, message: expect.stringContaining("verified=false") });
+  });
+
+  it("salvages a partial run that has cell evidence but no finished report", async () => {
+    const root = tempCwd();
+    const runId = "pilot-stranded-partial-abc123";
+    const cellId = "plan-only-gpt-test-baseline-deadbeef";
+    const cellRoot = path.join(root, ".omp/skill-bench/runs", runId, "cells", cellId);
+    mkdirSync(cellRoot, { recursive: true });
+    writeFileSync(path.join(cellRoot, "COMPLETE"), "complete\n");
+    writeJson(root, `.omp/skill-bench/runs/${runId}/cells/${cellId}/request.json`, {
+      schemaVersion: 1,
+      cellId,
+      modelId: "gpt-test",
+      task: "plan-only-scenario",
+      skillExposure: { selectedSkillId: null },
+    });
+    writeJson(root, `.omp/skill-bench/runs/${runId}/cells/${cellId}/result.json`, {
+      schemaVersion: 1,
+      status: "complete",
+      qualityScore: 0.9,
+      scorerStatus: "complete",
+    });
+    writeJson(root, `.omp/skill-bench/runs/${runId}/cells/${cellId}/scorer.json`, {
+      schemaVersion: 1,
+      status: "complete",
+      result: {
+        schemaVersion: 1,
+        label: "answer-quality",
+        score: 0.9,
+        proofMatrix: {
+          expected: ["plan"],
+          found: ["plan"],
+          done: ["plan"],
+          missed: [],
+          falsePositive: [],
+          incorrect: [],
+          proof: ["response.json"],
+        },
+        evidence: [],
+      },
+    });
+    writeJson(root, `.omp/skill-bench/runs/${runId}/cells/${cellId}/usage.json`, {
+      costUsd: 0.02,
+      inputTokens: 100,
+      outputTokens: 40,
+      totalTokens: 140,
+      durationMs: 1200,
+      completeness: "provider-metadata",
+      provenance: "test",
+      costProvenance: "test",
+    });
+
+    const result = await run(["skill-bench", "report", runId, "--no-open"], false, root);
+    expect(result).toMatchObject({
+      ok: true,
+      message: expect.stringContaining("report rebuilt from partial cell evidence"),
+    });
+    expect(result.message).toContain("salvaged=true");
+    const reportPath = path.join(root, ".omp/skill-bench/runs", runId, "sweep_report.html");
+    const runPath = path.join(root, ".omp/skill-bench/runs", runId, "run.json");
+    expect(existsSync(reportPath)).toBe(true);
+    expect(existsSync(runPath)).toBe(true);
+    const html = readFileSync(reportPath, "utf8");
+    expect(html).toContain("Partial report rebuilt from cell evidence");
+    expect(html).toContain("gpt-test");
+    expect(html).toContain("tokens 140");
+    const runArtifact = JSON.parse(readFileSync(runPath, "utf8"));
+    expect(runArtifact.salvaged).toBe(true);
+    expect(runArtifact.reportInput.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining("salvaged from partial run")]),
+    );
   });
 
   it("applies Copilot recommendations as marker-bounded advisory instructions without claiming enforcement", async () => {

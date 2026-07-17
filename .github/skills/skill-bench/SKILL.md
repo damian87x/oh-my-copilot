@@ -24,6 +24,22 @@ and never as a fallback for a non-synthetic spec. Freeze earlier if a non-synthe
 On refusal, ambiguity, missing approval, failed history, unavailable runner, or
 failed freeze, stop without starting live benchmark cells and explain the next safe action.
 
+When the session pauses mid-design, mid-run, or after an incomplete/partial report, end
+with a short **Continue later** card (skill message only; do not invent a second system):
+
+```text
+Phase: design | freeze | spend-approval | running | report
+Ids/paths: draft/spec/run + absolute report path when present
+Done: …
+Pending: exactly one next question or command
+Blockers: budget | approval | crash | missing report | …
+Safe next: one omp command or one user decision
+```
+
+If cell evidence exists but the HTML report is missing, run
+`omp skill-bench report RUN_ID` first — it may rebuild a partial salvaged report without
+new provider spend.
+
 ## Start and continue
 
 Resolve one entry mode:
@@ -44,7 +60,10 @@ names always require explicit path/identity selection.
 ## Pair-design loop
 
 Move one decision at a time. After each answer, update the reviewed manifest checkpoint and show the
-changed section. Cover, in order:
+changed section. For every unresolved decision, briefly state the current understanding, ask exactly
+one high-impact question, provide evidence-based choices with a recommended answer, and explain what
+that answer unlocks. Use free-form input only when the user selects a custom/other choice. Cover, in
+order:
 
 1. selected skill and candidate models;
 2. atomic scenarios and action contracts: detect/report, propose, implement/verify, or plan-only;
@@ -63,10 +82,19 @@ budgets.estimatedCellPremiumRequests. Import it, then request and record each ex
 ## Models and spend
 
 Defaults are recommendations, never restrictions. Show candidate provenance and that enumeration is
-incomplete. Model probes can consume provider requests, so ask before probing. If approved, probe
-only the explicit model ids by rerunning direct design with each `--model ID` plus `--probe-models`.
-Preserve `available`, `unavailable`, and `unknown`; unknown remains selectable, while unavailable is
-reported rather than silently replaced.
+incomplete. Model selection must use one structured choice question, not a free-form request. Build
+2–3 mutually exclusive model-set options from the returned candidates and provenance. Put the
+recommended option first and append `(Recommended)` to its label. Each option must list exact model
+IDs and briefly explain its quality, provider-diversity, cost, speed, and availability trade-offs.
+Prefer adaptive Balanced, Quality-first, and Economy-first presets when the evidence supports them;
+never hardcode model IDs. Do not ask the user to invent or type model IDs unless they select the
+custom/other choice. If the interactive question tool is unavailable, render the same choices as
+numbered options and ask for one number or label.
+
+Model probes can consume provider requests, so ask before probing. If approved, probe only the
+explicit model ids by rerunning direct design with each `--model ID` plus `--probe-models`. Preserve
+`available`, `unavailable`, and `unknown`; unknown remains selectable, while unavailable is reported
+rather than silently replaced.
 
 After freeze, ask separately whether to spend the displayed hard ceilings. Only after an affirmative
 answer, run with `--approve-spend`; this records hash-bound spend approval for that frozen semantic
@@ -75,8 +103,13 @@ never broaden its budget.
 
 ## Results, routing, and export
 
-Present quality and proof gaps first, then cheapest passing and fastest passing per task. Keep
-missing token/cost telemetry visibly unknown only after both supported cost sources are unavailable.
+Present quality and proof gaps first, then a per-task decision table with state, cheapest passing,
+highest quality, and fastest passing. Task summaries must include tested model/arm, quality, USD
+cost, total tokens, and latency. Every recommendation and final summary row that shows USD must
+show total token spend beside it; never present price alone. If token telemetry is unavailable,
+write `tokens unknown` rather than omitting the field. Keep missing token/cost telemetry visibly
+unknown only after both supported cost sources are unavailable. Return the absolute HTML report
+path after report generation or refresh, and open it only when the user requested that.
 When Copilot emits `totalNanoAiu`, use it as direct AI-credit telemetry and convert it to USD
 (1 AI credit = $0.01). Otherwise fetch the official GitHub Copilot pricing table once and save the
 immutable snapshot as `pricing.json`. Label website-derived USD as a public-price proxy, not a

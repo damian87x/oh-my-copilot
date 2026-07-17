@@ -248,6 +248,178 @@ export function renderSkillBenchReportJson(view: SkillBenchReportView): SkillBen
   return view;
 }
 
+export type RunOutcomeKind =
+  | "pilot"
+  | "budget-stop"
+  | "incomplete"
+  | "salvaged"
+  | "validated-pass"
+  | "validated-fail"
+  | "inconclusive";
+
+export interface RunOutcomeView {
+  kind: RunOutcomeKind;
+  title: string;
+  summary: string;
+  nextActions: string[];
+  technicalReason: string | null;
+}
+
+/** Plain-language run outcome for incomplete/budget-stop/pilot/pass paths. */
+export function describeRunOutcome(view: SkillBenchReportView): RunOutcomeView {
+  const technical =
+    view.decision.noWinnerReason ?? view.decision.confidence.noWinnerReason ?? null;
+  const warnings = view.provenance.warnings;
+  const incompleteCells = view.rows.filter((row) => row.status === "incomplete").length;
+  const salvaged = warnings.some((warning) => /salvaged from partial run/i.test(warning));
+  const budgetDetail = parseBudgetStopDetail(technical, warnings);
+
+  if (budgetDetail) {
+    return {
+      kind: "budget-stop",
+      title: "Stopped early — budget ceiling reached",
+      summary: friendlyBudgetStopSummary(budgetDetail),
+      nextActions: [
+        "Raise the hard budget ceiling and rerun the pilot if you need the remaining model batches.",
+        "Treat finished cells below as partial evidence only — not a routing winner.",
+        "Keep this report path for the next session instead of re-running completed cells blindly.",
+      ].slice(0, 3),
+      technicalReason: technical,
+    };
+  }
+
+  if (salvaged || incompleteCells > 0) {
+    return {
+      kind: salvaged ? "salvaged" : "incomplete",
+      title: salvaged
+        ? "Partial report rebuilt from cell evidence"
+        : "Incomplete run — some cells did not finish",
+      summary: salvaged
+        ? "Earlier provider work left cell evidence without a finished report. This HTML was rebuilt from on-disk cells; coverage may be partial."
+        : `${incompleteCells} cell${incompleteCells === 1 ? "" : "s"} marked incomplete. Use the evidence that finished and decide whether to rerun missing work.`,
+      nextActions: [
+        "Review finished cells below before spending more.",
+        "Rerun only if you still need missing models or scenarios.",
+        "Do not apply routing from partial or salvaged evidence.",
+      ].slice(0, 3),
+      technicalReason: technical,
+    };
+  }
+
+  if (view.mode === "pilot") {
+    return {
+      kind: "pilot",
+      title: "Pilot complete — evidence only",
+      summary:
+        "This pilot checked approved scenarios and reports observed quality, cost, tokens, and latency. It is not a validated routing winner.",
+      nextActions: [
+        "Inspect per-task quality and cost+token trade-offs below.",
+        "Run validated mode from the same frozen spec when you want a routing recommendation.",
+        "Stop here if pilot evidence is enough for a design decision.",
+      ].slice(0, 3),
+      technicalReason: technical,
+    };
+  }
+
+  if (view.decision.state === "pass" && view.decision.validated) {
+    return {
+      kind: "validated-pass",
+      title: "Validated winner available",
+      summary: "Matched evidence and confidence support a validated recommendation.",
+      nextActions: [
+        "Review the recommended route and proof matrices.",
+        "Run apply with --dry-run before changing routing.",
+        "Export only after you accept the exact preview.",
+      ].slice(0, 3),
+      technicalReason: null,
+    };
+  }
+
+  if (view.decision.state === "fail") {
+    return {
+      kind: "validated-fail",
+      title: "Validated run failed quality or hard gates",
+      summary: "No hard-gate-passing cell supports a winner for this validated run.",
+      nextActions: [
+        "Inspect proof misses and false positives below.",
+        "Tighten scenarios, rubric, or skill before spending again.",
+        "Do not apply routing from this run.",
+      ].slice(0, 3),
+      technicalReason: technical,
+    };
+  }
+
+  return {
+    kind: "inconclusive",
+    title: "Inconclusive — no approved winner",
+    summary: technical
+      ? friendlyNoWinnerSummary(technical)
+      : "Evidence is not enough for an approved routing recommendation.",
+    nextActions: [
+      "Read the technical reason in the details section.",
+      "Add coverage, samples, or fix confidence blockers before validated apply.",
+      "Use pilot findings only as observational evidence.",
+    ].slice(0, 3),
+    technicalReason: technical,
+  };
+}
+
+function parseBudgetStopDetail(
+  technical: string | null,
+  warnings: string[],
+): string | null {
+  const sources = [technical, ...warnings].filter(Boolean) as string[];
+  for (const source of sources) {
+    const match = /budget stopped before next matched batch:\s*([a-z-]+)/i.exec(source);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+function friendlyBudgetStopSummary(detail: string): string {
+  switch (detail) {
+    case "usd-ceiling":
+      return "The USD hard ceiling was reached after some matched batches finished. Later models were not started.";
+    case "premium-ceiling":
+      return "The premium-request hard ceiling was reached after some matched batches finished. Later models were not started.";
+    case "runtime-ceiling":
+      return "The runtime hard ceiling was reached after some matched batches finished. Later models were not started.";
+    case "cell-ceiling":
+      return "The cell-count hard ceiling was reached after some matched batches finished. Later models were not started.";
+    default:
+      return `A hard budget ceiling (${detail}) stopped the sweep before the next matched model batch.`;
+  }
+}
+
+function friendlyNoWinnerSummary(technical: string): string {
+  if (/pilot run is not validated/i.test(technical)) {
+    return "Pilot runs never emit a validated winner; use validated mode when you need routing approval.";
+  }
+  if (/no hard-gate passing cell/i.test(technical)) {
+    return "No cell passed hard gates, so there is nothing safe to recommend.";
+  }
+  if (/no quality-threshold passing cell/i.test(technical)) {
+    return "No cell met the quality threshold for a winner.";
+  }
+  if (/matched baseline and skill cells require complete coverage/i.test(technical)) {
+    return "Matched baseline/skill pairs need complete scenario coverage before a winner is allowed.";
+  }
+  if (/missing confidence/i.test(technical) || /confidence verdict/i.test(technical)) {
+    return "Confidence statistics did not support a winner for this validated run.";
+  }
+  return technical;
+}
+
+function renderRunOutcomeHtml(outcome: RunOutcomeView): string {
+  const actions = outcome.nextActions
+    .map((action) => `<li>${escapeHtml(action)}</li>`)
+    .join("");
+  const technical = outcome.technicalReason
+    ? `<details class="technical outcome-technical"><summary>Technical reason</summary><p>${escapeHtml(outcome.technicalReason)}</p></details>`
+    : "";
+  return `<aside class="run-outcome run-outcome-${escapeHtml(outcome.kind)}" aria-label="Run outcome"><p class="run-outcome-title"><strong>${escapeHtml(outcome.title)}</strong></p><p>${escapeHtml(outcome.summary)}</p><p><strong>What next</strong></p><ul>${actions}</ul>${technical}</aside>`;
+}
+
 export function renderSkillBenchReportHtml(view: SkillBenchReportView, options: { browserOpen?: { attempted: boolean; ok: boolean; error?: string } } = {}): string {
   const browserLine = options.browserOpen?.attempted
     ? options.browserOpen.ok
@@ -262,6 +434,7 @@ export function renderSkillBenchReportHtml(view: SkillBenchReportView, options: 
       choice.cheapestPassing ? [choice.cheapestPassing.cellId] : [],
     ),
   );
+  const rowsByCellId = new Map(view.rows.map((row) => [row.cellId, row]));
   const confidenceHtml =
     view.mode === "pilot"
       ? `<p class="pilot-note"><strong>Pilot result — no validated winner yet.</strong> This run checks the approved scenario and reports observed quality, usage, and cost. Run validated mode before applying routing.</p>`
@@ -279,6 +452,7 @@ export function renderSkillBenchReportHtml(view: SkillBenchReportView, options: 
 <p>Confidence sample/coverage: ${escapeHtml(`${formatNumber(view.decision.confidence.sampleCount)} samples, coverage ${formatNumber(view.decision.confidence.coverage)}`)}</p>
 <p>Confidence interval: ${escapeHtml(formatInterval(view.decision.confidence.interval))}</p>
 </div></details>`;
+  const outcomeHtml = renderRunOutcomeHtml(describeRunOutcome(view));
   const warningsHtml = view.provenance.warnings.length > 0
     ? `<aside class="run-warnings"><strong>Run warnings</strong><ul>${view.provenance.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul></aside>`
     : "";
@@ -326,9 +500,9 @@ export function renderSkillBenchReportHtml(view: SkillBenchReportView, options: 
 :root{font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f4f7fb;--skill:#215cce;--baseline:#66758a;--prompt:#a55b09;--other:#6f50b5}
 body{max-width:1240px;margin:0 auto;padding:32px;line-height:1.5}h1,h2,h3{line-height:1.2}h1{margin-bottom:.2rem}.run-id{margin-top:0;color:#52627a;font:600 .82rem ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
 section,table,details.technical{background:#fff;border:1px solid #d9e1ec;border-radius:12px;box-shadow:0 4px 16px rgba(34,52,84,.06)}
-section{padding:22px;margin:18px 0}.help{color:#44546a;background:#eef4ff;border-left:4px solid #3b6eea;padding:12px 16px}.pilot-note,.run-warnings{background:#fff7df;border-left:4px solid #c88700;padding:12px 16px}.run-warnings ul{margin:.4rem 0 0;padding-left:1.25rem}
+section{padding:22px;margin:18px 0}.help{color:#44546a;background:#eef4ff;border-left:4px solid #3b6eea;padding:12px 16px}.pilot-note,.run-warnings,.run-outcome{background:#fff7df;border-left:4px solid #c88700;padding:12px 16px;margin:12px 0}.run-outcome-validated-pass{background:#e8f7ee;border-left-color:#17633a}.run-outcome-validated-fail,.run-outcome-budget-stop{background:#fff1f0;border-left-color:#a3261d}.run-outcome-salvaged,.run-outcome-incomplete{background:#fff7df;border-left-color:#c88700}.run-warnings ul,.run-outcome ul{margin:.4rem 0 0;padding-left:1.25rem}.run-outcome-title{margin:0 0 .4rem}
 .summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.metric{background:#f7f9fc;border:1px solid #e2e8f0;border-radius:10px;padding:12px}.metric strong{display:block;font-size:.78rem;color:#52627a;text-transform:uppercase;letter-spacing:.04em}.metric span{font-size:1.05rem;font-weight:700}
-.cost-basis{display:grid;grid-template-columns:minmax(150px,.35fr) 1fr;gap:8px 20px;align-items:center;margin:18px 0;padding:14px 16px;border:1px solid #b9cbee;border-radius:10px;background:#f3f7ff}.cost-basis strong{display:block;color:#264f9d}.cost-basis p{margin:0}.cost-basis .proxy-note{font-weight:700;color:#704800}.cost-basis a{color:#164fb8}
+.cost-basis{display:grid;grid-template-columns:minmax(150px,.35fr) 1fr;gap:8px 20px;align-items:center;margin:18px 0;padding:14px 16px;border:1px solid #b9cbee;border-radius:10px;background:#f3f7ff}.cost-basis strong{display:block;color:#264f9d}.cost-basis p{margin:0}.cost-basis .proxy-note{grid-column:1/-1;font-weight:700;color:#704800}.cost-basis a{color:#164fb8}
 .charts-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.chart-card{margin:0;padding:16px;border:1px solid #d9e1ec;border-radius:12px;background:#fbfcff}.chart-card-wide{grid-column:1/-1}.chart-card figcaption{display:flex;flex-direction:column;margin-bottom:12px}.chart-card figcaption strong{font-size:1rem}.chart-card figcaption span{color:#5b6a80;font-size:.85rem}.quality-cost-plot{display:block;width:100%;height:auto;min-height:250px}.grid-line{stroke:#dbe3ee;stroke-width:1}.axis-line{stroke:#8794a6;stroke-width:1.2}.axis-label,.tick-label,.point-label{fill:#52627a;font:12px ui-sans-serif,system-ui,sans-serif}.point-label{fill:#172033;font-weight:700}.point-label-model{fill:#52627a;font-weight:600}.point-leader{fill:none;stroke:#9aa7b8;stroke-width:1}.point-pass{stroke-width:2}.point-skill{fill:var(--skill);stroke:var(--skill)}.point-baseline{fill:var(--baseline);stroke:var(--baseline)}.point-prompt{fill:var(--prompt);stroke:var(--prompt)}.point-other{fill:var(--other);stroke:var(--other)}.point-fail{fill:#fff;stroke-width:3}.chart-key{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:8px;font-size:.82rem;color:#52627a}.key-mark{display:inline-block;width:10px;height:10px;margin-right:5px;border-radius:50%;vertical-align:-1px}.key-mark.skill{background:var(--skill)}.key-mark.baseline{background:var(--baseline)}.key-mark.prompt{background:var(--prompt)}
 .bar-list{display:grid;gap:10px}.bar-row{display:grid;grid-template-columns:minmax(130px,1.4fr) minmax(120px,2fr) auto;gap:10px;align-items:center}.bar-label{min-width:0}.bar-label strong,.bar-label small{display:block;overflow-wrap:anywhere}.bar-label small{color:#65748a}.bar-track{height:12px;border-radius:999px;background:#e9eef5;overflow:hidden}.bar-fill{display:block;height:100%;min-width:0;border-radius:inherit;background:var(--other)}.bar-fill.arm-skill{background:var(--skill)}.bar-fill.arm-baseline{background:var(--baseline)}.bar-fill.arm-prompt{background:var(--prompt)}.bar-value{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
 .table-scroll{overflow-x:auto;border-radius:12px}table{width:100%;border-collapse:separate;border-spacing:0;overflow:hidden}th,td{padding:10px 12px;border-bottom:1px solid #e6ebf2;text-align:left;vertical-align:top}thead th{background:#eef3f9}tbody tr:last-child>*{border-bottom:0}tbody tr:nth-child(even){background:#fafcff}
@@ -340,10 +514,11 @@ details{margin:10px 0}details>summary{cursor:pointer;font-weight:700}details>sum
 <body>
 <h1>Skill Bench Decision Report</h1>
 <p class="run-id">Run ${escapeHtml(view.runId)}</p>
-<p class="help"><strong>How to read this report:</strong> quality comes from the approved evaluator. A validated winner requires matched evidence and confidence, not just 100% rows. Within each task, passing rows are ordered by lowest known cost. “unknown” means the provider did not expose that value.</p>
+<p class="help"><strong>How to read this report:</strong> quality comes from the approved evaluator. A validated winner requires matched evidence and confidence, not just 100% rows. Within each task, passing rows are ordered by lowest known cost; recommendation values show both USD cost and total token spend. “unknown” means the provider did not expose that value.</p>
 <main>
 <section aria-label="Decision summary">
 <h2>Decision summary</h2>
+${outcomeHtml}
 ${confidenceHtml}
 ${warningsHtml}
 <div class="summary-grid">
@@ -352,13 +527,15 @@ ${warningsHtml}
 <div class="metric"><strong>Matched skill uplift</strong><span>${escapeHtml(formatNullable(view.decision.matchedSkillUplift))}</span></div>
 <div class="metric"><strong>Coverage</strong><span>${escapeHtml(view.decision.coverage.scenarioCoverage)}</span></div>
 </div>
+<details class="technical"><summary>Machine status detail</summary>
 <p>No winner reason: ${escapeHtml(view.decision.noWinnerReason ?? view.decision.confidence.noWinnerReason ?? "none")}</p>
 <p><strong>Recommended route:</strong> ${escapeHtml(view.decision.recommendedRoute ? `${view.decision.recommendedRoute.skillId} with ${view.decision.recommendedRoute.modelId} (${view.decision.recommendedRoute.objective})` : "none — this run does not support an approved routing recommendation")}</p>
-<aside class="cost-basis" aria-label="Cost basis"><div><strong>Cost basis</strong><span>${pricingSourceHtml}</span></div><p>${escapeHtml([pricing.currency, pricing.retrievedAt ? `retrieved ${pricing.retrievedAt}` : null, pricing.completeness].filter(Boolean).join(" · "))}</p>${proxyPricing ? `<p class="proxy-note">Public-price proxy; not a GitHub Copilot invoice.</p>` : ""}</aside>
+</details>
+<aside class="cost-basis" aria-label="Cost and token basis"><div><strong>Cost basis</strong><span>${pricingSourceHtml}</span></div><p>${escapeHtml([pricing.currency, pricing.retrievedAt ? `retrieved ${pricing.retrievedAt}` : null, pricing.completeness].filter(Boolean).join(" · "))}</p><div><strong>Token basis</strong><span>Provider total when available; otherwise input + output</span></div><p>Cell-level completeness and provenance remain visible below.</p>${proxyPricing ? `<p class="proxy-note">Public-price proxy; not a GitHub Copilot invoice.</p>` : ""}</aside>
 <h3>What to choose per task</h3>
 <div class="table-scroll"><table aria-label="Per-task choices">
-<thead><tr><th scope="col">Task</th><th scope="col">State</th><th scope="col">Cheapest passing</th><th scope="col">Highest quality</th></tr></thead>
-<tbody>${view.decision.taskChoices.map((choice) => `<tr><th scope="row" class="wrap">${escapeHtml(choice.taskId)}</th><td class="status-${escapeHtml(choice.state)}">${escapeHtml(choice.state)}</td><td class="wrap">${escapeHtml(formatChoice(choice.cheapestPassing))}</td><td class="wrap">${escapeHtml(formatChoice(choice.highestQuality))}</td></tr>`).join("")}</tbody>
+<thead><tr><th scope="col">Task</th><th scope="col">State</th><th scope="col">Cheapest passing (cost + tokens)</th><th scope="col">Highest quality (cost + tokens)</th></tr></thead>
+<tbody>${view.decision.taskChoices.map((choice) => `<tr><th scope="row" class="wrap">${escapeHtml(choice.taskId)}</th><td class="status-${escapeHtml(choice.state)}">${escapeHtml(choice.state)}</td><td class="wrap">${escapeHtml(formatChoice(choice.cheapestPassing, rowsByCellId))}</td><td class="wrap">${escapeHtml(formatChoice(choice.highestQuality, rowsByCellId))}</td></tr>`).join("")}</tbody>
 </table></div>
 <p><strong>Observed misses across cells:</strong> ${escapeHtml(listOrNone(view.decision.decisiveMisses))}. <strong>False positives:</strong> ${escapeHtml(listOrNone(view.decision.decisiveFalsePositives))}.</p>
 <details class="technical"><summary>Full usage and provenance</summary>
@@ -370,7 +547,7 @@ ${warningsHtml}
 <p>Seed: ${escapeHtml(view.provenance.seed)}</p><p>Exact rerun: ${escapeHtml(view.provenance.rerunCommand)}</p><p>${escapeHtml(browserLine)}</p>
 </div></details>
 </section>
-<section aria-label="Performance charts"><h2>Performance at a glance</h2><p>Direct labels show the task, tested setup, and agent model. Pilot charts describe observed evidence only; they do not authorize routing.</p><div class="charts-grid">${chartsHtml}</div></section>
+<section aria-label="Performance charts"><h2>Performance at a glance</h2><p>Direct labels show the task, tested setup, and agent model. Exact quality/cost values also show total token spend. Pilot charts describe observed evidence only; they do not authorize routing.</p><div class="charts-grid">${chartsHtml}</div></section>
 <section aria-label="Cell comparison"><h2>Cell comparison</h2><p>Rows are grouped by task. Quality-pass rows come first; known costs are ordered lowest first. ${proxyPricing ? "Estimated costs use the visible public-pricing proxy above." : "Costs use the visible run pricing source above."}</p><div class="table-scroll"><table aria-label="Cell comparison"><thead><tr><th scope="col">Task</th><th scope="col">Setup</th><th scope="col">Tested agent (model)</th><th scope="col">Quality</th><th scope="col">${proxyPricing ? "Est. cost USD" : "Cost USD"}</th><th scope="col">Total tokens</th><th scope="col">Latency</th><th scope="col">Details</th></tr></thead><tbody>${comparisonRows}</tbody></table></div></section>
 <section aria-label="Proof matrices">
 <h2>Proof matrices</h2>
@@ -481,7 +658,7 @@ function renderQualityCostChart(taskId: string, rows: ReportRow[]): string {
       const labelY = labelYByPoint.get(index) ?? y;
       const modelLabel = compactChartLabel(row.modelId);
       const modelLabelWidth = Math.min(204, Math.max(1, Array.from(modelLabel).length * 7));
-      const title = `${titleCase(row.arm)} / ${row.modelId}: quality ${formatQuality(row.qualityScore)}, estimated cost ${formatUsd(row.costUsd)}, ${row.qualityPassed ? "quality pass" : "quality fail"}`;
+      const title = `${titleCase(row.arm)} / ${row.modelId}: quality ${formatQuality(row.qualityScore)}, estimated cost ${formatUsd(row.costUsd)}, total tokens ${formatTokenCount(row.tokens, ["total", "totalTokens"])}, ${row.qualityPassed ? "quality pass" : "quality fail"}`;
       const shape = row.qualityPassed
         ? `<circle cx="${x}" cy="${y}" r="8" class="point-pass point-${armClass(row.arm)}"><title>${escapeHtml(title)}</title></circle>`
         : `<path d="M ${x} ${y - 9} L ${x + 9} ${y} L ${x} ${y + 9} L ${x - 9} ${y} Z" class="point-fail point-${armClass(row.arm)}"><title>${escapeHtml(title)}</title></path>`;
@@ -491,13 +668,13 @@ function renderQualityCostChart(taskId: string, rows: ReportRow[]): string {
   const exactValues = rows
     .map(
       (row) =>
-        `<span><strong>${escapeHtml(`${titleCase(row.arm)} · ${row.modelId}`)}</strong> ${escapeHtml(formatQuality(row.qualityScore))} · ${escapeHtml(formatUsd(row.costUsd))}</span>`,
+        `<span><strong>${escapeHtml(`${titleCase(row.arm)} · ${row.modelId}`)}</strong> ${escapeHtml(formatQuality(row.qualityScore))} · ${escapeHtml(formatUsd(row.costUsd))} · ${escapeHtml(formatTokenCount(row.tokens, ["total", "totalTokens"]))} tokens</span>`,
     )
     .join("");
   const plot = points.length
     ? `<svg class="quality-cost-plot" viewBox="0 0 ${chartWidth} ${chartHeight}" aria-hidden="true" focusable="false">${yTicks}${xTicks}<line class="axis-line" x1="${left}" y1="${top}" x2="${left}" y2="${top + plotHeight}"></line><line class="axis-line" x1="${left}" y1="${top + plotHeight}" x2="${left + plotWidth}" y2="${top + plotHeight}"></line><text class="axis-label" x="${left + plotWidth / 2}" y="${chartHeight - 6}" text-anchor="middle">Estimated cost USD — lower is better</text><text class="axis-label" x="16" y="${top + plotHeight / 2}" text-anchor="middle" transform="rotate(-90 16 ${top + plotHeight / 2})">Quality — higher is better</text>${marks}</svg>`
     : `<p>No cells have both quality and known cost, so this plot is unavailable.</p>`;
-  return `<figure class="chart-card chart-card-wide" aria-label="Quality versus estimated cost chart"><figcaption><strong>${escapeHtml(taskId)} — quality vs estimated cost</strong><span>Top-left is best: higher approved quality at lower estimated cost. Filled circles pass quality; hollow diamonds fail.</span></figcaption>${plot}<div class="chart-key" aria-label="Exact chart values">${exactValues}</div></figure>`;
+  return `<figure class="chart-card chart-card-wide" aria-label="Quality versus estimated cost chart"><figcaption><strong>${escapeHtml(taskId)} — quality vs estimated cost</strong><span>Top-left is best: higher approved quality at lower estimated cost. Exact values include token spend. Filled circles pass quality; hollow diamonds fail.</span></figcaption>${plot}<div class="chart-key" aria-label="Exact chart values">${exactValues}</div></figure>`;
 }
 
 function compactChartLabel(value: string, maxCharacters = 30): string {
@@ -818,9 +995,16 @@ function formatNullable(value: number | null): string {
   return value === null ? "unknown" : value.toFixed(2).replace(/0$/, "").replace(/\.$/, "");
 }
 
-function formatChoice(choice: ReportRankingCell | null): string {
+function formatChoice(
+  choice: ReportRankingCell | null,
+  rowsByCellId: Map<string, ReportRow>,
+): string {
   if (!choice) return "none";
-  return `${choice.modelId} / ${choice.arm}; quality ${formatQuality(choice.qualityScore)}; cost ${formatUsd(choice.costUsd)}`;
+  const row = rowsByCellId.get(choice.cellId);
+  const tokenSpend = row
+    ? formatTokenCount(row.tokens, ["total", "totalTokens"])
+    : "unknown";
+  return `${choice.modelId} / ${choice.arm}; quality ${formatQuality(choice.qualityScore)}; cost ${formatUsd(choice.costUsd)}; tokens ${tokenSpend}`;
 }
 
 function formatMetric(value: unknown): string {

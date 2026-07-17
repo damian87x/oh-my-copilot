@@ -5125,6 +5125,285 @@ function applyBudgetStopDecision(
   view.actions.canApply = false;
 }
 
+const SALVAGE_WARNING = "salvaged from partial run: report rebuilt from on-disk cell evidence";
+
+function trySalvagePartialRun(
+  id: string,
+  cwd: string,
+): LoadedArtifact | CliResult {
+  if (!safeArtifactId(id)) return fail(`Missing verified skill-bench run: ${id}.`);
+  const paths = resolveSkillBenchPaths({ cwd });
+  const candidates: Array<{ scope: SkillBenchScope; root: string }> = [
+    { scope: "project", root: paths.projectRoot },
+    { scope: "global", root: paths.globalRoot },
+  ];
+  for (const candidate of candidates) {
+    const runDir = path.join(candidate.root, "runs", id);
+    const cellsDir = path.join(runDir, "cells");
+    if (!existsSync(cellsDir) || !statSync(cellsDir).isDirectory()) continue;
+    const reportCells = readSalvageReportCells(cellsDir, id);
+    if (reportCells.length === 0) continue;
+    const trustedRoot = path.dirname(path.dirname(candidate.root));
+    const reportInput = buildSalvagedReportInput(id, reportCells);
+    const reportView = normalizeSkillBenchReport(reportInput);
+    const summary = {
+      schemaVersion: 1,
+      id: `summary-${id}`,
+      runId: id,
+      mode: reportInput.mode,
+      status: "inconclusive",
+      synthetic: false,
+      cells: reportCells.length,
+      salvaged: true,
+    };
+    const runArtifact: Record<string, unknown> = {
+      schemaVersion: 1,
+      id,
+      specId: id,
+      sourceId: id,
+      mode: "pilot",
+      status: "complete",
+      synthetic: false,
+      approvals: { frozen: true, budget: true, liveCellsAllowed: true },
+      fingerprint: { status: "current" },
+      conflicts: { status: "clear" },
+      evidence: {
+        status: "incomplete-evidence",
+        reason: "salvaged-from-partial-run",
+      },
+      cells: reportCells.map((cell) => ({
+        id: cell.id,
+        arm: cell.arm,
+        modelId: cell.modelId,
+        status: cell.status,
+        qualityPassed: cell.qualityPassed,
+      })),
+      reportPath: `runs/${id}/sweep_report.html`,
+      reportInput,
+      reportView,
+      summary,
+      summaryPath: `runs/${id}/summary.json`,
+      exportManifest: {
+        files: [
+          `runs/${id}/run.json`,
+          `runs/${id}/summary.json`,
+          `runs/${id}/sweep_report.html`,
+        ],
+      },
+      salvaged: true,
+    };
+    const runRelative = path.posix.join("runs", id, "run.json");
+    const summaryRelative = path.posix.join("runs", id, "summary.json");
+    const reportRelative = path.posix.join("runs", id, "sweep_report.html");
+    writeSkillBenchJsonAtomic(paths, candidate.scope, runRelative, runArtifact);
+    writeSkillBenchJsonAtomic(paths, candidate.scope, summaryRelative, summary);
+    writeSkillBenchFileAtomic(
+      paths,
+      candidate.scope,
+      reportRelative,
+      renderSkillBenchReportHtml(reportView),
+    );
+    return {
+      kind: "run",
+      id,
+      path: path.join(candidate.root, "runs", id, "run.json"),
+      trustedRoot,
+      artifact: runArtifact,
+    };
+  }
+  return fail(`Missing verified skill-bench run: ${id}.`);
+}
+
+function buildSalvagedReportInput(
+  runId: string,
+  cells: SkillBenchReportInput["cells"],
+): SkillBenchReportInput {
+  return {
+    schemaVersion: 1,
+    runId,
+    mode: "pilot",
+    status: "incomplete",
+    spec: {
+      id: runId,
+      fingerprint: "salvaged",
+      evaluationFingerprint: "salvaged",
+      seed: "salvaged",
+      rerunCommand: `omp skill-bench report ${runId}`,
+    },
+    skill: { id: "unknown", fingerprint: "salvaged" },
+    model: { id: "unknown", fingerprint: "salvaged" },
+    environment: { provider: "salvaged", fingerprint: "salvaged" },
+    pricing: { source: "unknown", completeness: "unknown" },
+    budget: {},
+    warnings: [SALVAGE_WARNING],
+    cells,
+  };
+}
+
+function readSalvageReportCells(
+  cellsDir: string,
+  runId: string,
+): SkillBenchReportInput["cells"] {
+  const entries = readdirSync(cellsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  const cells: SkillBenchReportInput["cells"] = [];
+  for (const cellId of entries) {
+    const cellRoot = path.join(cellsDir, cellId);
+    const cell = salvageReportCellFromDir(cellRoot, cellId, runId);
+    if (cell) cells.push(cell);
+  }
+  return cells;
+}
+
+function salvageReportCellFromDir(
+  cellRoot: string,
+  cellId: string,
+  runId: string,
+): SkillBenchReportInput["cells"][number] | null {
+  const request = readJsonRecordIfPresent(path.join(cellRoot, "request.json"));
+  const result = readJsonRecordIfPresent(path.join(cellRoot, "result.json"));
+  const scorer = readJsonRecordIfPresent(path.join(cellRoot, "scorer.json"));
+  const usage = readJsonRecordIfPresent(path.join(cellRoot, "usage.json"));
+  if (!request && !result && !scorer) return null;
+
+  const scorerResult = isRecord(scorer?.result) ? scorer.result : null;
+  const proofSource = isRecord(scorerResult?.proofMatrix)
+    ? scorerResult.proofMatrix
+    : null;
+  const skillExposure = isRecord(request?.skillExposure)
+    ? request.skillExposure
+    : {};
+  const selectedSkillId = stringFromAnyKey(skillExposure, ["selectedSkillId"]);
+  const arm = selectedSkillId ? "skill" : cellId.includes("-skill") ? "skill" : "baseline";
+  const modelId =
+    stringFromAnyKey(request ?? {}, ["modelId"]) ??
+    "unknown";
+  const taskId =
+    stringFromAnyKey(request ?? {}, ["task", "scenarioId", "taskId"]) ??
+    (cellId.split("-").slice(0, 2).join("-") || "unknown-task");
+  const qualityScore =
+    numberFromUnknown(result?.qualityScore) ??
+    numberFromUnknown(scorerResult?.score) ??
+    0;
+  const statusRaw = stringFromAnyKey(result ?? {}, ["status"]) ?? "incomplete";
+  const status = (
+    [
+      "complete",
+      "quality-failure",
+      "process-failure",
+      "infrastructure-failure",
+      "availability-failure",
+      "quota-failure",
+      "scorer-failure",
+      "incomplete",
+      "parity-invalid",
+    ] as const
+  ).includes(statusRaw as never)
+    ? (statusRaw as SkillBenchReportInput["cells"][number]["status"])
+    : "incomplete";
+  const hardGatesPassed = status === "complete";
+  const qualityPassed =
+    result?.qualityPassed === true ||
+    (hardGatesPassed && qualityScore >= 0.8);
+  const costUsd = numberFromUnknown(usage?.costUsd);
+  const latencyMs =
+    numberFromUnknown(usage?.durationMs) ?? numberFromUnknown(usage?.latencyMs);
+  const inputTokens = numberFromUnknown(usage?.inputTokens) ?? 0;
+  const outputTokens = numberFromUnknown(usage?.outputTokens) ?? 0;
+  const totalTokens =
+    numberFromUnknown(usage?.totalTokens) ??
+    (Number.isFinite(inputTokens) && Number.isFinite(outputTokens)
+      ? inputTokens + outputTokens
+      : null);
+  const tokens: SkillBenchReportInput["cells"][number]["tokens"] = {
+    input: inputTokens,
+    output: outputTokens,
+    ...(totalTokens === null ? {} : { total: totalTokens }),
+    completeness: stringFromAnyKey(usage ?? {}, ["completeness"]) ?? "unknown",
+    provenance: stringFromAnyKey(usage ?? {}, ["provenance"]) ?? "salvaged-cell",
+    costProvenance:
+      stringFromAnyKey(usage ?? {}, ["costProvenance"]) ?? "salvaged-cell",
+  };
+  const evidencePaths = [
+    "result.json",
+    "scorer.json",
+    "usage.json",
+    "request.json",
+    "COMPLETE",
+  ]
+    .filter((name) => existsSync(path.join(cellRoot, name)))
+    .map((name) => `cells/${cellId}/${name}`);
+
+  return {
+    id: cellId,
+    taskId: String(taskId).slice(0, 120) || "unknown-task",
+    arm,
+    modelId,
+    status,
+    hardGatesPassed,
+    qualityPassed,
+    qualityScore,
+    costUsd,
+    latencyMs,
+    samples: 1,
+    scenariosCovered: hardGatesPassed ? 1 : 0,
+    scenariosRequired: 1,
+    proofMatrix: {
+      expected: stringArray(proofSource?.expected),
+      found: stringArray(proofSource?.found),
+      done: stringArray(proofSource?.done),
+      missed: stringArray(proofSource?.missed),
+      falsePositive: stringArray(
+        proofSource?.falsePositive ?? proofSource?.["false-positive"],
+      ),
+      incorrect: stringArray(proofSource?.incorrect),
+      proof: stringArray(proofSource?.proof).map((entry) =>
+        reportProofEntry(entry, cellRoot),
+      ),
+    },
+    evidencePaths,
+    tokens,
+  };
+}
+
+function readJsonRecordIfPresent(
+  filePath: string,
+): Record<string, unknown> | null {
+  if (!existsSync(filePath)) return null;
+  try {
+    const value = JSON.parse(readFileSync(filePath, "utf8"));
+    return isRecord(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function numberFromUnknown(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function rebuildReportInputFromRunArtifact(
+  run: LoadedArtifact,
+): SkillBenchReportInput | null {
+  const existing = run.artifact.reportInput;
+  if (isRecord(existing) && Array.isArray(existing.cells) && existing.cells.length > 0) {
+    return existing as unknown as SkillBenchReportInput;
+  }
+  const cellsDir = path.join(path.dirname(run.path), "cells");
+  if (!existsSync(cellsDir)) return null;
+  const cells = readSalvageReportCells(cellsDir, run.id);
+  if (cells.length === 0) return null;
+  const input = buildSalvagedReportInput(run.id, cells);
+  const priorWarnings = Array.isArray(existing) ? [] : stringArray(isRecord(existing) ? existing.warnings : undefined);
+  input.warnings = [...new Set([SALVAGE_WARNING, ...priorWarnings, ...stringArray(run.artifact.warnings)])];
+  if (typeof run.artifact.mode === "string" && (run.artifact.mode === "pilot" || run.artifact.mode === "validated")) {
+    input.mode = run.artifact.mode;
+  }
+  return input;
+}
+
 function approvedPublicPricing(
   artifact: Record<string, unknown>,
 ): PublicPricingSnapshot | null | CliResult {
@@ -5647,34 +5926,85 @@ next: continue design, then freeze/export an approved spec before running`,
       return fail("Choose at most one report open mode: --open or --no-open.");
     const stray = rejectStray(args, new Set(["--open", "--no-open"]), 2);
     if (stray) return stray;
+    let salvaged = false;
     let run = loadCompletedRun(id, context.cwd);
-    if (isCliFailure(run)) return run;
+    if (isCliFailure(run)) {
+      // Only rebuild from cells when the completed run artifact is absent.
+      // Keep fail-closed for existing but unapproved/malformed run.json.
+      const missingRun = /Missing verified skill-bench run/i.test(
+        run.message ?? "",
+      );
+      if (!missingRun) return run;
+      const partial = trySalvagePartialRun(id, context.cwd);
+      if (isCliFailure(partial)) return run;
+      run = partial;
+      salvaged = true;
+    }
     const open = args.includes("--open") && !context.json;
     const paths = resolveSkillBenchPaths({ cwd: context.cwd });
     const scope = artifactScope(paths, run.path);
-    const pricingRefresh = await refreshUnknownRunPricing(run, paths, scope);
+    const pricingRefresh = salvaged
+      ? { run, status: "skipped-salvaged" as const }
+      : await refreshUnknownRunPricing(run, paths, scope);
     run = pricingRefresh.run;
     const expectedReportPath = reportPathForRun(paths, scope, id);
     let effectiveReportPath = expectedReportPath;
-    const reportView = isRecord(run.artifact.reportView)
+    let reportView = isRecord(run.artifact.reportView)
       ? (run.artifact.reportView as unknown as SkillBenchReportView)
       : null;
-    const reportInput = isRecord(run.artifact.reportInput)
+    let reportInput = isRecord(run.artifact.reportInput)
       ? (run.artifact.reportInput as unknown as SkillBenchReportInput)
       : null;
+    if (!reportView && !reportInput) {
+      const rebuilt = rebuildReportInputFromRunArtifact(run);
+      if (rebuilt) {
+        reportInput = rebuilt;
+        reportView = normalizeSkillBenchReport(rebuilt);
+        salvaged = true;
+        run.artifact.reportInput = rebuilt;
+        run.artifact.reportView = reportView;
+        run.artifact.salvaged = true;
+        writeTrustedFile(
+          run.path,
+          `${JSON.stringify(run.artifact, null, 2)}\n`,
+          run.trustedRoot,
+        );
+        writeTrustedFile(
+          path.join(path.dirname(run.path), "summary.json"),
+          `${JSON.stringify(
+            {
+              schemaVersion: 1,
+              id: `summary-${id}`,
+              runId: id,
+              mode: rebuilt.mode,
+              status: "inconclusive",
+              synthetic: false,
+              cells: rebuilt.cells.length,
+              salvaged: true,
+            },
+            null,
+            2,
+          )}\n`,
+          run.trustedRoot,
+        );
+      }
+    }
     if (reportView || reportInput) {
       effectiveReportPath = expectedReportPath;
       mkdirSync(path.dirname(effectiveReportPath), { recursive: true });
-      createTextFileIfMissing(effectiveReportPath, () => {
-        const view =
-          reportView ??
-          normalizeSkillBenchReport(reportInput as SkillBenchReportInput);
-        return renderSkillBenchReportHtml(view);
-      }, run.trustedRoot);
+      const view =
+        reportView ??
+        normalizeSkillBenchReport(reportInput as SkillBenchReportInput);
+      const html = renderSkillBenchReportHtml(view);
+      if (salvaged || !existsSync(effectiveReportPath)) {
+        writeTrustedFile(effectiveReportPath, html, run.trustedRoot);
+      } else {
+        createTextFileIfMissing(effectiveReportPath, () => html, run.trustedRoot);
+      }
     }
     if (!existsSync(effectiveReportPath)) {
       return fail(
-        `No report artifact exists for skill-bench run ${id}; expected ${displayPath(context.cwd, effectiveReportPath)}.`,
+        `No report artifact exists for skill-bench run ${id}; expected ${displayPath(context.cwd, effectiveReportPath)}. Re-run is required when no cell evidence is present.`,
       );
     }
     const output = {
@@ -5684,13 +6014,16 @@ next: continue design, then freeze/export an approved spec before running`,
       reportPath: displayPath(context.cwd, effectiveReportPath),
       opened: open,
       pricingRefresh: pricingRefresh.status,
-      verdict: "artifact-present",
+      salvaged,
+      verdict: salvaged ? "salvaged-partial" : "artifact-present",
     };
     return context.json
       ? { ok: true, output }
       : {
           ok: true,
-          message: `report ready: ${output.reportPath}\nopened=${open}\npricing-refresh=${pricingRefresh.status}`,
+          message: salvaged
+            ? `report rebuilt from partial cell evidence: ${output.reportPath}\nopened=${open}\nsalvaged=true\npricing-refresh=${pricingRefresh.status}`
+            : `report ready: ${output.reportPath}\nopened=${open}\npricing-refresh=${pricingRefresh.status}`,
         };
   }
   if (sub === "rerun") {
