@@ -18,6 +18,7 @@ export interface SkillInstallResult {
   ok: boolean;
   dryRun: boolean;
   skillName: string;
+  displayName: string;
   sourceDir: string;
   targetDir: string;
   files: string[];
@@ -42,7 +43,7 @@ function listFiles(dir: string, base = dir): string[] {
 
 function assertSafeSkillName(skillName: string, skillFile: string): void {
   if (!SAFE_SKILL_NAME.test(skillName)) {
-    throw new Error(`invalid skill name in ${skillFile}: ${JSON.stringify(skillName)} (must match ${SAFE_SKILL_NAME})`);
+    throw new Error(`invalid skill directory name ${JSON.stringify(skillName)} for ${skillFile}: the directory name is the skill identity/command and must match ${SAFE_SKILL_NAME} — rename the directory (the human-readable frontmatter \`name\` can stay as-is)`);
   }
 }
 
@@ -59,8 +60,13 @@ export function installSkill(options: SkillInstallOptions): SkillInstallResult {
   const sourceDir = findSkillDir(options.source, cwd);
   const skillFile = join(sourceDir, 'SKILL.md');
   const frontmatter = parseFrontmatter(readFileSync(skillFile, 'utf8'));
-  const skillName = frontmatter.name || basename(sourceDir);
-  if (!frontmatter.name) throw new Error(`missing skill name in ${skillFile}`);
+  // Per the Agent Skills spec (https://code.claude.com/docs/en/skills) the
+  // DIRECTORY name is the skill identity ("the directory name becomes the
+  // command"); frontmatter `name` is an optional free-form DISPLAY string that
+  // defaults to the directory. So the install target is derived from — and the
+  // path-safety check applied to — the directory, not the display name.
+  const skillName = basename(sourceDir);
+  const displayName = frontmatter.name || skillName;
   if (!frontmatter.description) throw new Error(`missing skill description in ${skillFile}`);
   assertSafeSkillName(skillName, skillFile);
 
@@ -83,6 +89,7 @@ export function installSkill(options: SkillInstallOptions): SkillInstallResult {
     ok: true,
     dryRun: Boolean(options.dryRun),
     skillName,
+    displayName,
     sourceDir,
     targetDir,
     files,
@@ -91,8 +98,11 @@ export function installSkill(options: SkillInstallOptions): SkillInstallResult {
 
 export function formatSkillInstall(result: SkillInstallResult): string {
   const action = result.dryRun ? 'DRY-RUN' : 'PASS';
+  const title = result.displayName && result.displayName !== result.skillName
+    ? `/${result.skillName} (${result.displayName})`
+    : `/${result.skillName}`;
   return [
-    `${action}: skill install /${result.skillName}`,
+    `${action}: skill install ${title}`,
     `source=${result.sourceDir}`,
     `target=${result.targetDir}`,
     ...result.files.map((file) => `- ${file}`),

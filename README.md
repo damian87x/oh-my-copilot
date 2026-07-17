@@ -184,6 +184,8 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/ralplan`              | Consensus planning                                        | `/ralplan "plan this feature"`                       |
 | `/team`                 | Parallel tmux agent panes                                 | `/team`                                              |
 | `/code-review`          | Diff-focused reviewer                                     | `/code-review`                                       |
+| `/skill-bench`          | Design an approved dynamic skill benchmark via `omp skill-bench` | `/skill-bench ./skills/custom-review`                |
+| `/history-analyze`      | Summarize actual usage and offer one confirmed benchmark next step | `/history-analyze`                 |
 | `/weighted-consensus`   | Multi-model council → one weighted verdict + minority report | `/weighted-consensus "JSON or YAML for config?"`  |
 | `/research-codebase`    | Map an area of the codebase                               | `/research-codebase "auth middleware"`               |
 | `/debug`                | Disciplined diagnose-reproduce-fix loop                   | `/debug "flaky integration test"`                    |
@@ -442,7 +444,7 @@ omp grows in vertical slices. Items aren't pinned to specific semver versions �
 - [Jira adapter](docs/jira.md) — configuration discovery, safe operations, dry-runs, fallback payloads
 - [Self-evolve](docs/self-evolve.md) — extracting reusable skills from session transcripts
 - [Slack setup](docs/slack-setup.md) — Slack app manifest, scopes, Socket-Mode token, `omp gateway serve`
-- [Skill benchmark](benchmarks/skill-bench/README.md) — agentic benchmark that measures whether a skill actually beats *just telling the model* (baseline / one-line prompt / skill arms), with live Haiku 4.5 findings
+- Skill benchmark — `omp skill-bench` guides dynamic skill/path selection, approval, frozen budgets, report generation, and optional routing without a repository-internal benchmark package.
 
 ## Layout
 
@@ -452,7 +454,6 @@ omp grows in vertical slices. Items aren't pinned to specific semver versions �
 hooks/hooks.json                  # lifecycle hook manifest
 scripts/*.mjs                     # hook implementations
 src/                              # omp CLI, team runtime, gateway/comms, schedule, mode-state loops
-benchmarks/skill-bench/           # agentic benchmark: does a skill beat just telling the model?
 ```
 
 Skills follow the [Copilot agent-skills docs](https://docs.github.com/en/copilot) — project skills live in `.github/skills/` and are invoked with `/skill-name`.
@@ -468,26 +469,64 @@ npm link                                       # makes `omp` point to your local
 npm test
 npm run lint:skills
 npm run sync:dry-run
+
+cd /path/to/project
+omp setup                                      # copies this checkout's bundled skills
+omp                                            # start a fresh Copilot session
 ```
 
-After `npm link`, the global `omp` command runs your local build. Any changes you make are reflected after `npm run build`.
+After `npm link`, the global `omp` command runs your local build. Re-run `npm run build` after code
+changes, then run plain `omp setup` from the target project to copy bundled skills from the linked
+checkout. Setup preserves locally changed skills unless you explicitly pass `--force`. Packaged users
+follow the same out-of-box shape from any project: install OMP, run `omp setup`, and start a fresh
+Copilot session. They do not need this repository checkout, a benchmark working directory, or Python.
 
-> **`npm link` only refreshes the `omp` shell CLI — not in-session `/skills`.**
-> The Copilot plugin is a separate, cached copy under
-> `~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/` (source: the
-> `oh-my-copilot` GitHub marketplace). So a new or edited skill shows up in
-> `omp list` immediately but **not** in a Copilot session until that cache is
-> refreshed. To test in-session skill changes:
->
-> ```bash
-> # Proper way (after the change is on the marketplace's default branch):
-> copilot plugin update oh-my-copilot
->
-> # Local pre-merge test — sync your branch's skill into the cache, then start
-> # a fresh Copilot session (skills load at session start):
-> cp -R .github/skills/<name> \
->   ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/<name>
-> ```
+Start a fresh Copilot session after setup because skills are loaded at session start. Run either
+history smoke:
+
+```text
+/history-analyze
+/history-analyze 7d current
+```
+
+Raw JSON remains available through `omp history analyze --json`; the slash skill renders a human
+summary and offers generic `omp skill-bench` next steps without starting any live benchmark.
+
+Use `omp skill-bench` for the default guided `30d all` design,
+`omp skill-bench --window 7d --project current` for adjusted history guidance, or
+`omp skill-bench ./skills/custom-review --advanced` for direct design around an arbitrary
+skill/path. The `/skill-bench` skill keeps JSON internal, shows ranked identities, asks one
+high-impact question at a time, and continues into the same resumable pair-design. Add
+`--model <id>` for an explicitly requested model. Model enumeration is incomplete and defaults are
+recommendations; discovered history and model candidates never form a hard allowlist. After explicit
+approval to spend provider probes, add `--probe-models` to probe only the supplied `--model` IDs;
+`unknown` remains selectable. Resume and execution stay
+behind explicit import, approval, freeze, budget, and spend-confirmation gates:
+
+```bash
+omp skill-bench resume <draft-id>
+omp skill-bench resume <draft-id> --import reviewed-manifest.json
+omp skill-bench resume <draft-id> --approve scenarios
+omp skill-bench resume <draft-id> --freeze
+omp skill-bench run <spec-id-or-path> --pilot --approve-spend
+omp skill-bench run <spec-id-or-path> --validated --approve-spend
+omp skill-bench report <run-id> --no-open
+omp skill-bench apply <run-id> --dry-run
+omp skill-bench export <spec-id-or-run-id> --output skill-bench-bundle.json
+omp skill-bench export <spec-id-or-run-id> --output skill-bench-bundle.json --approve
+```
+
+`--approve-spend` is separate from freeze and records consent bound to the frozen semantic spec;
+without it, provider cells do not start. Token totals use the provider total when present, otherwise
+input + output; cache-read tokens are already included in input and are not added again.
+
+The first export command writes only a hash-bound preview under `.omp`; inspect its files, hashes,
+and redactions before the second command writes the portable bundle. Routing dry-run reads current
+managed state and Copilot instruction markers; interactive Copilot routing remains advisory and
+requires a new session. No benchmark package cwd, Python runner, or fixed skill/model/task map is
+required.
+
+Published plugin updates still use `copilot plugin update oh-my-copilot`.
 
 To unlink and revert to the published package:
 

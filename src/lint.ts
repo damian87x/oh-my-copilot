@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadCatalogBundle, validateCatalogBundle } from './catalog.js';
-import { resolveProjectPaths } from './project.js';
+import { parseFrontmatter, resolveProjectPaths } from './project.js';
 
 export interface LintIssue {
   level: 'error' | 'warning';
@@ -11,18 +11,6 @@ export interface LintIssue {
 }
 
 const providerRuntimeTerms = ['tmux-only', 'Codex-only', 'Claude-only', 'OMX_TEAM_STATE_ROOT', 'TMUX_PANE', '.omx', '.agents', '.claude', '.github/copilot'];
-
-function parseFrontmatter(markdown: string): Record<string, string> {
-  if (!markdown.startsWith('---\n')) return {};
-  const end = markdown.indexOf('\n---', 4);
-  if (end === -1) return {};
-  const fields: Record<string, string> = {};
-  for (const line of markdown.slice(4, end).trim().split(/\r?\n/)) {
-    const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (match) fields[match[1]] = match[2].replace(/^['\"]|['\"]$/g, '');
-  }
-  return fields;
-}
 
 function listSkillNames(skillsRoot: string): Set<string> {
   if (!existsSync(skillsRoot)) return new Set();
@@ -67,11 +55,14 @@ export function lintSkills(rootOrOptions: string | { cwd?: string; packageRoot?:
 
     const body = readFileSync(file, 'utf8');
     const frontmatter = parseFrontmatter(body);
+    // Per the Agent Skills spec the DIRECTORY is the skill identity/command and
+    // frontmatter `name` is an optional free-form DISPLAY string. So a missing name
+    // is fine, and a present name that differs from the directory (or a catalog
+    // alias) is allowed — flagged only as a warning for omp's own canonical skills,
+    // which keep name==directory by convention.
     const catalogSkill = catalogSkills.get(skillDir);
-    if (catalogSkill && frontmatter.name !== catalogSkill.name && !catalogSkill.aliases.includes(frontmatter.name ?? '')) {
-      issues.push({ level: 'error', code: 'skill.name', message: `frontmatter name ${frontmatter.name ?? '<missing>'} does not match ${catalogSkill.name}`, file });
-    } else if (!catalogSkill && frontmatter.name !== skillDir) {
-      issues.push({ level: 'error', code: 'skill.name', message: `frontmatter name ${frontmatter.name ?? '<missing>'} does not match ${skillDir}`, file });
+    if (frontmatter.name && frontmatter.name !== skillDir && !(catalogSkill?.aliases.includes(frontmatter.name))) {
+      issues.push({ level: 'warning', code: 'skill.name', message: `frontmatter name "${frontmatter.name}" differs from directory "${skillDir}" (the directory is the command identity; name is display)`, file });
     }
     if (!frontmatter.description) {
       issues.push({ level: 'warning', code: 'skill.description', message: `missing description for ${skillDir}`, file });

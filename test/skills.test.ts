@@ -2,9 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { installSkill } from '../src/skills.js';
+import { formatSkillInstall, installSkill } from '../src/skills.js';
 
 type SkillScope = 'project' | 'user';
+
+interface SkillFixtureOptions {
+  /** Directory name = the skill identity/command (per the Agent Skills spec). */
+  dir?: string;
+  /** Optional free-form display `name:` frontmatter. `null` omits it entirely. */
+  name?: string | null;
+  description?: string | null;
+  /** Prepend an HTML/license comment before the `---` frontmatter block. */
+  leadingComment?: boolean;
+}
 
 function tempRepo() {
   const parent = mkdtempSync(path.join(tmpdir(), 'omc-skill-install-'));
@@ -14,11 +24,15 @@ function tempRepo() {
   return root;
 }
 
-function tempSkill(name = 'hello-skill') {
+function tempSkill(opts: SkillFixtureOptions = {}) {
+  const dir = opts.dir ?? 'fixture-skill';
   const root = mkdtempSync(path.join(tmpdir(), 'omc-skill-source-'));
-  const skill = path.join(root, 'skills', 'fixture-skill');
+  const skill = path.join(root, 'skills', dir);
   mkdirSync(path.join(skill, 'references'), { recursive: true });
-  writeFileSync(path.join(skill, 'SKILL.md'), `---\nname: ${name}\ndescription: Say hello.\n---\n\n# Hello\n`);
+  const nameLine = opts.name === null ? '' : `name: ${opts.name ?? 'hello-skill'}\n`;
+  const descLine = opts.description === null ? '' : `description: ${opts.description ?? 'Say hello.'}\n`;
+  const lead = opts.leadingComment ? '<!-- Copyright 2026 Example -->\n' : '';
+  writeFileSync(path.join(skill, 'SKILL.md'), `${lead}---\n${nameLine}${descLine}---\n\n# Hello\n`);
   writeFileSync(path.join(skill, 'references', 'notes.md'), '# Notes\n');
   return skill;
 }
@@ -42,11 +56,12 @@ function installForScope(scope: SkillScope, repo: string, source: string, userSk
 describe('skill installer', () => {
   it('dry-runs a fetched skill package without writing files (default scope=user)', () => {
     const repo = tempRepo();
-    const source = tempSkill();
+    const source = tempSkill({ dir: 'hello-skill' });
     const userSkillsRoot = tempUserSkillsRoot(repo);
 
     const result = installSkill({ cwd: repo, root: repo, source, dryRun: true, userSkillsRoot });
 
+    // Identity comes from the directory, not the frontmatter name.
     expect(result.skillName).toBe('hello-skill');
     expect(result.targetDir).toBe(path.join(userSkillsRoot, 'hello-skill'));
     expect(result.files).toEqual(['SKILL.md', 'references/notes.md']);
@@ -55,7 +70,7 @@ describe('skill installer', () => {
 
   it('installs a fetched skill package into ~/.copilot/skills by default', () => {
     const repo = tempRepo();
-    const source = tempSkill();
+    const source = tempSkill({ dir: 'hello-skill' });
     const userSkillsRoot = tempUserSkillsRoot(repo);
 
     const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
@@ -69,41 +84,118 @@ describe('skill installer', () => {
 
   it('installs into .github/skills only with --scope project', () => {
     const repo = tempRepo();
-    const source = tempSkill();
+    const source = tempSkill({ dir: 'hello-skill' });
 
     const result = installSkill({ cwd: repo, root: repo, source, scope: 'project' });
 
+    expect(result.dryRun).toBe(false);
     expect(result.targetDir).toBe(path.join(repo, '.github', 'skills', 'hello-skill'));
     expect(readFileSync(path.join(result.targetDir, 'SKILL.md'), 'utf8')).toContain('hello-skill');
+    expect(readFileSync(path.join(result.targetDir, 'SKILL.md'), 'utf8')).toContain('description:');
+    expect(readFileSync(path.join(result.targetDir, 'references', 'notes.md'), 'utf8')).toContain('Notes');
   });
 
-  it.each<SkillScope>(['project', 'user'])('rejects traversal skill names before writing files in %s scope', (scope) => {
+  it('formats installs with directory identity and frontmatter display name', () => {
     const repo = tempRepo();
-    const source = tempSkill('../../../x');
+    const source = tempSkill({ dir: 'clawteam', name: 'ClawTeam' });
     const userSkillsRoot = tempUserSkillsRoot(repo);
-    const targetRoot = targetRootFor(scope, repo, userSkillsRoot);
-    const escapedTarget = path.resolve(targetRoot, '../../../x');
 
-    expect(() => installForScope(scope, repo, source, userSkillsRoot)).toThrow(/invalid skill name/);
-    expect(existsSync(targetRoot)).toBe(false);
-    expect(existsSync(escapedTarget)).toBe(false);
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
+    const text = formatSkillInstall(result);
+
+    expect(text).toContain('PASS: skill install /clawteam (ClawTeam)');
+    expect(text).not.toContain('/ClawTeam');
   });
 
-  it.each<SkillScope>(['project', 'user'])('rejects absolute-path skill names before writing files in %s scope', (scope) => {
+  it('uses the directory as identity and accepts a Title-Case display name (the ClawTeam case)', () => {
     const repo = tempRepo();
-    const absoluteName = path.join(path.dirname(repo), 'absolute-skill');
-    const source = tempSkill(absoluteName);
+    const source = tempSkill({ dir: 'clawteam', name: 'ClawTeam' });
     const userSkillsRoot = tempUserSkillsRoot(repo);
-    const targetRoot = targetRootFor(scope, repo, userSkillsRoot);
 
-    expect(() => installForScope(scope, repo, source, userSkillsRoot)).toThrow(/invalid skill name/);
-    expect(existsSync(targetRoot)).toBe(false);
-    expect(existsSync(absoluteName)).toBe(false);
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
+
+    expect(result.skillName).toBe('clawteam');
+    expect(result.displayName).toBe('ClawTeam');
+    expect(result.targetDir).toBe(path.join(userSkillsRoot, 'clawteam'));
   });
 
-  it.each<SkillScope>(['project', 'user'])('installs safe skill names in %s scope', (scope) => {
+  it('accepts a display name with spaces and ampersands', () => {
     const repo = tempRepo();
-    const source = tempSkill('valid.skill_2');
+    const source = tempSkill({ dir: 'verification-quality', name: 'Verification & Quality Assurance' });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
+
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
+
+    expect(result.skillName).toBe('verification-quality');
+    expect(result.displayName).toBe('Verification & Quality Assurance');
+  });
+
+  it('treats frontmatter name as optional, defaulting the display to the directory', () => {
+    const repo = tempRepo();
+    const source = tempSkill({ dir: 'no-name-skill', name: null });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
+
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
+
+    expect(result.skillName).toBe('no-name-skill');
+    expect(result.displayName).toBe('no-name-skill');
+  });
+
+  it('parses frontmatter even when a license comment precedes it', () => {
+    const repo = tempRepo();
+    const source = tempSkill({ dir: 'commented-skill', leadingComment: true });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
+
+    // Would previously throw "missing skill description" because the parser
+    // required the file to *start* with `---`.
+    const result = installSkill({ cwd: repo, root: repo, source, userSkillsRoot });
+
+    expect(result.skillName).toBe('commented-skill');
+  });
+
+  it('throws when the skill has no description', () => {
+    const repo = tempRepo();
+    const source = tempSkill({ dir: 'no-desc', description: null });
+    const userSkillsRoot = tempUserSkillsRoot(repo);
+
+    expect(() => installSkill({ cwd: repo, root: repo, source, userSkillsRoot })).toThrow(/missing skill description/);
+  });
+
+  it.each<SkillScope>(['project', 'user'])(
+    'treats a path-like frontmatter name as harmless display and cannot escape in %s scope',
+    (scope) => {
+      const repo = tempRepo();
+      // A malicious `name:` is now just a display string — never used as a path.
+      const source = tempSkill({ dir: 'fixture-skill', name: '../../../x' });
+      const userSkillsRoot = tempUserSkillsRoot(repo);
+      const targetRoot = targetRootFor(scope, repo, userSkillsRoot);
+      const escapedTarget = path.resolve(targetRoot, '../../../x');
+
+      const result = installForScope(scope, repo, source, userSkillsRoot);
+
+      expect(result.skillName).toBe('fixture-skill');
+      expect(result.targetDir).toBe(path.join(targetRoot, 'fixture-skill'));
+      expect(existsSync(escapedTarget)).toBe(false);
+    },
+  );
+
+  it.each<SkillScope>(['project', 'user'])(
+    'rejects a directory name that is not path-safe in %s scope',
+    (scope) => {
+      const repo = tempRepo();
+      // The identity (directory) must be path-safe; a space is not allowed.
+      const source = tempSkill({ dir: 'bad name' });
+      const userSkillsRoot = tempUserSkillsRoot(repo);
+      const targetRoot = targetRootFor(scope, repo, userSkillsRoot);
+
+      expect(() => installForScope(scope, repo, source, userSkillsRoot)).toThrow(/invalid skill directory name/);
+      expect(existsSync(targetRoot)).toBe(false);
+    },
+  );
+
+  it.each<SkillScope>(['project', 'user'])('installs safe skill directory names in %s scope', (scope) => {
+    const repo = tempRepo();
+    const source = tempSkill({ dir: 'valid.skill_2' });
     const userSkillsRoot = tempUserSkillsRoot(repo);
     const targetRoot = targetRootFor(scope, repo, userSkillsRoot);
 
@@ -111,13 +203,12 @@ describe('skill installer', () => {
 
     expect(result.skillName).toBe('valid.skill_2');
     expect(result.targetDir).toBe(path.join(targetRoot, 'valid.skill_2'));
-    expect(readFileSync(path.join(result.targetDir, 'SKILL.md'), 'utf8')).toContain('valid.skill_2');
     expect(readFileSync(path.join(result.targetDir, 'references', 'notes.md'), 'utf8')).toContain('Notes');
   });
 
   it.each<SkillScope>(['project', 'user'])('overwrites only the existing skill target in %s scope', (scope) => {
     const repo = tempRepo();
-    const source = tempSkill('replace-me');
+    const source = tempSkill({ dir: 'replace-me' });
     const userSkillsRoot = tempUserSkillsRoot(repo);
     const targetRoot = targetRootFor(scope, repo, userSkillsRoot);
     const targetDir = path.join(targetRoot, 'replace-me');
@@ -131,7 +222,6 @@ describe('skill installer', () => {
 
     expect(result.targetDir).toBe(targetDir);
     expect(existsSync(path.join(targetDir, 'old.txt'))).toBe(false);
-    expect(readFileSync(path.join(targetDir, 'SKILL.md'), 'utf8')).toContain('replace-me');
     expect(readFileSync(path.join(siblingDir, 'marker.txt'), 'utf8')).toBe('keep me');
   });
 });

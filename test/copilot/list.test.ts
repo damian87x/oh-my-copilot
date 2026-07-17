@@ -10,12 +10,12 @@ function tempProject() {
   return root;
 }
 
-function writeSkill(root: string, name: string, description: string): void {
+function writeSkill(root: string, name: string, description: string, display = name): void {
   const dir = path.join(root, ".github", "skills", name);
   mkdirSync(dir, { recursive: true });
   writeFileSync(
     path.join(dir, "SKILL.md"),
-    `---\nname: ${name}\ndescription: ${description}\n---\n\n# ${name}\n`,
+    `---\nname: ${display}\ndescription: ${description}\n---\n\n# ${name}\n`,
   );
 }
 
@@ -63,5 +63,33 @@ describe("formatList", () => {
     expect(text).toContain("Agents (1):");
     expect(text).toContain("@planner");
     expect(text).toContain("Capabilities (0):");
+  });
+
+  it("renders display names without changing command identities", () => {
+    const text = formatList({
+      skills: [
+        { name: "clawteam", display: "ClawTeam", kind: "skill", description: "Team coordination" },
+      ],
+      agents: [
+        { name: "architect", display: "Architect Reviewer", kind: "agent", description: "Review plans" },
+      ],
+      capabilities: [],
+    });
+
+    expect(text).toContain("/clawteam (ClawTeam)  Team coordination");
+    expect(text).toContain("@architect (Architect Reviewer)  Review plans");
+    expect(text).not.toContain("/ClawTeam");
+    expect(text).not.toContain("@Architect Reviewer");
+  });
+
+  it("keeps duplicate display names distinct by directory identity", async () => {
+    const root = tempProject();
+    writeSkill(root, "first-skill", "First", "Same Display");
+    writeSkill(root, "second-skill", "Second", "Same Display");
+
+    const text = formatList(await listAll({ cwd: root }));
+
+    expect(text).toContain("/first-skill (Same Display)  First");
+    expect(text).toContain("/second-skill (Same Display)  Second");
   });
 });

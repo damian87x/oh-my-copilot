@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export interface ProjectPaths {
@@ -49,7 +49,17 @@ export function repoRoot(...segments: string[]): string {
 }
 
 function inferPackageRoot(cwd: string): string {
+  const gitRoot = findUp(cwd, ".git");
   const localPackage = findUp(cwd, "package.json");
+  if (gitRoot) {
+    const packageRelativeToGit = localPackage ? relative(gitRoot, localPackage) : undefined;
+    const packageIsInsideGit = packageRelativeToGit !== undefined
+      && (packageRelativeToGit === ""
+        || (packageRelativeToGit !== ".."
+          && !packageRelativeToGit.startsWith(`..${sep}`)
+          && !isAbsolute(packageRelativeToGit)));
+    return packageIsInsideGit && localPackage ? localPackage : gitRoot;
+  }
   if (localPackage) {
     return localPackage;
   }
@@ -101,10 +111,16 @@ export function listSkillNames(root = repoRoot()): string[] {
 }
 
 export function parseFrontmatter(text: string): Record<string, string> {
-  if (!text.startsWith("---")) return {};
-  const end = text.indexOf("\n---", 3);
+  // Locate the first `---` frontmatter block, tolerating a leading BOM, blank
+  // lines, or an HTML/license comment before it. Some upstream skills (e.g.
+  // Anthropic's) put a copyright comment first; the spec still treats the first
+  // `---`-delimited block as frontmatter. (In JS regex `\s` also matches U+FEFF,
+  // so a leading BOM is stripped by the same pass.)
+  const stripped = text.replace(/^\s*(?:<!--[\s\S]*?-->\s*)*/, "");
+  if (!stripped.startsWith("---")) return {};
+  const end = stripped.indexOf("\n---", 3);
   if (end === -1) return {};
-  const frontmatter = text.slice(3, end).trim();
+  const frontmatter = stripped.slice(3, end).trim();
   const result: Record<string, string> = {};
   for (const line of frontmatter.split(/\r?\n/)) {
     const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);

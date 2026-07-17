@@ -1,8 +1,10 @@
 import type { CommandModule } from "./types.js";
 import { suggestCommand } from "./suggest.js";
 import { modelsCommand } from "./models.js";
+import { historyCommand } from "./history.js";
+import { skillBenchCommand } from "./skill-bench.js";
 
-const COMMANDS: CommandModule[] = [suggestCommand, modelsCommand];
+const COMMANDS: CommandModule[] = [suggestCommand, modelsCommand, historyCommand, skillBenchCommand];
 
 export function findRegisteredCommand(name: string | undefined): CommandModule | undefined {
   if (!name) return undefined;
