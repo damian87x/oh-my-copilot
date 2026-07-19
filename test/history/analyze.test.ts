@@ -239,3 +239,114 @@ describe("analyzeHistory", () => {
     expect(() => analyzeHistory({ window: "all", project: "all", cwd: "/repo", sessionStateDir: file, now })).toThrow("session-state path is not a directory");
   });
 });
+
+  it("accepts free-form day windows including 14d and 365d", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-history-"));
+    const inside14 = new Date(now.getTime() - 10 * 86400000).toISOString();
+    const outside14 = new Date(now.getTime() - 20 * 86400000).toISOString();
+    session(root, "inside-14", [
+      { type: "session.start", timestamp: inside14, data: { context: { cwd: "/repo" } } },
+      { type: "tool.execution_start", timestamp: inside14, data: { toolName: "skill", arguments: { skill: "tdd" } } },
+    ]);
+    session(root, "outside-14", [
+      { type: "session.start", timestamp: outside14, data: { context: { cwd: "/repo" } } },
+      { type: "tool.execution_start", timestamp: outside14, data: { toolName: "skill", arguments: { skill: "ralplan" } } },
+    ]);
+    expect(analyzeHistory({ window: "14d", project: "all", cwd: "/repo", sessionStateDir: root, now }).skills.map((r) => r.skill)).toEqual(["tdd"]);
+    expect(analyzeHistory({ window: "365d", project: "all", cwd: "/repo", sessionStateDir: root, now }).skills.map((r) => r.skill).sort()).toEqual(["ralplan", "tdd"]);
+  });
+
+  it("builds credit-based spend estimates and model metrics without leaking secrets", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-history-"));
+    session(root, "priced-session", [
+      { type: "session.start", timestamp: "2026-07-10T00:00:00Z", data: { context: { cwd: "/repo" } } },
+      { type: "tool.execution_start", timestamp: "2026-07-10T01:00:00Z", data: { toolName: "skill", arguments: { skill: "tdd" } } },
+      {
+        type: "session.shutdown",
+        data: {
+          totalNanoAiu: 2_000_000_000,
+          tokenDetails: {
+            input: { tokenCount: 100 },
+            cache_read: { tokenCount: 0 },
+            cache_write: { tokenCount: 0 },
+            output: { tokenCount: 50 },
+          },
+          modelMetrics: {
+            "gpt-5-mini": {
+              usage: { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0 },
+              totalNanoAiu: 2_000_000_000,
+            },
+            secret: "must-not-be-emitted",
+          },
+        },
+      },
+    ]);
+    const report = analyzeHistory({ window: "7d", project: "all", cwd: "/repo", sessionStateDir: root, now });
+    expect(report.sessionUsage.estimates).toMatchObject({
+      source: "session-shutdown-nano-aiu",
+      aiCredits: 2,
+      estimatedUsdFromCredits: 0.02,
+      disclaimer: expect.stringContaining("session-level-only"),
+    });
+    expect(report.sessionUsage.estimates?.byModel).toEqual([
+      expect.objectContaining({
+        model: "gpt-5-mini",
+        inputTokens: 100,
+        outputTokens: 50,
+        totalNanoAiu: 2_000_000_000,
+        aiCredits: 2,
+        estimatedUsdFromCredits: 0.02,
+      }),
+    ]);
+    expect(JSON.stringify(report)).not.toContain("must-not-be-emitted");
+  });
+
+  it("applies public pricing rates when provided", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-history-"));
+    session(root, "public-price-session", [
+      { type: "session.start", timestamp: "2026-07-10T00:00:00Z", data: { context: { cwd: "/repo" } } },
+      { type: "tool.execution_start", data: { toolName: "skill", arguments: { skill: "tdd" } } },
+      {
+        type: "session.shutdown",
+        data: {
+          totalNanoAiu: 1_000_000_000,
+          modelMetrics: {
+            "gpt-5-mini": {
+              usage: { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 0, cacheWriteTokens: 0 },
+              totalNanoAiu: 1_000_000_000,
+            },
+            "unknown-model": {
+              usage: { inputTokens: 10, outputTokens: 10 },
+              totalNanoAiu: 1,
+            },
+          },
+        },
+      },
+    ]);
+    const report = analyzeHistory({
+      window: "7d",
+      project: "all",
+      cwd: "/repo",
+      sessionStateDir: root,
+      now,
+      publicPricing: {
+        source: "public-github-copilot-model-pricing",
+        url: "https://example.test/pricing",
+        retrievedAt: "2026-07-10T00:00:00.000Z",
+        currency: "USD",
+        completeness: "unambiguous-model-rates",
+        models: {
+          "gpt-5-mini": { inputUsdPerMillion: 1, outputUsdPerMillion: 2 },
+        },
+      },
+    });
+    expect(report.sessionUsage.estimates?.source).toBe("session-shutdown-nano-aiu+public-pricing");
+    expect(report.sessionUsage.estimates?.pricing).toMatchObject({
+      attempted: true,
+      matchedModels: ["gpt-5-mini"],
+      unresolvedModels: ["unknown-model"],
+      sourceUrl: "https://example.test/pricing",
+    });
+    const mini = report.sessionUsage.estimates?.byModel.find((row) => row.model === "gpt-5-mini");
+    expect(mini?.estimatedUsdFromPublicRates).toBe(3);
+  });

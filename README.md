@@ -186,6 +186,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/code-review`          | Diff-focused reviewer                                     | `/code-review`                                       |
 | `/skill-bench`          | Design an approved dynamic skill benchmark via `omp skill-bench` | `/skill-bench ./skills/custom-review`                |
 | `/history-analyze`      | Summarize actual usage and offer one confirmed benchmark next step | `/history-analyze`                 |
+| `/skill-retro`          | Skill-usage + spend retrospective over last N days (session-state) | `/skill-retro 14` / `/skill-retro --days 90` |
 | `/weighted-consensus`   | Multi-model council → one weighted verdict + minority report | `/weighted-consensus "JSON or YAML for config?"`  |
 | `/research-codebase`    | Map an area of the codebase                               | `/research-codebase "auth middleware"`               |
 | `/debug`                | Disciplined diagnose-reproduce-fix loop                   | `/debug "flaky integration test"`                    |
@@ -487,6 +488,22 @@ history smoke:
 ```text
 /history-analyze
 /history-analyze 7d current
+```
+
+Skill-usage retrospective with flexible day windows and spend estimates (defaults to 14d):
+
+```text
+/skill-retro
+/skill-retro 30
+/skill-retro --days 90 current
+/skill-retro --days 365 --price public
+```
+
+`omp history analyze` also accepts free-form windows and optional public pricing:
+
+```text
+omp history analyze --days 14 --json
+omp history analyze --window 365d --project current --price public
 ```
 
 Raw JSON remains available through `omp history analyze --json`; the slash skill renders a human
