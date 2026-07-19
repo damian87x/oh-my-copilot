@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 import { readStdin } from "./lib/stdin.mjs";
+import { isMain } from "./lib/is-main.mjs";
 import { buildContinueHookOutput, failOpen } from "./lib/hook-output.mjs";
 import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
 import { scanScheduleResults } from "./lib/schedule-results.mjs";
@@ -174,6 +174,6 @@ async function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain(import.meta.url)) {
   main();
 }
