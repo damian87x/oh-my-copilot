@@ -45,17 +45,27 @@ omp skill-retro advanced
 
 **After the user picks a next step** (only then):
 
+**Hard rule:** every follow-up must **re-use the exact same window, project, and price** from the last successful run. Never drop back to defaults (`14d` / `all` / no price) when the user already chose different filters.
+
 | User says | What you do |
 | --- | --- |
-| more detail / full | `omp skill-retro advanced` |
-| simpler / summary / quick | `omp skill-retro simple` |
-| dollar estimates / pricing / $ | same view + `--price public` |
-| save html / html / browser | `omp skill-retro … --html` then **ask open** (below) |
+| more detail / full | same filters + `advanced` |
+| simpler / summary / quick | same filters + `simple` |
+| dollar estimates / pricing / $ | same filters + same view + `--price public` |
+| save html / html / browser | same filters + current view + `--html` then **ask open** (below) |
 | open / yes / open it (after HTML) | only then run `open '<path>'` (macOS) |
 | no / skip / done | stop |
 
-Default days stay **14** unless the user asked another window earlier.  
-Aliases: `omp retro`. Optional: `--days 7`, `--project current`.
+Examples (preserve filters):
+
+```bash
+# last run was: omp skill-retro --days 90 current --price public
+omp skill-retro advanced --days 90 current --price public
+omp skill-retro simple --days 90 current --price public --html
+```
+
+Default days stay **14** only when the user never chose another window.  
+Aliases: `omp retro`.
 
 ## 3. Present
 

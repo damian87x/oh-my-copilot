@@ -226,6 +226,7 @@ export function formatHistoryHtml(
 
   if (view === "simple") {
     const title = `Skill history — simple (${filters.window}, project=${filters.project})`;
+    const simpleWarnings = warnings.map((w) => [w.code, String(w.count), w.message]);
     const body = [
       `<section><h2>Snapshot</h2>`,
       table(
@@ -241,6 +242,10 @@ export function formatHistoryHtml(
             "Sessions matched / discovered",
             `${coverage.sessionsMatched} / ${coverage.sessionsDiscovered}`,
           ],
+          [
+            "Skill sessions with telemetry",
+            String(coverage.shutdownTelemetrySessions),
+          ],
         ],
       ),
       `</section>`,
@@ -249,6 +254,10 @@ export function formatHistoryHtml(
       `</section>`,
       `<section><h2>API usage</h2>`,
       `<p class="note">Session-level totals only (not per-skill). AI credits always included when telemetry exists.</p>`,
+      coverage.sessionsWithInvocations > 0 &&
+      coverage.shutdownTelemetrySessions < coverage.sessionsWithInvocations
+        ? `<p class="note">Coverage: ${esc(coverage.shutdownTelemetrySessions)}/${esc(coverage.sessionsWithInvocations)} skill sessions had usable shutdown telemetry.</p>`
+        : "",
       table(
         ["Metric", "Total"],
         (() => {
@@ -261,6 +270,13 @@ export function formatHistoryHtml(
       `<section><h2>Single-skill associations</h2>`,
       table(["Skill", "Sessions", "With telemetry"], associationRows),
       `</section>`,
+      ...(simpleWarnings.length
+        ? [
+            `<section><h2>Warnings</h2>`,
+            table(["Code", "Count", "Message"], simpleWarnings),
+            `</section>`,
+          ]
+        : []),
     ].join("\n");
     return shell(title, view, body, report.generatedAt);
   }

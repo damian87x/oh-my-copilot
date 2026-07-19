@@ -85,9 +85,24 @@ function byModelSimple(estimates: HistorySpendEstimates | undefined): string {
   const hasPublicUsd = estimates.byModel.some(
     (row) => row.estimatedUsdFromPublicRates !== undefined,
   );
-  const note = hasPublicUsd
-    ? `_API usage from session telemetry. USD column uses public model rates when available._`
-    : `_API usage from session telemetry (always). USD is — until you ask for **dollar estimates** (public pricing)._`;
+  const pricingAttempted = estimates.pricing?.attempted === true;
+  const unresolved = estimates.pricing?.unresolvedModels ?? [];
+  let note: string;
+  if (hasPublicUsd) {
+    note =
+      `_API usage from session telemetry. USD column uses public model rates when available._` +
+      (unresolved.length
+        ? ` _Unresolved models (no public rate match): ${unresolved.join(", ")}_`
+        : "");
+  } else if (pricingAttempted) {
+    note =
+      `_Public pricing was requested but no model USD could be matched` +
+      (unresolved.length ? ` (${unresolved.join(", ")})` : "") +
+      `. USD stays —; this is not the same as skipping dollar estimates._`;
+  } else {
+    note =
+      `_API usage from session telemetry (always). USD is — until you ask for **dollar estimates** (public pricing)._`;
+  }
   return [
     "### By model (API usage)",
     "",
@@ -169,6 +184,16 @@ function formatSimple(report: HistoryAnalysis): string {
     cell(row.sessionsWithTelemetry),
   ]);
   const usageRows = compactApiUsageRows(sessionUsage.totals, sessionUsage.estimates);
+  const warningRows = report.warnings.map((warning) => [
+    cell(warning.code),
+    cell(warning.count),
+    cell(warning.message),
+  ]);
+  const telemetryNote =
+    coverage.sessionsWithInvocations > 0 &&
+    coverage.shutdownTelemetrySessions < coverage.sessionsWithInvocations
+      ? `_Coverage: ${coverage.shutdownTelemetrySessions}/${coverage.sessionsWithInvocations} skill sessions had usable shutdown telemetry._`
+      : null;
 
   return [
     `## Skill history — simple (${filters.window}, project=${filters.project})`,
@@ -185,6 +210,10 @@ function formatSimple(report: HistoryAnalysis): string {
         ["Skills used", cell(skills.length)],
         ["Sessions with skills", cell(coverage.sessionsWithInvocations)],
         ["Sessions matched / discovered", `${coverage.sessionsMatched} / ${coverage.sessionsDiscovered}`],
+        [
+          "Skill sessions with telemetry",
+          cell(coverage.shutdownTelemetrySessions),
+        ],
       ],
     ),
     "",
@@ -195,6 +224,7 @@ function formatSimple(report: HistoryAnalysis): string {
     "### API usage",
     "",
     `_Session-level totals only (not per-skill). AI credits always included when telemetry exists._`,
+    ...(telemetryNote ? ["", telemetryNote] : []),
     "",
     mdTable(
       ["Metric", "Total"],
@@ -206,6 +236,9 @@ function formatSimple(report: HistoryAnalysis): string {
     "### Single-skill associations",
     "",
     mdTable(["Skill", "Sessions", "With telemetry"], associationRows),
+    ...(warningRows.length
+      ? ["", "### Warnings", "", mdTable(["Code", "Count", "Message"], warningRows)]
+      : []),
   ].join("\n");
 }
 

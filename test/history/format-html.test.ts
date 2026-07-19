@@ -75,8 +75,10 @@ describe("formatHistoryHtml", () => {
     expect(html).toContain("Skill history — simple (14d, project=all)");
     expect(html).toContain("<th>#</th>");
     expect(html).toContain("<td>tdd</td>");
-        expect(html).toContain("gpt-5-mini");
-    expect(html).not.toContain("missing_shutdown_telemetry");
+    expect(html).toContain("gpt-5-mini");
+    // Simple HTML now surfaces coverage warnings (not only advanced).
+    expect(html).toContain("missing_shutdown_telemetry");
+    expect(html).toContain("Skill sessions with telemetry");
     expect(html).toContain("session-level-only");
     expect(html).not.toContain("<script>");
     expect(html).toContain("simple");

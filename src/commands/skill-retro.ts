@@ -143,13 +143,29 @@ export function parseSkillRetroArgs(argv: string[]): {
 export function formatFriendlyNextSteps(
   view: HistoryReportView,
   htmlPath: string | null,
+  options?: {
+    window?: string;
+    project?: string;
+    price?: "none" | "public";
+    priceAttemptedUnmatched?: boolean;
+  },
 ): string {
   const lines = ["### What next?", "", "Just reply in plain words:"];
+  const keep =
+    options && (options.window || options.project || options.price === "public")
+      ? `_Follow-ups keep your current filters (${options.window ?? "14d"}, project=${options.project ?? "all"}${options.price === "public" ? ", public pricing" : ""})._`
+      : null;
+  if (keep) lines.push("", keep);
+  const dollarStep = options?.priceAttemptedUnmatched
+    ? "2. **Dollar estimates unavailable** for matched models this run (public rates unresolved) — try again later or inspect advanced warnings"
+    : options?.price === "public"
+      ? "2. **Dollar estimates** already requested for this run (see by-model USD column / note)"
+      : "2. **Show dollar estimates** — fill in public pricing for the by-model table";
   if (view === "simple") {
     lines.push(
       "",
       "1. **More detail** — show the full report (shared sessions, warnings, full token breakdown)",
-      "2. **Show dollar estimates** — fill in public pricing for the by-model table",
+      dollarStep,
       "3. **Save as HTML** — write a file you can open in a browser",
       "4. **Done** — nothing else needed",
     );
@@ -157,7 +173,7 @@ export function formatFriendlyNextSteps(
     lines.push(
       "",
       "1. **Simpler view** — only top skills, times used, and tokens",
-      "2. **Show dollar estimates** — fill in public pricing for the by-model table",
+      dollarStep,
       "3. **Save as HTML** — write a file you can open in a browser",
       "4. **Done** — nothing else needed",
     );
@@ -220,7 +236,17 @@ export const skillRetroCommand: CommandModule = {
       }
 
       const markdown = formatHistoryMarkdown(report, args.view);
-      const nextSteps = formatFriendlyNextSteps(args.view, htmlOut);
+      const nextSteps = formatFriendlyNextSteps(args.view, htmlOut, {
+        window: args.window,
+        project: args.project,
+        price: args.price,
+        priceAttemptedUnmatched:
+          args.price === "public" &&
+          report.sessionUsage.estimates?.pricing?.attempted === true &&
+          !(report.sessionUsage.estimates?.byModel ?? []).some(
+            (row) => row.estimatedUsdFromPublicRates !== undefined,
+          ),
+      });
       // User-facing only: tables + plain-language next steps (no flag soup).
       return {
         ok: true,
