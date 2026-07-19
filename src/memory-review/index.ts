@@ -10,7 +10,7 @@ import { isValidSessionId, readSessionTranscript, type TranscriptMessage } from 
 import { buildReviewPrompt, parseReviewOutput } from "./prompt.js";
 import { applyReview, type ApplySummary } from "./apply.js";
 import { existingSkillSlugs, pendingDirectiveTexts } from "./quarantine.js";
-import { readDirectives } from "../project-memory.js";
+import { pruneNotes, readDirectives, recentNotes } from "../project-memory.js";
 
 // End-of-session review pass — the Copilot analog of Hermes's background-review
 // fork. Triggered detached (sessionEnd hook) or post-exit (wrapper for `-p`).
@@ -78,6 +78,10 @@ export async function runMemoryReview(
   const prompt = buildReviewPrompt(messages, {
     skillSlugs: existingSkillSlugs(cwd),
     directives: [...readDirectives(cwd), ...pendingDirectiveTexts(cwd)],
+    // Newest note titles (bounded) — the reviewer must extend notes, not
+    // re-propose near-duplicates; apply-layer dedup only catches exact matches,
+    // so without this the same fact returns under a new title every session.
+    noteTitles: recentNotes(cwd, 50).map((n) => n.title),
   });
   const timeoutMs = options.timeoutMs ?? 90_000;
 
@@ -108,9 +112,21 @@ export async function runMemoryReview(
 
   const summary = applyReview(cwd, parsed);
 
+  // Optional lifecycle: auto-prune old notes so the injected title cap stays
+  // meaningful as reviews keep adding. Off by default (memoryNoteAutoKeep = 0);
+  // manual `omp project-memory prune-notes` remains the explicit path.
+  let autoPruned = 0;
+  if (config.memoryNoteAutoKeep > 0) {
+    try {
+      autoPruned = pruneNotes(cwd, { keep: config.memoryNoteAutoKeep }).length;
+    } catch {
+      // pruning is best-effort — never fail the review on it
+    }
+  }
+
   // Refresh the injected memory block so newly written notes surface in the
   // NEXT session (closes the loop). Best-effort — never fail the review on it.
-  if (summary.notesAdded > 0) {
+  if (summary.notesAdded > 0 || autoPruned > 0) {
     try {
       const { syncInstructionsMemory } = await import("../instructions-memory.js");
       syncInstructionsMemory(cwd);
@@ -128,6 +144,6 @@ export async function runMemoryReview(
     note: `notes=${summary.notesAdded} drafts=${summary.draftsWritten.length} directivesQueued=${summary.directivesQueued}`,
   });
 
-  logLine(cwd, { sessionId, ran: true, ...summary });
+  logLine(cwd, { sessionId, ran: true, ...summary, autoPruned });
   return { ran: true, summary };
 }

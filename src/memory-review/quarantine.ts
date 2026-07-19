@@ -8,6 +8,7 @@ import {
   renameSync,
   rmdirSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { ompRoot } from "../omp-root.js";
@@ -61,6 +62,56 @@ export function pendingDirectiveTexts(cwd: string): string[] {
       .filter((l) => /^\s*-\s*\[[ xX]?\]/.test(l))
       .map((l) => l.replace(/^\s*-\s*\[[ xX]?\]\s*/, "").trim())
       .filter((l) => l.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+const UNCHECKED_LINE = /^\s*-\s*\[\s*\]\s+\S/;
+
+/** Unchecked queue items, in file order. The 1-based position in this array is
+ *  the index accepted by promote-directive / dismiss-directive. */
+export function listPendingDirectives(cwd: string): string[] {
+  try {
+    const p = join(reviewDir(cwd), PENDING_FILENAME);
+    if (!existsSync(p)) return [];
+    return readFileSync(p, "utf8")
+      .split("\n")
+      .filter((l) => UNCHECKED_LINE.test(l))
+      .map((l) => l.replace(/^\s*-\s*\[\s*\]\s*/, "").trim());
+  } catch {
+    return [];
+  }
+}
+
+/** Remove 1-based unchecked items (as returned by listPendingDirectives) from
+ *  the queue; returns the texts removed. All other lines (header, checked
+ *  items, prose) are preserved verbatim. Atomic rewrite; best-effort. */
+export function removePendingDirectives(cwd: string, indexes: number[]): string[] {
+  const p = join(reviewDir(cwd), PENDING_FILENAME);
+  if (!existsSync(p)) return [];
+  const drop = new Set(indexes);
+  const removed: string[] = [];
+  try {
+    const lines = readFileSync(p, "utf8").split("\n");
+    let position = 0;
+    const kept: string[] = [];
+    for (const line of lines) {
+      if (UNCHECKED_LINE.test(line)) {
+        position += 1;
+        if (drop.has(position)) {
+          removed.push(line.replace(/^\s*-\s*\[\s*\]\s*/, "").trim());
+          continue;
+        }
+      }
+      kept.push(line);
+    }
+    if (removed.length > 0) {
+      const tmp = `${p}.tmp.${process.pid}.${Date.now()}`;
+      writeFileSync(tmp, kept.join("\n"), "utf8");
+      renameSync(tmp, p);
+    }
+    return removed;
   } catch {
     return [];
   }

@@ -9,6 +9,8 @@ import { scanScheduleResults } from "./lib/schedule-results.mjs";
 import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
 import { readDirectives } from "./lib/project-memory.mjs";
 import { pendingDirectivesNudge } from "./lib/pending-directives.mjs";
+import { readDirectiveCaps } from "./lib/memory-config.mjs";
+import { notesSummary } from "./lib/notes-index.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
 import { parseHookInput } from "./lib/hook-input.mjs";
 
@@ -114,16 +116,16 @@ export async function handleSessionStart(raw) {
   }
   // Directives are must-follow rules — injected unconditionally (never on-demand)
   // so the agent can't skip a rule by judging it "unrelated". Capped by count +
-  // chars so a bloated directive list can't balloon the start message; overflow
-  // is summarized with a pointer (mirrors OpenClaw's injection budget).
+  // chars (configurable: memory-directive-cap / memory-directive-char-cap) so a
+  // bloated directive list can't balloon the start message; overflow is
+  // summarized with a pointer (mirrors OpenClaw's injection budget).
   const directives = readDirectives(directory);
   if (directives.length > 0) {
-    const MAX_DIRECTIVES = 12;
-    const MAX_DIRECTIVE_CHARS = 1200;
+    const { directiveCap, directiveCharCap } = readDirectiveCaps(directory);
     const shown = [];
     let chars = 0;
     for (const d of directives) {
-      if (shown.length >= MAX_DIRECTIVES || chars + d.length > MAX_DIRECTIVE_CHARS) break;
+      if (shown.length >= directiveCap || chars + d.length > directiveCharCap) break;
       shown.push(d);
       chars += d.length;
     }
@@ -131,6 +133,17 @@ export async function handleSessionStart(raw) {
     const body = shown.map((d) => `- ${d}`).join("\n");
     const tail = more > 0 ? `\n- (+${more} more — run \`omp project-memory read\` to see all)` : "";
     parts.push(`[DIRECTIVES] Follow these this session:\n${body}${tail}`);
+  }
+  // Notes stay on-demand (progressive disclosure), but surface their existence
+  // + newest titles so memory is discoverable even when the managed
+  // copilot-instructions block is stale or missing. Bounded: ≤3 short titles.
+  const notes = notesSummary(directory);
+  if (notes.total > 0) {
+    const titles = notes.titles.map((t) => `"${t}"`).join(", ");
+    parts.push(
+      `[MEMORY] ${notes.total} note${notes.total === 1 ? "" : "s"} in project memory — newest: ${titles} — ` +
+        "run `omp project-memory read` for the index, `omp project-memory read <id>` for a body.",
+    );
   }
   const repoGoal = readRepoGoal(directory);
   if (repoGoal) parts.push(`[REPO GOAL] ${repoGoal}`);

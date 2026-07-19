@@ -145,7 +145,7 @@ function printResult(result: CliResult, json: boolean): void {
 
 function help(): string {
   return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  update                                        (self-update CLI + refresh ~/.copilot skills/agents/hooks)\n  list [--json]\n  setup [--dry-run] [--scope user|project] [--plugin-root <dir>] [--force] [--json]\n                                                (default --scope user → ~/.copilot/skills|agents; --scope project → .github/. --force overrides locally-changed bundled files; always refreshes ~/.copilot/hooks/omp.json)\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot] [--hooks] [--deep]\n  cost [--json] [--session <id>] [--days <n>]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  gateway serve [--only <name>[,<name>]]        (run all configured connectors; today: slack)\n  gateway status [--json] [--only <name>[,...]] (per-connector readiness; no sockets opened)\n  gateway doctor [--json] [--only <name>[,...]] (alias for 'gateway status')\n  gateway notify --text "<msg>" [--target slack:C\\|D\\|G\\|U... [:thread_ts]] [--thread-ts <ts>] [--json]\n                                                (one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL)\n  slack serve                                   (deprecated alias for 'gateway serve --only slack')\n  slack doctor [--json]                         (deprecated alias for 'gateway status --only slack')\n  env init [--force]                            (interactive: write ~/.omp/.env with Slack tokens + optional SLACK_HOME_CHANNEL)\n                                                non-interactive: set OMP_INIT_BOT_TOKEN/OMP_INIT_APP_TOKEN/OMP_INIT_HOME_CHANNEL\n                                                (env vars preferred over --bot-token/--app-token/--home-channel flags)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n${registeredCommandHelpLines().join("\n")}\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  ponytail start [lite|full|ultra] [--json]    (lazy senior dev mode; persisted + re-injected each turn)\n  ponytail status [--json]\n  ponytail off [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--notify-target slack:<ID>] [--notify-desktop] [--notify-open-omp] [--dry-run] [--json]
-                                                (--notify-desktop: native OS notification on completion [macOS uses osascript]; --notify-open-omp: click opens an omp session in the state root — needs OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1 + terminal-notifier on macOS)\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule open <id> [--tmux] [--json]          (show this id's latest status + full output; --tmux instead opens an interactive omp session in the project — recent runs show via the startup banner)\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (render goal+directives into copilot-instructions.md)\n  config get [--json] | config set memory-mode on|off [--no-validate] [--model <slug>] | config set memory-review-model <slug> | config set memory-review-min-messages <n> | config set memory-note-cap <n> | config set memory-note-char-cap <n> | config set memory-topic-cap <n> | config set memory-topic-char-cap <n> | config set handoff-llm on|off [--global]\n                                                (memory-mode on probes/validates a model + writes ~/.omp globally; --no-validate skips the probe. --global writes ~/.omp/config.json; project .omp/config.json overrides per key; handoff-llm enables automatic LLM handoff generation)\n  memory-review --session <uuid|latest> [--model <slug>] [--json]   (cheap-model end-of-session review; opt-in via memory-mode)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  handoff create [--objective "<text>"] [--done "<item>"]... [--pending "<item>"]... [--blockers "<item>"]... [--files "<path>"]... [--verification "<text>"] [--next "<text>"] [--ref "<path|url>"]... [--skill "<name>"]... [--focus "<text>"] [--llm] [--json]\n                                                (deterministic from git/traces by default; --llm is cost-bearing; auto-LLM only via config set handoff-llm on)\n  handoff list [--all] [--state active|closed|archived] [--json]\n  handoff read <id> [--json]\n  handoff close <id> [--promote] [--json]\n  handoff archive <id> [--json]\n  handoff prune [--older-than-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | search "<query>" [--topic <id>] [--limit <n>] | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | add-topic <id> [--description "..."] | add-fact <topic> "<fact>" | topics | read-topic <id> | prune-notes --keep <n>|--older-than <days> [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope user|project] [--dry-run] [--json]\n                                                (default --scope user → ~/.copilot/skills; --scope project → .github/skills)\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+                                                (--notify-desktop: native OS notification on completion [macOS uses osascript]; --notify-open-omp: click opens an omp session in the state root — needs OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1 + terminal-notifier on macOS)\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule open <id> [--tmux] [--json]          (show this id's latest status + full output; --tmux instead opens an interactive omp session in the project — recent runs show via the startup banner)\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (refresh the managed memory block in copilot-instructions.md)\n  config get [--json] | config set memory-mode on|off [--no-validate] [--model <slug>] | config set memory-review-model <slug> | config set memory-review-min-messages <n> | config set memory-note-cap <n> | config set memory-note-char-cap <n> | config set memory-topic-cap <n> | config set memory-topic-char-cap <n> | config set memory-directive-cap <n> | config set memory-directive-char-cap <n> | config set memory-note-auto-keep <n> | config set handoff-llm on|off [--global]\n                                                (memory-mode on probes/validates a model + writes ~/.omp globally; --no-validate skips the probe. --global writes ~/.omp/config.json; project .omp/config.json overrides per key; handoff-llm enables automatic LLM handoff generation)\n  memory-review --session <uuid|latest> [--model <slug>] [--json]   (cheap-model end-of-session review; opt-in via memory-mode)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  handoff create [--objective "<text>"] [--done "<item>"]... [--pending "<item>"]... [--blockers "<item>"]... [--files "<path>"]... [--verification "<text>"] [--next "<text>"] [--ref "<path|url>"]... [--skill "<name>"]... [--focus "<text>"] [--llm] [--json]\n                                                (deterministic from git/traces by default; --llm is cost-bearing; auto-LLM only via config set handoff-llm on)\n  handoff list [--all] [--state active|closed|archived] [--json]\n  handoff read <id> [--json]\n  handoff close <id> [--promote] [--json]\n  handoff archive <id> [--json]\n  handoff prune [--older-than-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | search "<query>" [--topic <id>] [--limit <n>] | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | add-topic <id> [--description "..."] | add-fact <topic> "<fact>" | topics | read-topic <id> | prune-notes --keep <n>|--older-than <days> [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope user|project] [--dry-run] [--json]\n                                                (default --scope user → ~/.copilot/skills; --scope project → .github/skills)\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -533,7 +533,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
         ? { ok: true, output }
         : {
             ok: true,
-            message: `memory-mode=${cfg.memoryMode}\nmemory-review-model=${cfg.memoryReviewModel}\nmemory-review-min-messages=${cfg.memoryReviewMinMessages}\nmemory-note-cap=${cfg.memoryNoteTitleCap}\nmemory-note-char-cap=${cfg.memoryNoteCharCap}\nmemory-topic-cap=${cfg.memoryTopicCap}\nmemory-topic-char-cap=${cfg.memoryTopicCharCap}\nhandoff-llm=${handoffCfg.handoffLlm}`,
+            message: `memory-mode=${cfg.memoryMode}\nmemory-review-model=${cfg.memoryReviewModel}\nmemory-review-min-messages=${cfg.memoryReviewMinMessages}\nmemory-note-cap=${cfg.memoryNoteTitleCap}\nmemory-note-char-cap=${cfg.memoryNoteCharCap}\nmemory-topic-cap=${cfg.memoryTopicCap}\nmemory-topic-char-cap=${cfg.memoryTopicCharCap}\nmemory-directive-cap=${cfg.memoryDirectiveCap}\nmemory-directive-char-cap=${cfg.memoryDirectiveCharCap}\nmemory-note-auto-keep=${cfg.memoryNoteAutoKeep}\nhandoff-llm=${handoffCfg.handoffLlm}`,
           };
     }
     if (command === "set") {
@@ -590,11 +590,13 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
         setMemoryConfigValue(cwd, "memoryReviewMinMessages", String(Math.floor(n)), { scope, homeDir });
         return json ? { ok: true, output: { memoryReviewMinMessages: Math.floor(n), scope } } : { ok: true, message: `memory-review-min-messages=${Math.floor(n)}${where}` };
       }
-      const numericConfigKeys: Record<string, { key: "memoryNoteTitleCap" | "memoryNoteCharCap" | "memoryTopicCap" | "memoryTopicCharCap"; label: string }> = {
+      const numericConfigKeys: Record<string, { key: "memoryNoteTitleCap" | "memoryNoteCharCap" | "memoryTopicCap" | "memoryTopicCharCap" | "memoryDirectiveCap" | "memoryDirectiveCharCap"; label: string }> = {
         "memory-note-cap": { key: "memoryNoteTitleCap", label: "memory-note-cap" },
         "memory-note-char-cap": { key: "memoryNoteCharCap", label: "memory-note-char-cap" },
         "memory-topic-cap": { key: "memoryTopicCap", label: "memory-topic-cap" },
         "memory-topic-char-cap": { key: "memoryTopicCharCap", label: "memory-topic-char-cap" },
+        "memory-directive-cap": { key: "memoryDirectiveCap", label: "memory-directive-cap" },
+        "memory-directive-char-cap": { key: "memoryDirectiveCharCap", label: "memory-directive-char-cap" },
       };
       const numericKey = value ? numericConfigKeys[value] : undefined;
       if (numericKey) {
@@ -606,6 +608,15 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
         setMemoryConfigValue(cwd, numericKey.key, String(intValue), { scope, homeDir });
         return json ? { ok: true, output: { [numericKey.key]: intValue, scope } } : { ok: true, message: `${numericKey.label}=${intValue}${where}` };
       }
+      if (value === "memory-note-auto-keep") {
+        const n = Number(setVal);
+        if (!Number.isFinite(n) || n < 0) {
+          return { ok: false, exitCode: 1, message: "usage: omp config set memory-note-auto-keep <non-negative integer; 0 disables auto-prune> [--global]" };
+        }
+        const intValue = Math.floor(n);
+        setMemoryConfigValue(cwd, "memoryNoteAutoKeep", String(intValue), { scope, homeDir });
+        return json ? { ok: true, output: { memoryNoteAutoKeep: intValue, scope } } : { ok: true, message: `memory-note-auto-keep=${intValue}${where}` };
+      }
       if (value === "handoff-llm") {
         if (setVal !== "on" && setVal !== "off") {
           return { ok: false, exitCode: 1, message: "usage: omp config set handoff-llm on|off [--global]" };
@@ -616,7 +627,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
           ? { ok: true, output: { handoffLlm: setVal, scope } }
           : { ok: true, message: `handoff-llm=${setVal}${where}` };
       }
-      return { ok: false, exitCode: 1, message: "Unknown config key. Try: memory-mode | memory-review-model | memory-review-min-messages | memory-note-cap | memory-note-char-cap | memory-topic-cap | memory-topic-char-cap | handoff-llm" };
+      return { ok: false, exitCode: 1, message: "Unknown config key. Try: memory-mode | memory-review-model | memory-review-min-messages | memory-note-cap | memory-note-char-cap | memory-topic-cap | memory-topic-char-cap | memory-directive-cap | memory-directive-char-cap | memory-note-auto-keep | handoff-llm" };
     }
     return { ok: false, exitCode: 1, message: "Unknown config subcommand. Try: config get | config set <key> <value>" };
   }
@@ -952,7 +963,64 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
       }
       const count = pm.addDirective(cwd, directive);
       syncInstructionsMemory(cwd); // refresh the managed block Copilot reads
-      return json ? { ok: true, output: { ok: true, count } } : { ok: true, message: `directive added (${count} total)` };
+      // Storage is unbounded but injection is capped — warn when the list
+      // outgrows the budget instead of letting rules past the cap rot silently.
+      const { readMemoryConfig } = await import("./memory-review/config.js");
+      const homeDir = process.env.OMP_HOME_OVERRIDE || undefined;
+      const cap = readMemoryConfig(cwd, { homeDir }).memoryDirectiveCap;
+      const over = count > cap;
+      const warn = over
+        ? ` — WARNING: ${count} directives stored but only the first ${cap} inject at session start; consolidate or raise memory-directive-cap`
+        : "";
+      return json
+        ? { ok: true, output: { ok: true, count, injectionCap: cap, overCap: over } }
+        : { ok: true, message: `directive added (${count} total)${warn}` };
+    }
+    if (command === "pending") {
+      const { listPendingDirectives } = await import("./memory-review/quarantine.js");
+      const items = listPendingDirectives(cwd);
+      return json
+        ? { ok: true, output: { pending: items } }
+        : {
+            ok: true,
+            message: items.length
+              ? items.map((d, i) => `${i + 1}. ${d}`).join("\n")
+              : "(no pending directives)",
+          };
+    }
+    if (command === "promote-directive" || command === "dismiss-directive") {
+      const q = await import("./memory-review/quarantine.js");
+      const items = q.listPendingDirectives(cwd);
+      if (items.length === 0) {
+        return { ok: true, message: "(no pending directives)" };
+      }
+      let indexes: number[];
+      if (hasFlag(argv, "--all")) {
+        indexes = items.map((_, i) => i + 1);
+      } else {
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 1 || n > items.length) {
+          return { ok: false, exitCode: 1, message: `usage: omp project-memory ${command} <1-${items.length}|--all>` };
+        }
+        indexes = [n];
+      }
+      // Resolve texts BEFORE mutating the queue: indexes address the unchecked
+      // list as listed by `pending`. Promote writes directives FIRST and only
+      // then dequeues — a crash in between leaves a visible duplicate in the
+      // queue instead of silently losing a proposal.
+      const selected = indexes.map((i) => items[i - 1]);
+      if (command === "promote-directive") {
+        for (const text of selected) pm.addDirective(cwd, text);
+        syncInstructionsMemory(cwd); // refresh the managed block Copilot reads
+        q.removePendingDirectives(cwd, indexes);
+        return json
+          ? { ok: true, output: { promoted: selected } }
+          : { ok: true, message: `promoted ${selected.length} directive${selected.length === 1 ? "" : "s"}:\n${selected.map((d) => `- ${d}`).join("\n")}` };
+      }
+      const removed = q.removePendingDirectives(cwd, indexes);
+      return json
+        ? { ok: true, output: { dismissed: removed } }
+        : { ok: true, message: `dismissed ${removed.length} directive${removed.length === 1 ? "" : "s"}` };
     }
     if (command === "add-topic") {
       const topic = value && !value.startsWith("-") ? value : undefined;
@@ -1038,7 +1106,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     return {
       ok: false,
       exitCode: 1,
-      message: 'Unknown project-memory subcommand. Try: project-memory read [<id>] | index | search "<query>" [--topic <id>] [--limit <n>] | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | add-topic <id> [--description "..."] | add-fact <topic> "<fact>" | topics | read-topic <id> | prune-notes --keep <n>|--older-than <days>',
+      message: 'Unknown project-memory subcommand. Try: project-memory read [<id>] | index | search "<query>" [--topic <id>] [--limit <n>] | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | pending | promote-directive <n|--all> | dismiss-directive <n|--all> | add-topic <id> [--description "..."] | add-fact <topic> "<fact>" | topics | read-topic <id> | prune-notes --keep <n>|--older-than <days>',
     };
   }
 

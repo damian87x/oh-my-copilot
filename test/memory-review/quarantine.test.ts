@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   draftsDir,
+  listPendingDirectives,
   migrateLegacyQuarantine,
+  removePendingDirectives,
   reviewDir,
   selfEvolveDir,
 } from "../../src/memory-review/quarantine.js";
@@ -103,5 +105,47 @@ describe("migrateLegacyQuarantine symlink safety", () => {
 
     expect(readFileSync(path.join(outside, "secret.md"), "utf8")).toBe("do not move me\n");
     expect(existsSync(path.join(cwd, ".omp", "self-evolve"))).toBe(false);
+  });
+});
+
+describe("pending-directive queue helpers", () => {
+  function writeQueue(cwd: string, body: string): string {
+    const dir = path.join(cwd, ".omp", "memory-review");
+    mkdirSync(dir, { recursive: true });
+    const p = path.join(dir, "pending-directives.md");
+    writeFileSync(p, body, "utf8");
+    return p;
+  }
+
+  it("lists unchecked items in file order (checked items excluded)", () => {
+    const cwd = root();
+    writeQueue(cwd, "# Pending directives\n- [ ] one\n- [x] done already\n- [ ] two\n");
+    expect(listPendingDirectives(cwd)).toEqual(["one", "two"]);
+  });
+
+  it("returns [] when the queue file is absent", () => {
+    expect(listPendingDirectives(root())).toEqual([]);
+    expect(removePendingDirectives(root(), [1])).toEqual([]);
+  });
+
+  it("removes 1-based unchecked items and preserves every other line verbatim", () => {
+    const cwd = root();
+    const p = writeQueue(
+      cwd,
+      "# Pending directives (review before applying)\nsome prose\n- [ ] one\n- [x] done already\n- [ ] two\n- [ ] three\n",
+    );
+    const removed = removePendingDirectives(cwd, [1, 3]);
+    expect(removed).toEqual(["one", "three"]);
+    expect(readFileSync(p, "utf8")).toBe(
+      "# Pending directives (review before applying)\nsome prose\n- [x] done already\n- [ ] two\n",
+    );
+    expect(listPendingDirectives(cwd)).toEqual(["two"]);
+  });
+
+  it("ignores out-of-range indexes without rewriting the file", () => {
+    const cwd = root();
+    const p = writeQueue(cwd, "- [ ] one\n");
+    expect(removePendingDirectives(cwd, [2, 99])).toEqual([]);
+    expect(readFileSync(p, "utf8")).toBe("- [ ] one\n");
   });
 });

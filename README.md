@@ -349,6 +349,7 @@ omp handoff create [--objective "…"] [--done "…"]… [--pending "…"]… [-
 omp handoff list | read <id> | close <id> [--promote] | archive <id> | prune [--json]
 omp state write <key> <val> [--ttl <s>] | read | delete | status <key> | list | cleanup [--json]
 omp project-memory read [<id>] | index | add-note "<title>" [--body "<text>"] | add-directive "<rule>" [--json]
+omp project-memory pending | promote-directive <n|--all> | dismiss-directive <n|--all>   # gated memory-review proposals
 omp trace timeline [<sessionId>] [--limit N] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]
 omp catalog list | validate | capability <id>
 omp jira render <plan-file>

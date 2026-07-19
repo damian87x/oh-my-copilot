@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runCli } from "../../src/cli.js";
@@ -103,6 +103,23 @@ describe("omp config", () => {
     expect(res.message).toContain("memory-topic-char-cap=600");
   });
 
+  it("sets and reports directive injection caps and note auto-keep", async () => {
+    const cwd = root();
+    await runCli(["config", "set", "memory-directive-cap", "20", "--root", cwd]);
+    await runCli(["config", "set", "memory-directive-char-cap", "3000", "--root", cwd]);
+    await runCli(["config", "set", "memory-note-auto-keep", "50", "--root", cwd]);
+    const res = await runCli(["config", "get", "--root", cwd]);
+    expect(res.message).toContain("memory-directive-cap=20");
+    expect(res.message).toContain("memory-directive-char-cap=3000");
+    expect(res.message).toContain("memory-note-auto-keep=50");
+  });
+
+  it("rejects invalid directive cap / auto-keep values", async () => {
+    const cwd = root();
+    expect((await runCli(["config", "set", "memory-directive-cap", "0", "--root", cwd])).ok).toBe(false);
+    expect((await runCli(["config", "set", "memory-note-auto-keep", "-1", "--root", cwd])).ok).toBe(false);
+  });
+
   it("rejects a non-numeric min-messages value", async () => {
     const res = await runCli(["config", "set", "memory-review-min-messages", "lots", "--root", root()]);
     expect(res.ok).toBe(false);
@@ -157,6 +174,98 @@ describe("omp project-memory prune-notes", () => {
 
   it("errors without --keep or --older-than (no silent delete)", async () => {
     const res = await runCli(["project-memory", "prune-notes", "--root", root()]);
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe("omp project-memory add-directive over-cap warning", () => {
+  it("warns when the stored list outgrows the injection cap", async () => {
+    const cwd = root();
+    await runCli(["config", "set", "memory-directive-cap", "1", "--root", cwd]);
+    const first = await runCli(["project-memory", "add-directive", "rule one", "--root", cwd]);
+    expect(first.ok).toBe(true);
+    expect(first.message).not.toContain("WARNING");
+    const second = await runCli(["project-memory", "add-directive", "rule two", "--root", cwd]);
+    expect(second.ok).toBe(true);
+    expect(second.message).toContain("WARNING");
+    expect(second.message).toContain("memory-directive-cap");
+  });
+});
+
+describe("omp project-memory pending / promote / dismiss", () => {
+  function seedQueue(cwd: string): void {
+    const dir = path.join(cwd, ".omp", "memory-review");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      path.join(dir, "pending-directives.md"),
+      "# Pending directives (review before applying)\n- [ ] Use pnpm not npm\n- [ ] Prefer concise replies\n",
+      "utf8",
+    );
+  }
+
+  it("lists the queue with 1-based indexes", async () => {
+    const cwd = root();
+    seedQueue(cwd);
+    const res = await runCli(["project-memory", "pending", "--root", cwd]);
+    expect(res.ok).toBe(true);
+    expect(res.message).toContain("1. Use pnpm not npm");
+    expect(res.message).toContain("2. Prefer concise replies");
+  });
+
+  it("reports when the queue is empty", async () => {
+    const res = await runCli(["project-memory", "pending", "--root", root()]);
+    expect(res.ok).toBe(true);
+    expect(res.message).toContain("no pending");
+  });
+
+  it("promote-directive adds the rule and dequeues it", async () => {
+    const cwd = root();
+    seedQueue(cwd);
+    const res = await runCli(["project-memory", "promote-directive", "1", "--root", cwd]);
+    expect(res.ok).toBe(true);
+    expect(res.message).toContain("Use pnpm not npm");
+
+    const read = await runCli(["project-memory", "read", "--root", cwd]);
+    expect((read.output as { directives: string[] }).directives).toEqual(["Use pnpm not npm"]);
+
+    const pending = await runCli(["project-memory", "pending", "--root", cwd]);
+    expect(pending.message).toContain("1. Prefer concise replies");
+    expect(pending.message).not.toContain("pnpm");
+    // the queue file kept its header
+    const queueText = readFileSync(path.join(cwd, ".omp", "memory-review", "pending-directives.md"), "utf8");
+    expect(queueText).toContain("# Pending directives");
+  });
+
+  it("promote-directive --all applies every proposal", async () => {
+    const cwd = root();
+    seedQueue(cwd);
+    const res = await runCli(["project-memory", "promote-directive", "--all", "--root", cwd]);
+    expect(res.ok).toBe(true);
+    const read = await runCli(["project-memory", "read", "--root", cwd]);
+    expect((read.output as { directives: string[] }).directives).toEqual([
+      "Use pnpm not npm",
+      "Prefer concise replies",
+    ]);
+    const pending = await runCli(["project-memory", "pending", "--root", cwd]);
+    expect(pending.message).toContain("no pending");
+  });
+
+  it("dismiss-directive drops without adding", async () => {
+    const cwd = root();
+    seedQueue(cwd);
+    const res = await runCli(["project-memory", "dismiss-directive", "2", "--root", cwd]);
+    expect(res.ok).toBe(true);
+    const read = await runCli(["project-memory", "read", "--root", cwd]);
+    expect((read.output as { directives: string[] }).directives).toEqual([]);
+    const pending = await runCli(["project-memory", "pending", "--root", cwd]);
+    expect(pending.message).toContain("1. Use pnpm not npm");
+    expect(pending.message).not.toContain("concise");
+  });
+
+  it("rejects an out-of-range index", async () => {
+    const cwd = root();
+    seedQueue(cwd);
+    const res = await runCli(["project-memory", "promote-directive", "9", "--root", cwd]);
     expect(res.ok).toBe(false);
   });
 });

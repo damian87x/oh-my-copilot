@@ -183,4 +183,60 @@ describe("runMemoryReview (integration)", () => {
     expect(second.reason).toBe("already claimed");
     expect(noteIndex(cwd)).toHaveLength(1);
   });
+
+  it("feeds existing note titles into the review prompt (near-dup guard)", async () => {
+    const cwd = root();
+    setMemoryConfigValue(cwd, "memoryMode", "on");
+    const { addNote } = await import("../../src/project-memory.js");
+    addNote(cwd, "Build uses vitest", "details");
+
+    let seenPrompt = "";
+    const res = await runMemoryReview({
+      cwd,
+      sessionId: "note-titles",
+      spawn: fakeSpawn(REVIEW_JSON, (req) => { seenPrompt = req.prompt; }),
+      readTranscript: messages,
+    });
+
+    expect(res.ran).toBe(true);
+    expect(seenPrompt).toContain("ALREADY KNOWN");
+    expect(seenPrompt).toContain("Build uses vitest");
+  });
+
+  it("auto-prunes notes to memoryNoteAutoKeep after a review (off by default)", async () => {
+    const cwd = root();
+    setMemoryConfigValue(cwd, "memoryMode", "on");
+    setMemoryConfigValue(cwd, "memoryNoteAutoKeep", "1");
+    const { addNote } = await import("../../src/project-memory.js");
+    addNote(cwd, "Old fact one", "a");
+    addNote(cwd, "Old fact two", "b");
+
+    const res = await runMemoryReview({
+      cwd,
+      sessionId: "auto-prune",
+      spawn: fakeSpawn(REVIEW_JSON),
+      readTranscript: messages,
+    });
+
+    expect(res.ran).toBe(true);
+    // 2 pre-existing + 1 added by the review, pruned back to the keep budget
+    expect(noteIndex(cwd)).toHaveLength(1);
+  });
+
+  it("never auto-prunes when memoryNoteAutoKeep is unset", async () => {
+    const cwd = root();
+    setMemoryConfigValue(cwd, "memoryMode", "on");
+    const { addNote } = await import("../../src/project-memory.js");
+    addNote(cwd, "Old fact", "a");
+
+    const res = await runMemoryReview({
+      cwd,
+      sessionId: "no-auto-prune",
+      spawn: fakeSpawn(REVIEW_JSON),
+      readTranscript: messages,
+    });
+
+    expect(res.ran).toBe(true);
+    expect(noteIndex(cwd)).toHaveLength(2); // old + review-added both kept
+  });
 });
