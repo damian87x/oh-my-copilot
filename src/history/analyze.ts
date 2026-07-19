@@ -2,16 +2,30 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { isValidSessionId } from "../memory-review/transcript.js";
+import type { PublicPricingSnapshot } from "../skill-bench/telemetry.js";
+import {
+  buildSpendEstimates,
+  type HistorySpendEstimates,
+  type ModelUsageRow,
+} from "./cost-estimate.js";
 
-export type HistoryWindow = "7d" | "30d" | "90d" | "all";
+/** Preset windows plus free-form `Nd` for N in 1..365, or `all`. */
+export type HistoryWindow = string;
 export type HistoryProjectScope = "current" | "all";
+
+export const HISTORY_WINDOW_MAX_DAYS = 365;
+export const HISTORY_WINDOW_PRESETS = ["7d", "30d", "90d", "all"] as const;
+
 export interface AnalyzeHistoryOptions {
   window: HistoryWindow;
   project: HistoryProjectScope;
   cwd: string;
   sessionStateDir?: string;
   now?: Date;
+  /** When set, attach public-rate USD estimates for matched models. */
+  publicPricing?: PublicPricingSnapshot | null;
 }
+
 export interface HistoryWarning {
   code: string;
   count: number;
@@ -47,13 +61,26 @@ export interface HistoryAnalysis {
   schemaVersion: 1;
   generatedAt: string;
   filters: { window: HistoryWindow; project: HistoryProjectScope; cwd: string; since: string | null };
-  coverage: { sessionsDiscovered: number; sessionsRead: number; sessionsMatched: number; sessionsWithInvocations: number; filesUnreadable: number; malformedLines: number; invocationsCounted: number; shutdownTelemetrySessions: number };
+  coverage: {
+    sessionsDiscovered: number;
+    sessionsRead: number;
+    sessionsMatched: number;
+    sessionsWithInvocations: number;
+    filesUnreadable: number;
+    malformedLines: number;
+    invocationsCounted: number;
+    shutdownTelemetrySessions: number;
+  };
   skills: HistorySkillRow[];
-  sessionUsage: UsageBucket & { attribution: "session-level-only"; singleSkillAssociations: SingleSkillAssociation[]; sharedSkillSessions: UsageBucket };
+  sessionUsage: UsageBucket & {
+    attribution: "session-level-only";
+    singleSkillAssociations: SingleSkillAssociation[];
+    sharedSkillSessions: UsageBucket;
+    estimates?: HistorySpendEstimates;
+  };
   warnings: HistoryWarning[];
 }
 
-const DAYS: Record<Exclude<HistoryWindow, "all">, number> = { "7d": 7, "30d": 30, "90d": 90 };
 const WARNING_MESSAGES: Record<string, (count: number) => string> = {
   invalid_session_id: (n) => `${n} session directories had invalid identifiers and were skipped.`,
   malformed_jsonl: (n) => `${n} event lines were malformed and skipped; invocation counts cover readable events only.`,
@@ -66,6 +93,34 @@ const WARNING_MESSAGES: Record<string, (count: number) => string> = {
   missing_shutdown_telemetry: (n) => `${n} skill sessions had no usable shutdown telemetry.`,
 };
 
+export function windowDays(window: HistoryWindow): number | null {
+  if (window === "all") return null;
+  const match = /^([1-9]\d*)d$/.exec(window);
+  if (!match) throw new Error(`invalid history window: ${window}`);
+  const days = Number(match[1]);
+  if (days < 1 || days > HISTORY_WINDOW_MAX_DAYS) {
+    throw new Error(`history window days must be 1..${HISTORY_WINDOW_MAX_DAYS} or all`);
+  }
+  return days;
+}
+
+export function parseHistoryWindow(value: string): HistoryWindow {
+  if (value === "all") return "all";
+  const match = /^([1-9]\d*)d$/.exec(value);
+  if (!match) {
+    throw new Error(
+      `window accepts: ${HISTORY_WINDOW_PRESETS.join(", ")} or Nd (1..${HISTORY_WINDOW_MAX_DAYS} days)`,
+    );
+  }
+  const days = Number(match[1]);
+  if (days < 1 || days > HISTORY_WINDOW_MAX_DAYS) {
+    throw new Error(
+      `window accepts: ${HISTORY_WINDOW_PRESETS.join(", ")} or Nd (1..${HISTORY_WINDOW_MAX_DAYS} days)`,
+    );
+  }
+  return `${days}d`;
+}
+
 function timestamp(value: unknown): number | null {
   if (typeof value !== "string") return null;
   const parsed = Date.parse(value);
@@ -74,6 +129,11 @@ function timestamp(value: unknown): number | null {
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function nonNeg(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
+  return undefined;
 }
 
 function addTotals(target: UsageTotals, targetCoverage: MetricSessions, source: UsageTotals): void {
@@ -93,10 +153,70 @@ function sortSkillRows<T extends HistorySkillRow>(rows: T[]): T[] {
   );
 }
 
+function parseModelMetrics(
+  raw: unknown,
+  warn: (code: string, n?: number) => void,
+): ModelUsageRow[] {
+  const metrics = record(raw);
+  if (!metrics) return [];
+  const rows: ModelUsageRow[] = [];
+  for (const [model, value] of Object.entries(metrics)) {
+    const entry = record(value);
+    if (!entry) continue; // skip non-object values (never emit secrets)
+    const usage = record(entry.usage) ?? {};
+    const details = record(entry.tokenDetails) ?? {};
+    const token = (category: string): unknown => record(details[category])?.tokenCount;
+    const row: ModelUsageRow = { model };
+    const fields: Array<[keyof ModelUsageRow, unknown]> = [
+      ["inputTokens", token("input") ?? usage.inputTokens],
+      ["outputTokens", token("output") ?? usage.outputTokens],
+      ["cacheReadTokens", token("cache_read") ?? usage.cacheReadTokens],
+      ["cacheWriteTokens", token("cache_write") ?? usage.cacheWriteTokens],
+      ["totalNanoAiu", entry.totalNanoAiu ?? usage.totalNanoAiu],
+    ];
+    let any = false;
+    for (const [key, candidate] of fields) {
+      if (candidate === undefined) continue;
+      const num = nonNeg(candidate);
+      if (num === undefined) {
+        warn("malformed_shutdown_telemetry");
+        continue;
+      }
+      if (key === "inputTokens") row.inputTokens = num;
+      else if (key === "outputTokens") row.outputTokens = num;
+      else if (key === "cacheReadTokens") row.cacheReadTokens = num;
+      else if (key === "cacheWriteTokens") row.cacheWriteTokens = num;
+      else if (key === "totalNanoAiu") row.totalNanoAiu = num;
+      any = true;
+    }
+    if (any) rows.push(row);
+  }
+  return rows;
+}
+
+function mergeModelRows(target: Map<string, ModelUsageRow>, rows: ModelUsageRow[]): void {
+  for (const row of rows) {
+    const existing = target.get(row.model) ?? { model: row.model };
+    for (const key of [
+      "inputTokens",
+      "outputTokens",
+      "cacheReadTokens",
+      "cacheWriteTokens",
+      "totalNanoAiu",
+    ] as const) {
+      if (row[key] === undefined) continue;
+      existing[key] = Number(((existing[key] ?? 0) + (row[key] ?? 0)).toPrecision(15));
+    }
+    target.set(row.model, existing);
+  }
+}
+
 export function analyzeHistory(options: AnalyzeHistoryOptions): HistoryAnalysis {
   const now = options.now ?? new Date();
   const cwd = resolve(options.cwd);
-  const sinceMs = options.window === "all" ? null : now.getTime() - DAYS[options.window] * 86400000;
+  const window = parseHistoryWindow(options.window);
+  const days = windowDays(window);
+  const sinceMs = days === null ? null : now.getTime() - days * 86400000;
   const root = options.sessionStateDir ?? join(homedir(), ".copilot", "session-state");
   const warnings = new Map<string, number>();
   const warn = (code: string, n = 1) => warnings.set(code, (warnings.get(code) ?? 0) + n);
@@ -115,125 +235,156 @@ export function analyzeHistory(options: AnalyzeHistoryOptions): HistoryAnalysis 
   const metricSessions: MetricSessions = {};
   const single = new Map<string, UsageBucket>();
   const shared: UsageBucket = { sessions: 0, sessionsWithTelemetry: 0, totals: {}, metricSessions: {} };
+  const modelAgg = new Map<string, ModelUsageRow>();
   let skillSessions = 0;
   let telemetrySessions = 0;
 
   if (!existsSync(root)) warn("session_state_missing");
   else if (!statSync(root).isDirectory()) throw new Error(`session-state path is not a directory: ${root}`);
-  else for (const id of readdirSync(root)) {
-    let directory: boolean;
-    try {
-      directory = statSync(join(root, id)).isDirectory();
-    } catch {
-      continue;
-    }
-    if (!directory) continue;
-    coverage.sessionsDiscovered++;
-    if (!isValidSessionId(id)) {
-      warn("invalid_session_id");
-      continue;
-    }
-    const path = join(root, id, "events.jsonl");
-    let raw: string;
-    let mtime: number;
-    try {
-      raw = readFileSync(path, "utf8");
-      const eventFile = statSync(path);
-      mtime = eventFile.mtimeMs;
-      coverage.sessionsRead++;
-    } catch {
-      coverage.filesUnreadable++;
-      warn("unreadable_events");
-      continue;
-    }
-    let startTime: number | null = null;
-    let startCwd: string | null = null;
-    const invocations: { skill: string; at: number | null }[] = [];
-    let shutdown: UsageTotals | null = null;
-    for (const line of raw.split("\n")) {
-      if (!line.trim()) continue;
+  else
+    for (const id of readdirSync(root)) {
+      let directory: boolean;
       try {
-        const parsed: unknown = JSON.parse(line);
-        const event = record(parsed);
-        if (!event) continue;
-        const data = record(event.data) ?? {};
-        if (event.type === "session.start" && startTime === null) {
-          startTime = timestamp(event.timestamp ?? event.ts);
-          const context = record(data.context) ?? {};
-          startCwd = typeof context.cwd === "string" && context.cwd.trim() ? resolve(context.cwd) : null;
-        } else if (event.type === "tool.execution_start" && data.toolName === "skill") {
-          const args = record(data.arguments) ?? {};
-          const skill = typeof args.skill === "string" ? args.skill.trim() : "";
-          if (skill) invocations.push({ skill, at: timestamp(event.timestamp ?? event.ts) });
-        } else if (event.type === "session.shutdown") {
-          const usage = record(data.usage) ?? data;
-          const details = record(data.tokenDetails) ?? {};
-          const token = (category: string): unknown => record(details[category])?.tokenCount;
-          const metrics: Record<Exclude<keyof UsageTotals, "totalTokens">, unknown> = {
-            inputTokens: token("input") ?? usage.inputTokens,
-            cachedInputTokens: token("cache_read") ?? usage.cachedInputTokens,
-            cacheWriteTokens: token("cache_write") ?? usage.cacheWriteTokens,
-            outputTokens: token("output") ?? usage.outputTokens,
-            totalNanoAiu: data.totalNanoAiu ?? usage.totalNanoAiu,
-            premiumRequests: data.totalPremiumRequests ?? usage.totalPremiumRequests ?? usage.premiumRequests,
-            durationMs: data.totalApiDurationMs ?? usage.totalApiDurationMs ?? usage.sessionDurationMs ?? usage.durationMs,
-          };
-          shutdown = {};
-          for (const [key, value] of Object.entries(metrics) as [Exclude<keyof UsageTotals, "totalTokens">, unknown][]) {
-            if (value === undefined) continue;
-            if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-              shutdown[key] = value;
-            } else {
-              warn("malformed_shutdown_telemetry");
+        directory = statSync(join(root, id)).isDirectory();
+      } catch {
+        continue;
+      }
+      if (!directory) continue;
+      coverage.sessionsDiscovered++;
+      if (!isValidSessionId(id)) {
+        warn("invalid_session_id");
+        continue;
+      }
+      const path = join(root, id, "events.jsonl");
+      let raw: string;
+      let mtime: number;
+      try {
+        raw = readFileSync(path, "utf8");
+        const eventFile = statSync(path);
+        mtime = eventFile.mtimeMs;
+        coverage.sessionsRead++;
+      } catch {
+        coverage.filesUnreadable++;
+        warn("unreadable_events");
+        continue;
+      }
+      let startTime: number | null = null;
+      let startCwd: string | null = null;
+      const invocations: { skill: string; at: number | null }[] = [];
+      let shutdown: UsageTotals | null = null;
+      let modelRows: ModelUsageRow[] = [];
+      for (const line of raw.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const parsed: unknown = JSON.parse(line);
+          const event = record(parsed);
+          if (!event) continue;
+          const data = record(event.data) ?? {};
+          if (event.type === "session.start" && startTime === null) {
+            startTime = timestamp(event.timestamp ?? event.ts);
+            const context = record(data.context) ?? {};
+            startCwd = typeof context.cwd === "string" && context.cwd.trim() ? resolve(context.cwd) : null;
+          } else if (event.type === "tool.execution_start" && data.toolName === "skill") {
+            const args = record(data.arguments) ?? {};
+            const skill = typeof args.skill === "string" ? args.skill.trim() : "";
+            if (skill) invocations.push({ skill, at: timestamp(event.timestamp ?? event.ts) });
+          } else if (event.type === "session.shutdown") {
+            const usage = record(data.usage) ?? data;
+            const details = record(data.tokenDetails) ?? {};
+            const token = (category: string): unknown => record(details[category])?.tokenCount;
+            const metrics: Record<Exclude<keyof UsageTotals, "totalTokens">, unknown> = {
+              inputTokens: token("input") ?? usage.inputTokens,
+              cachedInputTokens: token("cache_read") ?? usage.cachedInputTokens,
+              cacheWriteTokens: token("cache_write") ?? usage.cacheWriteTokens,
+              outputTokens: token("output") ?? usage.outputTokens,
+              totalNanoAiu: data.totalNanoAiu ?? usage.totalNanoAiu,
+              premiumRequests:
+                data.totalPremiumRequests ?? usage.totalPremiumRequests ?? usage.premiumRequests,
+              durationMs:
+                data.totalApiDurationMs ??
+                usage.totalApiDurationMs ??
+                usage.sessionDurationMs ??
+                usage.durationMs,
+            };
+            shutdown = {};
+            for (const [key, value] of Object.entries(metrics) as [
+              Exclude<keyof UsageTotals, "totalTokens">,
+              unknown,
+            ][]) {
+              if (value === undefined) continue;
+              if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+                shutdown[key] = value;
+              } else {
+                warn("malformed_shutdown_telemetry");
+              }
             }
+            if (
+              [
+                shutdown.inputTokens,
+                shutdown.cachedInputTokens,
+                shutdown.cacheWriteTokens,
+                shutdown.outputTokens,
+              ].every((value) => value !== undefined)
+            ) {
+              shutdown.totalTokens =
+                shutdown.inputTokens! +
+                shutdown.cachedInputTokens! +
+                shutdown.cacheWriteTokens! +
+                shutdown.outputTokens!;
+            }
+            modelRows = parseModelMetrics(data.modelMetrics, warn);
           }
-          if ([shutdown.inputTokens, shutdown.cachedInputTokens, shutdown.cacheWriteTokens, shutdown.outputTokens].every((value) => value !== undefined)) {
-            shutdown.totalTokens = shutdown.inputTokens! + shutdown.cachedInputTokens! + shutdown.cacheWriteTokens! + shutdown.outputTokens!;
-          }
+        } catch {
+          coverage.malformedLines++;
+          warn("malformed_jsonl");
         }
       }
-      catch {
-        coverage.malformedLines++;
-        warn("malformed_jsonl");
+      const sessionTime = startTime ?? mtime;
+      if (startTime === null) warn("missing_session_start");
+      if (sinceMs !== null && sessionTime < sinceMs) continue;
+      if (options.project === "current" && startCwd !== cwd) {
+        if (!startCwd) warn("missing_start_cwd");
+        continue;
       }
+      coverage.sessionsMatched++;
+      for (const invocation of invocations) {
+        const invokedAt = invocation.at ?? sessionTime;
+        const aggregate = aggregates.get(invocation.skill) ?? {
+          invocations: 0,
+          sessions: new Set<string>(),
+          last: invokedAt,
+        };
+        aggregate.invocations++;
+        aggregate.sessions.add(id);
+        aggregate.last = Math.max(aggregate.last, invokedAt);
+        aggregates.set(invocation.skill, aggregate);
+        coverage.invocationsCounted++;
+      }
+      if (!invocations.length) continue;
+      coverage.sessionsWithInvocations++;
+      skillSessions++;
+      const distinct = [...new Set(invocations.map(({ skill }) => skill))];
+      const bucket =
+        distinct.length === 1
+          ? (single.get(distinct[0]) ?? {
+              sessions: 0,
+              sessionsWithTelemetry: 0,
+              totals: {},
+              metricSessions: {},
+            })
+          : shared;
+      bucket.sessions++;
+      if (shutdown && Object.keys(shutdown).length) {
+        telemetrySessions++;
+        coverage.shutdownTelemetrySessions++;
+        bucket.sessionsWithTelemetry++;
+        addTotals(bucket.totals, bucket.metricSessions, shutdown);
+        addTotals(totals, metricSessions, shutdown);
+        mergeModelRows(modelAgg, modelRows);
+        if (Object.keys(shutdown).length < 8) warn("incomplete_shutdown_telemetry");
+      } else warn("missing_shutdown_telemetry");
+      if (distinct.length === 1) single.set(distinct[0], bucket);
     }
-    const sessionTime = startTime ?? mtime;
-    if (startTime === null) warn("missing_session_start");
-    if (sinceMs !== null && sessionTime < sinceMs) continue;
-    if (options.project === "current" && startCwd !== cwd) {
-      if (!startCwd) warn("missing_start_cwd");
-      continue;
-    }
-    coverage.sessionsMatched++;
-    for (const invocation of invocations) {
-      const invokedAt = invocation.at ?? sessionTime;
-      const aggregate = aggregates.get(invocation.skill) ?? {
-        invocations: 0,
-        sessions: new Set<string>(),
-        last: invokedAt,
-      };
-      aggregate.invocations++;
-      aggregate.sessions.add(id);
-      aggregate.last = Math.max(aggregate.last, invokedAt);
-      aggregates.set(invocation.skill, aggregate);
-      coverage.invocationsCounted++;
-    }
-    if (!invocations.length) continue;
-    coverage.sessionsWithInvocations++;
-    skillSessions++;
-    const distinct = [...new Set(invocations.map(({ skill }) => skill))];
-    const bucket = distinct.length === 1 ? (single.get(distinct[0]) ?? { sessions: 0, sessionsWithTelemetry: 0, totals: {}, metricSessions: {} }) : shared;
-    bucket.sessions++;
-    if (shutdown && Object.keys(shutdown).length) {
-      telemetrySessions++;
-      coverage.shutdownTelemetrySessions++;
-      bucket.sessionsWithTelemetry++;
-      addTotals(bucket.totals, bucket.metricSessions, shutdown);
-      addTotals(totals, metricSessions, shutdown);
-      if (Object.keys(shutdown).length < 8) warn("incomplete_shutdown_telemetry");
-    } else warn("missing_shutdown_telemetry");
-    if (distinct.length === 1) single.set(distinct[0], bucket);
-  }
 
   const skills: HistorySkillRow[] = [];
   for (const [skill, row] of aggregates) {
@@ -244,11 +395,21 @@ export function analyzeHistory(options: AnalyzeHistoryOptions): HistoryAnalysis 
       lastInvokedAt: new Date(row.last).toISOString(),
     });
   }
+
+  const estimates =
+    totals.totalNanoAiu !== undefined || modelAgg.size > 0
+      ? buildSpendEstimates({
+          totalNanoAiu: totals.totalNanoAiu,
+          byModel: [...modelAgg.values()],
+          publicPricing: options.publicPricing ?? null,
+        })
+      : undefined;
+
   return {
     schemaVersion: 1,
     generatedAt: now.toISOString(),
     filters: {
-      window: options.window,
+      window,
       project: options.project,
       cwd,
       since: sinceMs === null ? null : new Date(sinceMs).toISOString(),
@@ -265,6 +426,7 @@ export function analyzeHistory(options: AnalyzeHistoryOptions): HistoryAnalysis 
         .map(([skill, bucket]) => ({ skill, ...bucket }))
         .sort((left, right) => left.skill.localeCompare(right.skill)),
       sharedSkillSessions: shared,
+      ...(estimates ? { estimates } : {}),
     },
     warnings: [...warnings]
       .sort(([left], [right]) => left.localeCompare(right))
