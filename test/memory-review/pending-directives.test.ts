@@ -37,7 +37,9 @@ describe("pendingDirectivesNudge", () => {
     const nudge = pendingDirectivesNudge(cwd);
     expect(nudge).toContain("2");
     expect(nudge.toLowerCase()).toContain("review");
-    expect(nudge).toContain("pending-directives.md");
+    expect(nudge).toContain("omp project-memory pending");
+    expect(nudge).toContain("promote-directive");
+    expect(nudge).toContain("dismiss-directive");
   });
 
   it("returns empty string when nothing is pending", () => {

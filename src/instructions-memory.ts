@@ -6,7 +6,7 @@ import { readRepoGoal } from "./goal.js";
 import { listHandoffPointers } from "./handoff/store.js";
 import { sanitizeForInstructions } from "./handoff/redact.js";
 import { readMemoryConfig } from "./memory-review/config.js";
-import { noteIndex, recentNotes, listTopics } from "./project-memory.js";
+import { noteIndex, readDirectives, recentNotes, listTopics } from "./project-memory.js";
 
 // Caps keep the managed block from ballooning as memory accumulates. They are
 // configurable via ~/.omp/config.json (or project .omp/config.json).
@@ -15,8 +15,9 @@ import { noteIndex, recentNotes, listTopics } from "./project-memory.js";
 // (see hooks/hooks.json + scripts/session-start.mjs, ported to Copilot's hook
 // schema). This copilot-instructions.md block remains the always-on fallback: it
 // works even when hooks are disabled or in headless `copilot -p` (which skips
-// hooks). The block keeps the repo goal visible but leaves project memory and
-// daily logs on demand to avoid bloating or over-steering context.
+// hooks). Must-follow directives are included (same caps as the hook) because
+// headless sessions would otherwise never see them; notes, topics and daily
+// logs stay on demand to avoid bloating or over-steering context.
 
 const START = "<!-- omp:memory:start -->";
 const END = "<!-- omp:memory:end -->";
@@ -32,6 +33,27 @@ function renderBlock(cwd: string): string {
   const config = readMemoryConfig(cwd);
   const lines: string[] = [START, "## oh-my-copilot project context"];
   if (goal) lines.push("", `**Repo goal:** ${goal}`);
+  // Must-follow directives — same injection budget as the SessionStart hook, so
+  // headless `copilot -p` sessions (no hooks) get the same rules. Sanitized at
+  // render as well as on write, so legacy marker-bearing rules can't wedge the
+  // marker-balanced managed block. Duplication when hooks ARE on is harmless;
+  // absence in headless would be a real hole.
+  const directives = readDirectives(cwd).map(sanitizeForInstructions).filter(Boolean);
+  if (directives.length > 0) {
+    const shown: string[] = [];
+    let chars = 0;
+    for (const d of directives) {
+      if (shown.length >= config.memoryDirectiveCap) break;
+      // char cap skips rather than stops: one oversized rule must not suppress
+      // every shorter rule after it.
+      if (chars + d.length > config.memoryDirectiveCharCap) continue;
+      shown.push(`- ${d}`);
+      chars += d.length;
+    }
+    const more = directives.length - shown.length;
+    lines.push("", "**Directives (must-follow):**", ...shown);
+    if (more > 0) lines.push(`- (+${more} more — \`omp project-memory read\` for all)`);
+  }
   lines.push(
     "",
     "Project memory is available on demand:",
@@ -46,9 +68,12 @@ function renderBlock(cwd: string): string {
     const shown: string[] = [];
     let chars = 0;
     for (const n of recentNotes(cwd, config.memoryNoteTitleCap)) {
-      if (chars + n.title.length > config.memoryNoteCharCap) break;
-      shown.push(`- ${n.title} (\`${n.id}\`)`);
-      chars += n.title.length;
+      // Sanitized at render too: legacy titles predate write-time sanitization.
+      const title = sanitizeForInstructions(n.title);
+      if (!title) continue;
+      if (chars + title.length > config.memoryNoteCharCap) break;
+      shown.push(`- ${title} (\`${n.id}\`)`);
+      chars += title.length;
     }
     const more = total - shown.length;
     lines.push("", `Project memory notes (${total}):`, ...shown);

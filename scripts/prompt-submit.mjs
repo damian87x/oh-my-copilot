@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { readStdin } from "./lib/stdin.mjs";
+import { isMain } from "./lib/is-main.mjs";
 import { buildContinueHookOutput, failOpen } from "./lib/hook-output.mjs";
 import { recordPrompt } from "./lib/daily-log.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
@@ -97,6 +97,6 @@ async function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain(import.meta.url)) {
   main();
 }

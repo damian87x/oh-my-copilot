@@ -18,6 +18,10 @@ export const DEFAULT_MEMORY_NOTE_TITLE_CAP = 12;
 export const DEFAULT_MEMORY_NOTE_CHAR_CAP = 1200;
 export const DEFAULT_MEMORY_TOPIC_CAP = 10;
 export const DEFAULT_MEMORY_TOPIC_CHAR_CAP = 800;
+export const DEFAULT_MEMORY_DIRECTIVE_CAP = 12;
+export const DEFAULT_MEMORY_DIRECTIVE_CHAR_CAP = 1200;
+// 0 = never auto-prune; notes accumulate until a manual `prune-notes` run.
+export const DEFAULT_MEMORY_NOTE_AUTO_KEEP = 0;
 
 export interface MemoryConfig {
   memoryMode: MemoryMode;
@@ -27,6 +31,9 @@ export interface MemoryConfig {
   memoryNoteCharCap: number;
   memoryTopicCap: number;
   memoryTopicCharCap: number;
+  memoryDirectiveCap: number;
+  memoryDirectiveCharCap: number;
+  memoryNoteAutoKeep: number;
 }
 
 export type MemoryConfigKey =
@@ -36,7 +43,10 @@ export type MemoryConfigKey =
   | "memoryNoteTitleCap"
   | "memoryNoteCharCap"
   | "memoryTopicCap"
-  | "memoryTopicCharCap";
+  | "memoryTopicCharCap"
+  | "memoryDirectiveCap"
+  | "memoryDirectiveCharCap"
+  | "memoryNoteAutoKeep";
 
 export interface ReadConfigOptions {
   /** Override the home dir (defaults to os.homedir()); used in tests. */
@@ -95,6 +105,11 @@ export function readMemoryConfig(cwd: string, opts: ReadConfigOptions = {}): Mem
   const memoryNoteCharCap = positiveInt(raw.memoryNoteCharCap, DEFAULT_MEMORY_NOTE_CHAR_CAP);
   const memoryTopicCap = positiveInt(raw.memoryTopicCap, DEFAULT_MEMORY_TOPIC_CAP);
   const memoryTopicCharCap = positiveInt(raw.memoryTopicCharCap, DEFAULT_MEMORY_TOPIC_CHAR_CAP);
+  const memoryDirectiveCap = positiveInt(raw.memoryDirectiveCap, DEFAULT_MEMORY_DIRECTIVE_CAP);
+  const memoryDirectiveCharCap = positiveInt(raw.memoryDirectiveCharCap, DEFAULT_MEMORY_DIRECTIVE_CHAR_CAP);
+  const parsedAutoKeep = Number(raw.memoryNoteAutoKeep);
+  const memoryNoteAutoKeep =
+    Number.isFinite(parsedAutoKeep) && parsedAutoKeep >= 0 ? Math.floor(parsedAutoKeep) : DEFAULT_MEMORY_NOTE_AUTO_KEEP;
   return {
     memoryMode,
     memoryReviewModel,
@@ -103,6 +118,9 @@ export function readMemoryConfig(cwd: string, opts: ReadConfigOptions = {}): Mem
     memoryNoteCharCap,
     memoryTopicCap,
     memoryTopicCharCap,
+    memoryDirectiveCap,
+    memoryDirectiveCharCap,
+    memoryNoteAutoKeep,
   };
 }
 

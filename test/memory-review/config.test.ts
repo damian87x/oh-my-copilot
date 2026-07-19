@@ -3,6 +3,9 @@ import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  DEFAULT_MEMORY_DIRECTIVE_CAP,
+  DEFAULT_MEMORY_DIRECTIVE_CHAR_CAP,
+  DEFAULT_MEMORY_NOTE_AUTO_KEEP,
   DEFAULT_MEMORY_NOTE_CHAR_CAP,
   DEFAULT_MEMORY_NOTE_TITLE_CAP,
   DEFAULT_MEMORY_TOPIC_CAP,
@@ -28,6 +31,32 @@ describe("memory-review config", () => {
     expect(cfg.memoryNoteCharCap).toBe(DEFAULT_MEMORY_NOTE_CHAR_CAP);
     expect(cfg.memoryTopicCap).toBe(DEFAULT_MEMORY_TOPIC_CAP);
     expect(cfg.memoryTopicCharCap).toBe(DEFAULT_MEMORY_TOPIC_CHAR_CAP);
+    expect(cfg.memoryDirectiveCap).toBe(DEFAULT_MEMORY_DIRECTIVE_CAP);
+    expect(cfg.memoryDirectiveCharCap).toBe(DEFAULT_MEMORY_DIRECTIVE_CHAR_CAP);
+    expect(cfg.memoryNoteAutoKeep).toBe(DEFAULT_MEMORY_NOTE_AUTO_KEEP);
+  });
+
+  it("reads custom directive injection caps and note auto-keep", () => {
+    const cwd = root();
+    setMemoryConfigValue(cwd, "memoryDirectiveCap", "20");
+    setMemoryConfigValue(cwd, "memoryDirectiveCharCap", "3000");
+    setMemoryConfigValue(cwd, "memoryNoteAutoKeep", "50");
+    expect(readMemoryConfig(cwd)).toMatchObject({
+      memoryDirectiveCap: 20,
+      memoryDirectiveCharCap: 3000,
+      memoryNoteAutoKeep: 50,
+    });
+  });
+
+  it("falls back to defaults on invalid directive cap / auto-keep values", () => {
+    const cwd = root();
+    setMemoryConfigValue(cwd, "memoryDirectiveCap", "0");
+    setMemoryConfigValue(cwd, "memoryDirectiveCharCap", "-5");
+    setMemoryConfigValue(cwd, "memoryNoteAutoKeep", "-1");
+    const cfg = readMemoryConfig(cwd);
+    expect(cfg.memoryDirectiveCap).toBe(DEFAULT_MEMORY_DIRECTIVE_CAP);
+    expect(cfg.memoryDirectiveCharCap).toBe(DEFAULT_MEMORY_DIRECTIVE_CHAR_CAP);
+    expect(cfg.memoryNoteAutoKeep).toBe(DEFAULT_MEMORY_NOTE_AUTO_KEEP);
   });
 
   it("reads a custom min-messages threshold", () => {

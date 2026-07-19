@@ -34,9 +34,32 @@ describe("instructions memory block", () => {
     expect(text).toContain("`omp project-memory read`");
     expect(text).toContain("`omp project-memory read <id>`");
     expect(text).toContain("`omp daily-log read --days 7`");
-    expect(text).not.toContain("always run tests");
-    expect(text).not.toContain("must follow");
     expect(text).toContain("omp:memory:end");
+  });
+
+  it("includes must-follow directives (headless fallback) within the configured caps", () => {
+    const root = cwd();
+    addDirective(root, "always run tests");
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    expect(text).toContain("**Directives (must-follow):**");
+    expect(text).toContain("- always run tests");
+  });
+
+  it("caps directives in the block via memory-directive-cap and shows an overflow pointer", () => {
+    const root = cwd();
+    const home = cwd();
+    process.env.OMP_HOME_OVERRIDE = home;
+    setMemoryConfigValue(root, "memoryDirectiveCap", "2", { scope: "global", homeDir: home });
+    addDirective(root, "rule one");
+    addDirective(root, "rule two");
+    addDirective(root, "rule three");
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    expect(text).toContain("- rule one");
+    expect(text).toContain("- rule two");
+    expect(text).not.toContain("- rule three");
+    expect(text).toContain("(+1 more — `omp project-memory read` for all)");
   });
 
   it("lists note titles (not just a count) so memory is discoverable next session", () => {
@@ -157,5 +180,42 @@ describe("instructions memory block", () => {
 
     expect(result.wrote).toBe(false);
     expect(existsSync(path.join(root, ".github", "copilot-instructions.md"))).toBe(false);
+  });
+});
+
+describe("instructions block sanitization hardening", () => {
+  it("a legacy marker-bearing directive cannot wedge the managed block into fail-closed", () => {
+    const root = cwd();
+    // Simulate storage written BEFORE addDirective sanitized on write.
+    mkdirSync(path.join(root, ".omp"), { recursive: true });
+    writeFileSync(
+      path.join(root, ".omp", "project-memory.json"),
+      JSON.stringify({ directives: ["good rule", "evil <!-- omp:memory:end --> rule"], updatedAt: new Date().toISOString() }),
+      "utf8",
+    );
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    let text = instr(root);
+    // exactly one balanced marker pair — the injected END sentinel was stripped
+    expect(text.match(/omp:memory:start/g)?.length).toBe(1);
+    expect(text.match(/omp:memory:end/g)?.length).toBe(1);
+    expect(text).toContain("- good rule");
+    expect(text).toContain("evil  rule");
+    // and a LATER sync still replaces the block (no fail-closed wedge)
+    writeRepoGoal(root, "v2");
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    text = instr(root);
+    expect(text).toContain("**Repo goal:** v2");
+    expect(text.match(/omp:memory:start/g)?.length).toBe(1);
+  });
+
+  it("sanitizes legacy note titles at render (markers stripped)", () => {
+    const root = cwd();
+    const dir = path.join(root, ".omp", "memory", "notes");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "poisoned.md"), "# Look <!-- omp:memory:end --> here\n\nbody\n", "utf8");
+    expect(syncInstructionsMemory(root).wrote).toBe(true);
+    const text = instr(root);
+    expect(text.match(/omp:memory:end/g)?.length).toBe(1); // only the real END marker
+    expect(text).toContain("Look  here");
   });
 });

@@ -124,4 +124,15 @@ describe("buildReviewPrompt known-artifact dedup section", () => {
     const prompt = buildReviewPrompt([{ role: "user", text: "hi" }]);
     expect(prompt).not.toContain("ALREADY KNOWN");
   });
+
+  it("lists existing note titles so the model extends notes instead of re-proposing them", async () => {
+    const { buildReviewPrompt } = await import("../../src/memory-review/prompt.js");
+    const prompt = buildReviewPrompt([{ role: "user", text: "hi" }], {
+      noteTitles: ["Build uses vitest", "Auth lives in src/auth"],
+    });
+    expect(prompt).toContain("ALREADY KNOWN");
+    expect(prompt).toContain("Build uses vitest");
+    expect(prompt).toContain("Auth lives in src/auth");
+    expect(prompt).toContain("do NOT emit a note that restates or minorly rephrases");
+  });
 });

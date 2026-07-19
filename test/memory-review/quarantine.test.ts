@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   draftsDir,
+  listPendingDirectives,
   migrateLegacyQuarantine,
+  removePendingDirectives,
   reviewDir,
   selfEvolveDir,
 } from "../../src/memory-review/quarantine.js";
@@ -103,5 +105,64 @@ describe("migrateLegacyQuarantine symlink safety", () => {
 
     expect(readFileSync(path.join(outside, "secret.md"), "utf8")).toBe("do not move me\n");
     expect(existsSync(path.join(cwd, ".omp", "self-evolve"))).toBe(false);
+  });
+});
+
+describe("pending-directive queue helpers", () => {
+  function writeQueue(cwd: string, body: string): string {
+    const dir = path.join(cwd, ".omp", "memory-review");
+    mkdirSync(dir, { recursive: true });
+    const p = path.join(dir, "pending-directives.md");
+    writeFileSync(p, body, "utf8");
+    return p;
+  }
+
+  it("lists unchecked items in file order (checked items excluded)", () => {
+    const cwd = root();
+    writeQueue(cwd, "# Pending directives\n- [ ] one\n- [x] done already\n- [ ] two\n");
+    expect(listPendingDirectives(cwd)).toEqual(["one", "two"]);
+  });
+
+  it("returns [] when the queue file is absent", () => {
+    expect(listPendingDirectives(root())).toEqual([]);
+    expect(removePendingDirectives(root(), ["one"])).toEqual([]);
+  });
+
+  it("removes items by text identity and preserves every other line verbatim", () => {
+    const cwd = root();
+    const p = writeQueue(
+      cwd,
+      "# Pending directives (review before applying)\nsome prose\n- [ ] one\n- [x] done already\n- [ ] two\n- [ ] three\n",
+    );
+    const removed = removePendingDirectives(cwd, ["one", "three"]);
+    expect(removed).toEqual(["one", "three"]);
+    expect(readFileSync(p, "utf8")).toBe(
+      "# Pending directives (review before applying)\nsome prose\n- [x] done already\n- [ ] two\n",
+    );
+    expect(listPendingDirectives(cwd)).toEqual(["two"]);
+  });
+
+  it("hits the right line when an earlier item vanished between list and remove (index shift race)", () => {
+    const cwd = root();
+    const p = writeQueue(cwd, "- [ ] A\n- [ ] B\n- [ ] C\n");
+    // Concurrent actor dismisses A first — a bare index-based removal of "the
+    // second item" would now hit C. Text-identity removal must still drop B.
+    expect(removePendingDirectives(cwd, ["A"])).toEqual(["A"]);
+    expect(removePendingDirectives(cwd, ["B"])).toEqual(["B"]);
+    expect(readFileSync(p, "utf8")).toBe("- [ ] C\n");
+  });
+
+  it("removes only the first occurrence of a duplicated text", () => {
+    const cwd = root();
+    const p = writeQueue(cwd, "- [ ] dup\n- [ ] other\n- [ ] dup\n");
+    expect(removePendingDirectives(cwd, ["dup"])).toEqual(["dup"]);
+    expect(readFileSync(p, "utf8")).toBe("- [ ] other\n- [ ] dup\n");
+  });
+
+  it("ignores texts not in the queue without rewriting the file", () => {
+    const cwd = root();
+    const p = writeQueue(cwd, "- [ ] one\n");
+    expect(removePendingDirectives(cwd, ["nope", "also nope"])).toEqual([]);
+    expect(readFileSync(p, "utf8")).toBe("- [ ] one\n");
   });
 });

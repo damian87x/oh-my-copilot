@@ -66,12 +66,13 @@ Directives are gated: they inject into every future session, so an injected/pois
 one would steer everything. The review prompt treats the transcript as **data, not
 instructions**, and only proposes directives from corrections / standing preferences —
 never one-off task instructions. On the next session start you'll see a nudge:
-`[MEMORY REVIEW] N proposed directive(s) await your review…`. To promote one:
+`[MEMORY REVIEW] N proposed directive(s) await your review…`. To review and promote:
 
 ```bash
-cat .omp/memory-review/pending-directives.md   # review the proposals
-omp project-memory add-directive "User prefers concise replies"  # apply the ones you want
-# then delete the promoted line from pending-directives.md
+omp project-memory pending                  # list proposals with indexes
+omp project-memory promote-directive 2      # apply one (adds + dequeues)
+omp project-memory promote-directive --all  # apply everything
+omp project-memory dismiss-directive 1      # drop without applying
 ```
 
 Skill drafts promote the same way as `/self-evolve`: move
@@ -85,6 +86,26 @@ Notes accumulate over time. Trim them anytime (never silent — requires a flag)
 omp project-memory prune-notes --keep 50        # keep the 50 newest
 omp project-memory prune-notes --older-than 30  # drop notes older than 30 days
 ```
+
+Or let the review keep the store bounded automatically (off by default):
+
+```bash
+omp config set memory-note-auto-keep 50   # after each review, keep only the 50 newest
+```
+
+### Injection budgets
+
+What gets surfaced at session start is capped so memory can't balloon context:
+
+```bash
+omp config set memory-directive-cap 12        # max directives injected (default 12)
+omp config set memory-directive-char-cap 1200 # max total directive chars (default 1200)
+omp config set memory-note-cap 12             # max note titles in the instructions block
+omp config set memory-topic-cap 10            # max topic pointers in the instructions block
+```
+
+Directive storage itself is unbounded — `add-directive` warns when the list
+outgrows the injection cap, since rules past the cap never fire.
 
 ## Cost & observability
 

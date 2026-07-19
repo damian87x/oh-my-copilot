@@ -17,8 +17,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { readStdin } from "./lib/stdin.mjs";
+import { isMain } from "./lib/is-main.mjs";
 import { buildStopDecisionOutput, appendHookLog, printStopDecision } from "./lib/hook-output.mjs";
 import { decideLoop, extractAssistantText, LOOP_MODES } from "./lib/loop-driver.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
@@ -290,6 +290,6 @@ async function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMain(import.meta.url)) {
   main();
 }
