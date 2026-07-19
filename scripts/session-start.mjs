@@ -125,7 +125,10 @@ export async function handleSessionStart(raw) {
     const shown = [];
     let chars = 0;
     for (const d of directives) {
-      if (shown.length >= directiveCap || chars + d.length > directiveCharCap) break;
+      if (shown.length >= directiveCap) break;
+      // char cap skips rather than stops: one oversized rule must not suppress
+      // every shorter rule after it.
+      if (chars + d.length > directiveCharCap) continue;
       shown.push(d);
       chars += d.length;
     }

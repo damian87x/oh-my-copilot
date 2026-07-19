@@ -115,10 +115,10 @@ export async function runMemoryReview(
   // Optional lifecycle: auto-prune old notes so the injected title cap stays
   // meaningful as reviews keep adding. Off by default (memoryNoteAutoKeep = 0);
   // manual `omp project-memory prune-notes` remains the explicit path.
-  let autoPruned = 0;
+  let autoPrunedIds: string[] = [];
   if (config.memoryNoteAutoKeep > 0) {
     try {
-      autoPruned = pruneNotes(cwd, { keep: config.memoryNoteAutoKeep }).length;
+      autoPrunedIds = pruneNotes(cwd, { keep: config.memoryNoteAutoKeep });
     } catch {
       // pruning is best-effort — never fail the review on it
     }
@@ -126,7 +126,7 @@ export async function runMemoryReview(
 
   // Refresh the injected memory block so newly written notes surface in the
   // NEXT session (closes the loop). Best-effort — never fail the review on it.
-  if (summary.notesAdded > 0 || autoPruned > 0) {
+  if (summary.notesAdded > 0 || autoPrunedIds.length > 0) {
     try {
       const { syncInstructionsMemory } = await import("../instructions-memory.js");
       syncInstructionsMemory(cwd);
@@ -144,6 +144,6 @@ export async function runMemoryReview(
     note: `notes=${summary.notesAdded} drafts=${summary.draftsWritten.length} directivesQueued=${summary.directivesQueued}`,
   });
 
-  logLine(cwd, { sessionId, ran: true, ...summary, autoPruned });
+  logLine(cwd, { sessionId, ran: true, ...summary, autoPruned: autoPrunedIds.length, autoPrunedIds });
   return { ran: true, summary };
 }

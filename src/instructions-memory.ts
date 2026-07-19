@@ -34,14 +34,19 @@ function renderBlock(cwd: string): string {
   const lines: string[] = [START, "## oh-my-copilot project context"];
   if (goal) lines.push("", `**Repo goal:** ${goal}`);
   // Must-follow directives — same injection budget as the SessionStart hook, so
-  // headless `copilot -p` sessions (no hooks) get the same rules. Duplication
-  // when hooks ARE on is harmless; absence in headless would be a real hole.
-  const directives = readDirectives(cwd);
+  // headless `copilot -p` sessions (no hooks) get the same rules. Sanitized at
+  // render as well as on write, so legacy marker-bearing rules can't wedge the
+  // marker-balanced managed block. Duplication when hooks ARE on is harmless;
+  // absence in headless would be a real hole.
+  const directives = readDirectives(cwd).map(sanitizeForInstructions).filter(Boolean);
   if (directives.length > 0) {
     const shown: string[] = [];
     let chars = 0;
     for (const d of directives) {
-      if (shown.length >= config.memoryDirectiveCap || chars + d.length > config.memoryDirectiveCharCap) break;
+      if (shown.length >= config.memoryDirectiveCap) break;
+      // char cap skips rather than stops: one oversized rule must not suppress
+      // every shorter rule after it.
+      if (chars + d.length > config.memoryDirectiveCharCap) continue;
       shown.push(`- ${d}`);
       chars += d.length;
     }
@@ -63,9 +68,12 @@ function renderBlock(cwd: string): string {
     const shown: string[] = [];
     let chars = 0;
     for (const n of recentNotes(cwd, config.memoryNoteTitleCap)) {
-      if (chars + n.title.length > config.memoryNoteCharCap) break;
-      shown.push(`- ${n.title} (\`${n.id}\`)`);
-      chars += n.title.length;
+      // Sanitized at render too: legacy titles predate write-time sanitization.
+      const title = sanitizeForInstructions(n.title);
+      if (!title) continue;
+      if (chars + title.length > config.memoryNoteCharCap) break;
+      shown.push(`- ${title} (\`${n.id}\`)`);
+      chars += title.length;
     }
     const more = total - shown.length;
     lines.push("", `Project memory notes (${total}):`, ...shown);

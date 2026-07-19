@@ -84,23 +84,30 @@ export function listPendingDirectives(cwd: string): string[] {
   }
 }
 
-/** Remove 1-based unchecked items (as returned by listPendingDirectives) from
- *  the queue; returns the texts removed. All other lines (header, checked
+/** Remove unchecked items BY TEXT (first matching line per given text) from the
+ *  queue; returns the texts actually removed. Text identity, not indexes: a
+ *  concurrent promote/dismiss of an earlier item must not shift positions and
+ *  make the removal hit the wrong line. All other lines (header, checked
  *  items, prose) are preserved verbatim. Atomic rewrite; best-effort. */
-export function removePendingDirectives(cwd: string, indexes: number[]): string[] {
+export function removePendingDirectives(cwd: string, texts: string[]): string[] {
   const p = join(reviewDir(cwd), PENDING_FILENAME);
   if (!existsSync(p)) return [];
-  const drop = new Set(indexes);
+  const wanted = new Map<string, number>(); // text -> how many occurrences to drop
+  for (const t of texts) {
+    const key = String(t).trim();
+    if (key) wanted.set(key, (wanted.get(key) ?? 0) + 1);
+  }
   const removed: string[] = [];
   try {
     const lines = readFileSync(p, "utf8").split("\n");
-    let position = 0;
     const kept: string[] = [];
     for (const line of lines) {
       if (UNCHECKED_LINE.test(line)) {
-        position += 1;
-        if (drop.has(position)) {
-          removed.push(line.replace(/^\s*-\s*\[\s*\]\s*/, "").trim());
+        const text = line.replace(/^\s*-\s*\[\s*\]\s*/, "").trim();
+        const remaining = wanted.get(text) ?? 0;
+        if (remaining > 0) {
+          wanted.set(text, remaining - 1);
+          removed.push(text);
           continue;
         }
       }

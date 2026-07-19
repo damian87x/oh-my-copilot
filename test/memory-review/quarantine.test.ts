@@ -125,16 +125,16 @@ describe("pending-directive queue helpers", () => {
 
   it("returns [] when the queue file is absent", () => {
     expect(listPendingDirectives(root())).toEqual([]);
-    expect(removePendingDirectives(root(), [1])).toEqual([]);
+    expect(removePendingDirectives(root(), ["one"])).toEqual([]);
   });
 
-  it("removes 1-based unchecked items and preserves every other line verbatim", () => {
+  it("removes items by text identity and preserves every other line verbatim", () => {
     const cwd = root();
     const p = writeQueue(
       cwd,
       "# Pending directives (review before applying)\nsome prose\n- [ ] one\n- [x] done already\n- [ ] two\n- [ ] three\n",
     );
-    const removed = removePendingDirectives(cwd, [1, 3]);
+    const removed = removePendingDirectives(cwd, ["one", "three"]);
     expect(removed).toEqual(["one", "three"]);
     expect(readFileSync(p, "utf8")).toBe(
       "# Pending directives (review before applying)\nsome prose\n- [x] done already\n- [ ] two\n",
@@ -142,10 +142,27 @@ describe("pending-directive queue helpers", () => {
     expect(listPendingDirectives(cwd)).toEqual(["two"]);
   });
 
-  it("ignores out-of-range indexes without rewriting the file", () => {
+  it("hits the right line when an earlier item vanished between list and remove (index shift race)", () => {
+    const cwd = root();
+    const p = writeQueue(cwd, "- [ ] A\n- [ ] B\n- [ ] C\n");
+    // Concurrent actor dismisses A first — a bare index-based removal of "the
+    // second item" would now hit C. Text-identity removal must still drop B.
+    expect(removePendingDirectives(cwd, ["A"])).toEqual(["A"]);
+    expect(removePendingDirectives(cwd, ["B"])).toEqual(["B"]);
+    expect(readFileSync(p, "utf8")).toBe("- [ ] C\n");
+  });
+
+  it("removes only the first occurrence of a duplicated text", () => {
+    const cwd = root();
+    const p = writeQueue(cwd, "- [ ] dup\n- [ ] other\n- [ ] dup\n");
+    expect(removePendingDirectives(cwd, ["dup"])).toEqual(["dup"]);
+    expect(readFileSync(p, "utf8")).toBe("- [ ] other\n- [ ] dup\n");
+  });
+
+  it("ignores texts not in the queue without rewriting the file", () => {
     const cwd = root();
     const p = writeQueue(cwd, "- [ ] one\n");
-    expect(removePendingDirectives(cwd, [2, 99])).toEqual([]);
+    expect(removePendingDirectives(cwd, ["nope", "also nope"])).toEqual([]);
     expect(readFileSync(p, "utf8")).toBe("- [ ] one\n");
   });
 });

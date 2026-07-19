@@ -269,3 +269,58 @@ describe("omp project-memory pending / promote / dismiss", () => {
     expect(res.ok).toBe(false);
   });
 });
+
+describe("omp project-memory queue hardening", () => {
+  it("pending migrates a legacy .oh-my-copilot queue so the nudge and CLI agree", async () => {
+    const cwd = root();
+    const legacy = path.join(cwd, ".oh-my-copilot", "memory-review");
+    mkdirSync(legacy, { recursive: true });
+    writeFileSync(path.join(legacy, "pending-directives.md"), "- [ ] legacy rule\n", "utf8");
+    const res = await runCli(["project-memory", "pending", "--root", cwd]);
+    expect(res.ok).toBe(true);
+    expect(res.message).toContain("1. legacy rule");
+    // and it moved under .omp
+    expect(existsSync(path.join(cwd, ".omp", "memory-review", "pending-directives.md"))).toBe(true);
+  });
+
+  it("promote-directive skips a proposal that is already active (crash-retry safe)", async () => {
+    const cwd = root();
+    await runCli(["project-memory", "add-directive", "Use pnpm not npm", "--root", cwd]);
+    const dir = path.join(cwd, ".omp", "memory-review");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "pending-directives.md"), "- [ ] use pnpm not npm\n", "utf8");
+    const res = await runCli(["project-memory", "promote-directive", "1", "--root", cwd]);
+    expect(res.ok).toBe(true);
+    expect(res.message).toContain("already active");
+    const read = await runCli(["project-memory", "read", "--root", cwd]);
+    expect((read.output as { directives: string[] }).directives).toEqual(["Use pnpm not npm"]); // no duplicate
+    const pending = await runCli(["project-memory", "pending", "--root", cwd]);
+    expect(pending.message).toContain("no pending"); // still dequeued
+  });
+
+  it("promote-directive warns when promotion pushes past the injection cap", async () => {
+    const cwd = root();
+    await runCli(["config", "set", "memory-directive-cap", "1", "--root", cwd]);
+    await runCli(["project-memory", "add-directive", "existing rule", "--root", cwd]);
+    const dir = path.join(cwd, ".omp", "memory-review");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "pending-directives.md"), "- [ ] second rule\n", "utf8");
+    const res = await runCli(["project-memory", "promote-directive", "1", "--root", cwd]);
+    expect(res.ok).toBe(true);
+    expect(res.message).toContain("WARNING");
+    expect(res.message).toContain("memory-directive-cap");
+  });
+
+  it("config set memory-directive-cap regenerates the instructions fallback block", async () => {
+    const cwd = root();
+    await runCli(["project-memory", "add-directive", "rule one", "--root", cwd]);
+    await runCli(["project-memory", "add-directive", "rule two", "--root", cwd]);
+    const before = readFileSync(path.join(cwd, ".github", "copilot-instructions.md"), "utf8");
+    expect(before).toContain("- rule two");
+    await runCli(["config", "set", "memory-directive-cap", "1", "--root", cwd]);
+    const after = readFileSync(path.join(cwd, ".github", "copilot-instructions.md"), "utf8");
+    expect(after).toContain("- rule one");
+    expect(after).not.toContain("- rule two");
+    expect(after).toContain("(+1 more");
+  });
+});

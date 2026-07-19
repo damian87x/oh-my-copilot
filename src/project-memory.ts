@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync,
 import { dirname, join } from "node:path";
 import { ompRoot } from "./omp-root.js";
 import { readFilePrefixWithStat } from "./utils/fs.js";
+import { sanitizeForInstructions } from "./handoff/redact.js";
 
 // Durable project memory, split by how it's surfaced:
 //  - directives (rules)  -> .omp/project-memory.json, injected every session
@@ -48,13 +49,20 @@ function writeMem(cwd: string, mem: ProjectMemory): void {
 }
 
 export function readDirectives(cwd: string): string[] {
-  return readMem(cwd).directives;
+  return readMem(cwd).directives.filter((d) => typeof d === "string" && d.trim() !== "");
 }
 
-/** Append a must-follow directive; returns the new directive count. */
+/** Append a must-follow directive; returns the new directive count. Text is
+ *  sanitized on write (markers stripped, secrets redacted, newlines collapsed):
+ *  directives inject into every future session and into the managed
+ *  copilot-instructions block, so a marker-bearing or multi-line rule must
+ *  never reach storage (a literal `omp:memory:end` would wedge every later
+ *  sync into fail-closed). */
 export function addDirective(cwd: string, directive: string): number {
   const mem = readMem(cwd);
-  mem.directives.push(String(directive).trim());
+  const clean = sanitizeForInstructions(directive);
+  if (!clean) return mem.directives.length; // nothing storable after sanitization
+  mem.directives.push(clean);
   writeMem(cwd, mem);
   return mem.directives.length;
 }
@@ -76,18 +84,24 @@ function slugify(title: string): string {
   );
 }
 
-/** Create a note (title + optional body); returns its id (slug, deduped). */
+/** Create a note (title + optional body); returns its id (slug, deduped).
+ *  The title is sanitized on write (one line, no markers, secrets redacted):
+ *  titles are auto-applied (ungated) yet surface in the instructions block,
+ *  the SessionStart breadcrumb, and the review prompt's ALREADY KNOWN
+ *  section — so a transcript-authored title must not carry instruction
+ *  structure into those surfaces. */
 export function addNote(cwd: string, title: string, body?: string): string {
   const dir = notesDir(cwd);
   mkdirSync(dir, { recursive: true });
-  const base = slugify(title);
+  const cleanTitle = sanitizeForInstructions(title) || "untitled";
+  const base = slugify(cleanTitle);
   let id = base;
   let n = 1;
   while (existsSync(join(dir, `${id}.md`))) {
     n += 1;
     id = `${base}-${n}`;
   }
-  const content = `# ${String(title).trim()}\n${body ? `\n${String(body).trim()}\n` : ""}`;
+  const content = `# ${cleanTitle}\n${body ? `\n${String(body).trim()}\n` : ""}`;
   const p = join(dir, `${id}.md`);
   const tmp = `${p}.tmp.${process.pid}.${Date.now()}`;
   writeFileSync(tmp, content, "utf8");
@@ -156,7 +170,7 @@ export function pruneNotes(
       }
       return { id: f.replace(/\.md$/, ""), file: f, mtime };
     })
-    .sort((a, b) => b.mtime - a.mtime); // newest-first
+    .sort((a, b) => b.mtime - a.mtime || a.file.localeCompare(b.file)); // newest-first; name tie-break keeps pruning deterministic on equal mtimes
 
   const toRemove = new Set<string>();
   if (typeof opts.keep === "number" && opts.keep >= 0) {
