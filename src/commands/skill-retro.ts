@@ -28,7 +28,9 @@ export function parseSkillRetroArgs(argv: string[]): {
   htmlPath: string | null;
   htmlDefault: boolean;
 } {
-  const args = argv[0] === "skill-retro" ? argv.slice(1) : argv;
+  // CLI dispatches the full argv, including the command token (or alias).
+  const args =
+    argv[0] === "skill-retro" || argv[0] === "retro" ? argv.slice(1) : argv;
   let window: HistoryWindow = "14d";
   let project: HistoryProjectScope = "all";
   let price: "none" | "public" = "none";
@@ -71,12 +73,14 @@ export function parseSkillRetroArgs(argv: string[]): {
         throw new Error("--days requires integer 1..365");
       }
       window = parseHistoryWindow(`${value}d`);
+      seen.set("--window", window);
       continue;
     }
     if (flag === "--window" || flag === "--since") {
       const value = args[++i];
       if (!value) throw new Error(`${flag} requires a value`);
       window = parseHistoryWindow(value);
+      seen.set("--window", window);
       continue;
     }
     if (flag === "--project") {
@@ -85,6 +89,7 @@ export function parseSkillRetroArgs(argv: string[]): {
         throw new Error("--project accepts: current, all");
       }
       project = value;
+      seen.set("--project", value);
       continue;
     }
     if (flag === "--html") {
@@ -97,7 +102,7 @@ export function parseSkillRetroArgs(argv: string[]): {
         next !== "current" &&
         next !== "simple" &&
         next !== "advanced" &&
-        !/^[1-9]\d*d$/.test(next)
+        !/^[1-9]\d*d?$/.test(next)
       ) {
         htmlPath = next;
         seen.set("--html", next);
@@ -108,12 +113,24 @@ export function parseSkillRetroArgs(argv: string[]): {
       }
       continue;
     }
-    if (PROJECTS.includes(flag as HistoryProjectScope)) {
-      project = flag as HistoryProjectScope;
+    // Match history analyze: bare `all` is a window unless a window/project
+    // was already chosen (then it is the project scope).
+    const hasExplicitScope = seen.has("--window") || seen.has("--project");
+    const looksLikeWindow = flag === "all" || /^[1-9]\d*d$/.test(flag);
+    if (looksLikeWindow && !(flag === "all" && hasExplicitScope)) {
+      window = parseHistoryWindow(flag);
+      seen.set("--window", window);
       continue;
     }
-    if (flag === "all" || /^[1-9]\d*d$/.test(flag)) {
-      window = parseHistoryWindow(flag);
+    // README documents bare day counts: `/skill-retro 14` / `/skill-retro 30`.
+    if (/^[1-9]\d*$/.test(flag)) {
+      window = parseHistoryWindow(`${flag}d`);
+      seen.set("--window", window);
+      continue;
+    }
+    if (PROJECTS.includes(flag as HistoryProjectScope)) {
+      project = flag as HistoryProjectScope;
+      seen.set("--project", project);
       continue;
     }
     throw new Error(`unexpected skill-retro argument: ${flag}`);

@@ -34,6 +34,50 @@ describe("skill-retro command", () => {
       htmlPath: null,
       htmlDefault: false,
     });
+    // README documents bare day counts: `/skill-retro 14` / `/skill-retro 30`
+    expect(parseSkillRetroArgs(["skill-retro", "14"])).toEqual({
+      window: "14d",
+      project: "all",
+      price: "none",
+      view: "simple",
+      htmlPath: null,
+      htmlDefault: false,
+    });
+    expect(parseSkillRetroArgs(["skill-retro", "30", "current"])).toEqual({
+      window: "30d",
+      project: "current",
+      price: "none",
+      view: "simple",
+      htmlPath: null,
+      htmlDefault: false,
+    });
+    // Alias argv must strip `retro` the same way as `skill-retro`.
+    expect(parseSkillRetroArgs(["retro", "7", "current"])).toEqual({
+      window: "7d",
+      project: "current",
+      price: "none",
+      view: "simple",
+      htmlPath: null,
+      htmlDefault: false,
+    });
+    // Bare `all` is the time window (same as history analyze), not a no-op.
+    expect(parseSkillRetroArgs(["skill-retro", "all"])).toEqual({
+      window: "all",
+      project: "all",
+      price: "none",
+      view: "simple",
+      htmlPath: null,
+      htmlDefault: false,
+    });
+    // After a window is set, trailing `all` is the project scope.
+    expect(parseSkillRetroArgs(["skill-retro", "14d", "all"])).toEqual({
+      window: "14d",
+      project: "all",
+      price: "none",
+      view: "simple",
+      htmlPath: null,
+      htmlDefault: false,
+    });
   });
 
   it("prints skill-retro-v1 markdown tables without JSON", async () => {
