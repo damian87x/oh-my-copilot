@@ -26,7 +26,8 @@ function mdTable(headers: string[], rows: string[][]): string {
 
 function cell(value: string | number | undefined | null): string {
   if (value === undefined || value === null || value === "") return "—";
-  return String(value).replace(/\|/g, "\\|");
+  // Escape backslashes first so a trailing `\` cannot undo the pipe escape.
+  return String(value).replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 }
 
 function formatUsageRows(bucket: UsageBucket): string[][] {

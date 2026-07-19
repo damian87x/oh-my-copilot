@@ -1,4 +1,7 @@
-import type { PublicModelTokenRates, PublicPricingSnapshot } from "../skill-bench/telemetry.js";
+import {
+  estimatePublicTokenCost,
+  type PublicPricingSnapshot,
+} from "../skill-bench/telemetry.js";
 
 /** 1 AI credit = 1e9 nano-AIU (same conversion as skill-bench). */
 export const NANO_AIU_PER_CREDIT = 1_000_000_000;
@@ -60,43 +63,6 @@ export function enrichModelRow(row: ModelUsageRow): ModelUsageRow {
   return { ...row, ...credits };
 }
 
-function pricingRatesForModel(
-  snapshot: PublicPricingSnapshot,
-  modelId: string,
-): PublicModelTokenRates | undefined {
-  const normalized = modelId.toLowerCase();
-  const candidates = [modelId, normalized, normalized.replace(/-picker$/, "")];
-  for (const candidate of new Set(candidates)) {
-    const rates = snapshot.models[candidate];
-    if (rates) return rates;
-  }
-  return undefined;
-}
-
-function usdFromPublicRates(
-  row: ModelUsageRow,
-  rates: PublicModelTokenRates,
-): number | undefined {
-  const parts: number[] = [];
-  const push = (tokens: number | undefined, rate: number | undefined): boolean => {
-    if (tokens === undefined) return true;
-    // Zero tokens need no rate (matches skill-bench optionalTokenCost).
-    if (tokens === 0) {
-      parts.push(0);
-      return true;
-    }
-    if (rate === undefined || !Number.isFinite(rate) || rate < 0) return false;
-    parts.push((tokens * rate) / 1_000_000);
-    return true;
-  };
-  if (!push(row.inputTokens, rates.inputUsdPerMillion)) return undefined;
-  if (!push(row.outputTokens, rates.outputUsdPerMillion)) return undefined;
-  if (!push(row.cacheReadTokens, rates.cacheReadUsdPerMillion)) return undefined;
-  if (!push(row.cacheWriteTokens, rates.cacheWriteUsdPerMillion)) return undefined;
-  if (parts.length === 0) return undefined;
-  return Number(parts.reduce((sum, value) => sum + value, 0).toFixed(12));
-}
-
 export function buildSpendEstimates(options: {
   totalNanoAiu?: number;
   byModel: ModelUsageRow[];
@@ -116,18 +82,23 @@ export function buildSpendEstimates(options: {
   const matchedModels: string[] = [];
   const unresolvedModels: string[] = [];
   const priced = byModel.map((row) => {
-    const rates = pricingRatesForModel(options.publicPricing!, row.model);
-    if (!rates) {
-      unresolvedModels.push(row.model);
-      return row;
-    }
-    const estimatedUsdFromPublicRates = usdFromPublicRates(row, rates);
-    if (estimatedUsdFromPublicRates === undefined) {
+    // Reuse skill-bench pricing so cache-read is not double-counted as input.
+    const estimated = estimatePublicTokenCost({
+      modelId: row.model,
+      usage: {
+        inputTokens: row.inputTokens,
+        outputTokens: row.outputTokens,
+        cacheReadTokens: row.cacheReadTokens,
+        cacheWriteTokens: row.cacheWriteTokens,
+      },
+      snapshot: options.publicPricing!,
+    });
+    if (!estimated.known || typeof estimated.value !== "number") {
       unresolvedModels.push(row.model);
       return row;
     }
     matchedModels.push(row.model);
-    return { ...row, estimatedUsdFromPublicRates };
+    return { ...row, estimatedUsdFromPublicRates: estimated.value };
   });
 
   return {

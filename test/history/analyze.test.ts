@@ -350,3 +350,53 @@ describe("analyzeHistory", () => {
     const mini = report.sessionUsage.estimates?.byModel.find((row) => row.model === "gpt-5-mini");
     expect(mini?.estimatedUsdFromPublicRates).toBe(3);
   });
+
+  it("does not double-count cache-read tokens in public USD estimates", () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-history-"));
+    session(root, "cache-price-session", [
+      { type: "session.start", timestamp: "2026-07-10T00:00:00Z", data: { context: { cwd: "/repo" } } },
+      { type: "tool.execution_start", data: { toolName: "skill", arguments: { skill: "tdd" } } },
+      {
+        type: "session.shutdown",
+        data: {
+          totalNanoAiu: 1,
+          modelMetrics: {
+            m: {
+              usage: {
+                inputTokens: 1_000_000,
+                outputTokens: 0,
+                cacheReadTokens: 900_000,
+                cacheWriteTokens: 0,
+              },
+            },
+          },
+        },
+      },
+    ]);
+    const report = analyzeHistory({
+      window: "7d",
+      project: "all",
+      cwd: "/repo",
+      sessionStateDir: root,
+      now,
+      publicPricing: {
+        source: "public-github-copilot-model-pricing",
+        url: "https://example.test/pricing",
+        retrievedAt: "2026-07-10T00:00:00.000Z",
+        currency: "USD",
+        completeness: "unambiguous-model-rates",
+        models: {
+          m: {
+            inputUsdPerMillion: 10,
+            outputUsdPerMillion: 20,
+            cacheReadUsdPerMillion: 1,
+          },
+        },
+      },
+    });
+    const row = report.sessionUsage.estimates?.byModel.find((entry) => entry.model === "m");
+    // uncached 100k * $10/M + cache-read 900k * $1/M = $1 + $0.9 = $1.9
+    // (matches skill-bench estimatePublicTokenCost; do not charge full input + cache-read)
+    expect(row?.estimatedUsdFromPublicRates).toBe(1.9);
+  });
+
