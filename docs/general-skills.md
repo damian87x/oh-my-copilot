@@ -8,7 +8,7 @@ The canonical skill source is the repo-local `.github/skills` directory. This is
 | --- | --- | --- |
 | `/research-codebase` | `research-codebase`, `research.codebase` | Comprehensive codebase research with tiered effort. |
 | `/grill-me` | `grill-me`, `planning.challenge` | Ask one sharp clarification question when ambiguity remains. |
-| `/ralplan` | `ralplan`, `planning.consensus` | Produce implementation-ready plan, tests, and risks. |
+| `/ralplan` | `ralplan`, `planning.consensus` | Produce implementation-ready plan, tests, and risks, reviewed by architect and critic subagents until consensus. |
 | `/team` | `team`, `execution.parallel` | Split approved work into parallel tmux panes running interactive agents. |
 | `/ralph` | `ralph`, `execution.single-owner` | Single-owner execute-fix-verify loop. |
 | `/ultrawork` | `ultrawork`, `execution.parallel` | Batch many independent small tasks. |

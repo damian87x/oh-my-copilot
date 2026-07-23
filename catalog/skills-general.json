@@ -65,8 +65,8 @@
       "source": ".github/skills/ralplan/SKILL.md",
       "sourcePath": ".github/skills/ralplan/SKILL.md",
       "canonicalPath": ".github/skills/ralplan/SKILL.md",
-      "description": "Create implementation-ready plans and test shape.",
-      "summary": "Create implementation-ready plans and test shape.",
+      "description": "Create implementation-ready plans and test shape, reviewed by architect and critic subagents until consensus.",
+      "summary": "Create implementation-ready plans and test shape, reviewed by architect and critic subagents until consensus.",
       "support": "project-skill",
       "aliases": [],
       "slashCommands": [

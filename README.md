@@ -156,7 +156,7 @@ flowchart TB
 
 ### Intelligent Orchestration
 
-- **7 specialized agents** — planner, architect, executor, verifier, code-reviewer, designer, researcher (all `--agent <name>` compatible with Copilot CLI)
+- **8 specialized agents** — planner, architect, critic, executor, verifier, code-reviewer, designer, researcher (all `--agent <name>` compatible with Copilot CLI)
 - **31 in-session skills** auto-discovered from `.github/skills/`
 - **Smart pipeline routing** — `/research-codebase` → `/ralplan` → `/team` / `/ralph` / `/ultrawork` → `/code-review` → `/ultraqa`
 
