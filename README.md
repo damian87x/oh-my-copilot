@@ -179,6 +179,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | ----------------------- | --------------------------------------------------------- | ---------------------------------------------------- |
 | `/omp-autopilot`        | Full autonomous execution                                 | `/omp-autopilot "build a todo app"`                  |
 | `/ralph`                | Persistence mode                                          | `/ralph "refactor auth"`                             |
+| `/loop`                 | Re-run an agent until a shell gate passes (tests, PR checks) | `/loop --gate "gh pr checks 1" "fix the failing check"` |
 | `/ultrawork`            | Maximum parallelism                                       | `/ultrawork "fix all type errors"`                   |
 | `/ultraqa`              | QA cycling until goal met                                 | `/ultraqa "build green, tests pass"`                 |
 | `/ralplan`              | Consensus planning                                        | `/ralplan "plan this feature"`                       |
