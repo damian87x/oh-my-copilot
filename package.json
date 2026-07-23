@@ -74,7 +74,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@slack/bolt": "^4.4.0",
+    "@slack/bolt": "^5.0.0",
     "node-notifier": "^10.0.1"
   }
 }
