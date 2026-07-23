@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -419,6 +419,51 @@ describe("installUserBundle / refreshUserInstall (used by omp update + auto-upda
     expect(existsSync(path.join(project, ".github", "agents"))).toBe(false);
     expect(existsSync(path.join(project, ".github", "copilot-instructions.md"))).toBe(false);
     expect(actions.some((a) => a.target.endsWith("omp.json"))).toBe(true);
+  });
+
+  it("updates an unmodified bundled copy when the bundle changes (managed-file migration)", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const skillTarget = path.join(home, "skills", "hello", "SKILL.md");
+    refreshUserInstall({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    // Bundle ships a new version of the skill; the user never touched their copy.
+    writeFileSync(path.join(plugin, ".github", "skills", "hello", "SKILL.md"), "BUNDLED V2", "utf8");
+    const result = refreshUserInstall({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.actions.find((a) => a.target === skillTarget)?.kind).toBe("update");
+    expect(readFileSync(skillTarget, "utf8")).toBe("BUNDLED V2");
+  });
+
+  it("still skips a genuinely user-edited copy when the bundle changes", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const skillTarget = path.join(home, "skills", "hello", "SKILL.md");
+    refreshUserInstall({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    writeFileSync(skillTarget, "LOCAL EDIT", "utf8"); // real user edit after install
+    writeFileSync(path.join(plugin, ".github", "skills", "hello", "SKILL.md"), "BUNDLED V2", "utf8");
+    const result = refreshUserInstall({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.actions.find((a) => a.target === skillTarget)?.kind).toBe("skip-changed");
+    expect(readFileSync(skillTarget, "utf8")).toBe("LOCAL EDIT");
+  });
+
+  it("keeps skip-changed for pre-manifest installs (no recorded hash to trust)", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const skillTarget = path.join(home, "skills", "hello", "SKILL.md");
+    refreshUserInstall({ cwd: project, pluginRoot: plugin, copilotHome: home });
+    // Simulate a legacy install: the copy exists but the manifest does not.
+    rmSync(path.join(home, "omp-bundle-manifest.json"));
+
+    writeFileSync(path.join(plugin, ".github", "skills", "hello", "SKILL.md"), "BUNDLED V2", "utf8");
+    const result = refreshUserInstall({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.actions.find((a) => a.target === skillTarget)?.kind).toBe("skip-changed");
   });
 });
 

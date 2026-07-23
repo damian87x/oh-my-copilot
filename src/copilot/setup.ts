@@ -1,4 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join, relative } from "node:path";
 import { resolveCopilotPaths, type CopilotPaths, type ResolveCopilotPathsOptions } from "./paths.js";
 import { atomicWrite } from "../utils/fs.js";
@@ -72,12 +73,66 @@ function filesEqual(a: string, b: string): boolean {
   }
 }
 
+function hashFile(path: string): string | undefined {
+  try {
+    return createHash("sha256").update(readFileSync(path)).digest("hex");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Managed-file migration state for the user-scope bundle. `files` maps a
+ *  path relative to `root` (e.g. `skills/ralplan/SKILL.md`) to the sha256 of
+ *  the content omp last installed there. A target that differs from the new
+ *  bundle but still matches the recorded hash was never user-edited, so
+ *  upgrades may refresh it without --force; anything else stays skip-changed.
+ *  Files installed before the manifest existed have no entry and keep the old
+ *  skip-changed behaviour (one interactive/`--force` override seeds them). */
+interface BundleManifest {
+  root: string;
+  files: Record<string, string>;
+  dirty: boolean;
+}
+
+const BUNDLE_MANIFEST_NAME = "omp-bundle-manifest.json";
+
+function loadBundleManifest(root: string): BundleManifest {
+  let files: Record<string, string> = {};
+  try {
+    const raw = JSON.parse(readFileSync(join(root, BUNDLE_MANIFEST_NAME), "utf8")) as {
+      files?: Record<string, string>;
+    };
+    if (raw.files && typeof raw.files === "object") files = raw.files;
+  } catch {
+    // Missing or unparseable → start empty; first real copy seeds it.
+  }
+  return { root, files, dirty: false };
+}
+
+function recordInstalled(manifest: BundleManifest, target: string, source: string): void {
+  const hash = hashFile(source);
+  if (!hash) return;
+  const key = relative(manifest.root, target);
+  if (manifest.files[key] !== hash) {
+    manifest.files[key] = hash;
+    manifest.dirty = true;
+  }
+}
+
+function saveBundleManifest(manifest: BundleManifest, dryRun: boolean): void {
+  if (dryRun || !manifest.dirty) return;
+  const target = join(manifest.root, BUNDLE_MANIFEST_NAME);
+  mkdirSync(dirname(target), { recursive: true });
+  atomicWrite(target, `${JSON.stringify({ version: 1, files: manifest.files }, null, 2)}\n`);
+}
+
 function copyDirRecursive(
   source: string,
   target: string,
   actions: SetupAction[],
   dryRun: boolean,
   force: boolean,
+  manifest?: BundleManifest,
 ): void {
   if (!existsSync(source)) {
     actions.push({ source, target, kind: "skip-source-missing" });
@@ -88,24 +143,32 @@ function copyDirRecursive(
     const sPath = join(source, entry.name);
     const tPath = join(target, entry.name);
     if (entry.isDirectory()) {
-      copyDirRecursive(sPath, tPath, actions, dryRun, force);
+      copyDirRecursive(sPath, tPath, actions, dryRun, force, manifest);
     } else if (entry.isFile()) {
       if (existsSync(tPath)) {
         // Identical → always skip. Differs → skip unless forced (the CLI offers
         // an override prompt), so updated bundled skills can actually propagate.
         if (filesEqual(sPath, tPath)) {
           actions.push({ source: sPath, target: tPath, kind: "skip-exists" });
+          if (manifest) recordInstalled(manifest, tPath, sPath);
           continue;
         }
         if (!force) {
-          actions.push({ source: sPath, target: tPath, kind: "skip-changed" });
-          continue;
+          // Managed-file migration: the target differs from the new bundle but
+          // still matches what WE installed last time → the user never edited
+          // it, so the upgrade may refresh it without clobbering real edits.
+          const recorded = manifest?.files[relative(manifest.root, tPath)];
+          if (!manifest || !recorded || hashFile(tPath) !== recorded) {
+            actions.push({ source: sPath, target: tPath, kind: "skip-changed" });
+            continue;
+          }
         }
         if (!dryRun) {
           mkdirSync(dirname(tPath), { recursive: true });
           copyFileSync(sPath, tPath);
         }
         actions.push({ source: sPath, target: tPath, kind: "update" });
+        if (manifest && !dryRun) recordInstalled(manifest, tPath, sPath);
         continue;
       }
       if (!dryRun) {
@@ -113,6 +176,7 @@ function copyDirRecursive(
         copyFileSync(sPath, tPath);
       }
       actions.push({ source: sPath, target: tPath, kind: "copy" });
+      if (manifest && !dryRun) recordInstalled(manifest, tPath, sPath);
     }
   }
 }
@@ -290,16 +354,20 @@ function copyBundledSkillsAndAgents(
   dryRun: boolean,
   force: boolean,
 ): void {
+  // Managed-file migration is tracked for the user scope only: project-scope
+  // copies live in the repo, where an extra manifest file would pollute it.
+  const manifest = scope === "user" ? loadBundleManifest(paths.userScope) : undefined;
   const skillsTarget = skillsTargetFor(paths, scope);
   const agentsTarget = agentsTargetFor(paths, scope);
   const bundleSkills = join(paths.pluginRoot, ".github", "skills");
   if (relative(bundleSkills, skillsTarget) !== "") {
-    copyDirRecursive(bundleSkills, skillsTarget, actions, dryRun, force);
+    copyDirRecursive(bundleSkills, skillsTarget, actions, dryRun, force, manifest);
   }
   const bundleAgents = join(paths.pluginRoot, ".github", "agents");
   if (relative(bundleAgents, agentsTarget) !== "") {
-    copyDirRecursive(bundleAgents, agentsTarget, actions, dryRun, force);
+    copyDirRecursive(bundleAgents, agentsTarget, actions, dryRun, force, manifest);
   }
+  if (manifest) saveBundleManifest(manifest, dryRun);
 }
 
 export function runSetup(options: SetupOptions = {}): SetupResult {
