@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { scheduleRunArgv } from "./invocation.js";
 import type { ScheduleJob } from "../types.js";
@@ -113,6 +114,10 @@ export function writeCrontab(content: string): void {
 }
 
 export function installCrontab(job: ScheduleJob, logsDir: string, stateRoot: string): string {
+  // Shell `>>` into logs/<id>/<id>.cron.log fails if the per-job dir is missing
+  // (only the parent logs/ is ensured at schedule-root setup). Mirror launchd's
+  // install-time mkdir so the first cron tick can start node at all.
+  mkdirSync(join(logsDir, job.id), { recursive: true });
   const next = applyCrontabBlock(readCrontab(), job.id, crontabEntryLine(job, logsDir, stateRoot));
   writeCrontab(next);
   return "crontab";

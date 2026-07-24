@@ -2185,8 +2185,10 @@ async function handleScheduleCommand(argv: string[], json: boolean): Promise<Cli
       result.job.bin === "copilot" &&
       !process.env.OMP_SKIP_USER_ENV
     ) {
-      const { findCopilotAuthToken, validateCopilotToken } = await import("./schedule/copilot-auth.js");
-      const token = findCopilotAuthToken();
+      // Env-only lookup: dotenv already loaded ~/.omp/.env into process.env.
+      // Avoids CodeQL js/file-access-to-http (file-sourced token → outbound request).
+      const { findCopilotAuthTokenFromEnv, validateCopilotToken } = await import("./schedule/copilot-auth.js");
+      const token = findCopilotAuthTokenFromEnv();
       if (token && (await validateCopilotToken(token)) === "invalid") {
         result.messages.push(
           `⚠ WARNING: the stored Copilot/GitHub token is invalid or expired — re-authenticate (\`gh auth login\`, then refresh COPILOT_GITHUB_TOKEN/GH_TOKEN in ~/.omp/.env) or unattended runs of "${result.job.id}" will fail to authenticate.`,

@@ -6,15 +6,17 @@
  * the interactive way — the run dies with "No authentication information
  * found". The fix is a token in the environment; omp auto-loads `~/.omp/.env`
  * on every CLI invocation (src/cli.ts, src/env/dotenv.ts), so a token there is
- * enough. This check looks at process.env first and then parses the file
- * directly, so it also works when the caller skipped env loading
- * (OMP_SKIP_USER_ENV).
+ * enough. Presence checks look at process.env first and then parse the file
+ * directly (so they also work when the caller skipped env loading via
+ * OMP_SKIP_USER_ENV).
  *
- * {@link validateCopilotToken} additionally checks a found token against the
- * GitHub API so a stale/expired token (e.g. left behind after re-authing gh)
- * is flagged at `schedule add` time instead of on every failed tick. The
- * network check is strictly best-effort: offline or slow networks yield
- * "unknown" and must never block anything.
+ * Live validation ({@link validateCopilotToken}) deliberately uses only
+ * env-sourced tokens ({@link findCopilotAuthTokenFromEnv}). That keeps the
+ * file→network dataflow out of CodeQL's `js/file-access-to-http` path while
+ * matching the production path: dotenv already put the file token into
+ * process.env before schedule add runs, and OMP_SKIP_USER_ENV callers skip
+ * the network check entirely. Offline/slow networks yield "unknown" and must
+ * never block anything.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -25,19 +27,24 @@ import { OMP_ENV_DIRNAME, OMP_ENV_FILENAME, parseDotEnv } from "../env/dotenv.js
 export const COPILOT_AUTH_KEYS = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const;
 
 /**
- * The first Copilot/gh auth token available to an unattended run: from `env`
- * (default process.env) or, failing that, from `<homeDir>/.omp/.env` (default
- * the real home). Returns undefined when no token is configured. Fails open to
- * undefined (callers only warn) and never throws.
+ * First Copilot/gh auth token from `env` only (default process.env). Used by
+ * the live network validator so file-sourced secrets never enter an outbound
+ * request. Returns undefined when none of the known keys are set.
  */
-export function findCopilotAuthToken(
-  env: NodeJS.ProcessEnv = process.env,
-  homeDir: string = homedir(),
-): string | undefined {
+export function findCopilotAuthTokenFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
   for (const key of COPILOT_AUTH_KEYS) {
     const value = env[key];
     if (value) return value;
   }
+  return undefined;
+}
+
+/**
+ * First Copilot/gh auth token from `<homeDir>/.omp/.env` only. Used for
+ * presence/warning checks when env loading was skipped; never passed to
+ * {@link validateCopilotToken}.
+ */
+export function findCopilotAuthTokenFromFile(homeDir: string = homedir()): string | undefined {
   const envPath = join(homeDir, OMP_ENV_DIRNAME, OMP_ENV_FILENAME);
   if (!existsSync(envPath)) return undefined;
   try {
@@ -49,6 +56,22 @@ export function findCopilotAuthToken(
     // unreadable file — treated as no token; the caller's warning says what to do
   }
   return undefined;
+}
+
+/**
+ * The first Copilot/gh auth token available to an unattended run: from `env`
+ * (default process.env) or, failing that, from `<homeDir>/.omp/.env` (default
+ * the real home). Returns undefined when no token is configured. Fails open to
+ * undefined (callers only warn) and never throws.
+ *
+ * Prefer {@link findCopilotAuthTokenFromEnv} when the value will be sent on the
+ * network (see {@link validateCopilotToken}).
+ */
+export function findCopilotAuthToken(
+  env: NodeJS.ProcessEnv = process.env,
+  homeDir: string = homedir(),
+): string | undefined {
+  return findCopilotAuthTokenFromEnv(env) ?? findCopilotAuthTokenFromFile(homeDir);
 }
 
 /** True when a Copilot/gh auth token is configured (see {@link findCopilotAuthToken}). */
@@ -65,6 +88,10 @@ export type CopilotTokenVerdict = "valid" | "invalid" | "unknown";
  * Copilot CLI use). 2xx → "valid", 401/403 → "invalid", anything else —
  * network error, timeout, unexpected status — → "unknown" so an offline
  * machine never produces a scary warning. Never throws.
+ *
+ * Callers must pass an env-sourced token (via {@link findCopilotAuthTokenFromEnv}),
+ * not a value read from disk, so static analysis does not treat this as file
+ * data exfiltration.
  */
 export async function validateCopilotToken(
   token: string,

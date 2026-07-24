@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { copilotAuthConfigured, findCopilotAuthToken, validateCopilotToken } from "../../src/schedule/copilot-auth.js";
+import {
+  copilotAuthConfigured,
+  findCopilotAuthToken,
+  findCopilotAuthTokenFromEnv,
+  findCopilotAuthTokenFromFile,
+  validateCopilotToken,
+} from "../../src/schedule/copilot-auth.js";
 
 function homeWithEnvFile(content: string | null): string {
   const home = mkdtempSync(path.join(tmpdir(), "omp-auth-home-"));
@@ -33,6 +39,29 @@ describe("copilotAuthConfigured", () => {
   it("false when neither env nor file has a token (and when the file is missing)", () => {
     expect(copilotAuthConfigured({}, homeWithEnvFile("UNRELATED=1\n"))).toBe(false);
     expect(copilotAuthConfigured({}, homeWithEnvFile(null))).toBe(false);
+  });
+});
+
+describe("findCopilotAuthTokenFromEnv", () => {
+  it("returns the env token value, honoring key precedence", () => {
+    expect(findCopilotAuthTokenFromEnv({ GH_TOKEN: "gh-tok" })).toBe("gh-tok");
+    expect(findCopilotAuthTokenFromEnv({ COPILOT_GITHUB_TOKEN: "cp-tok", GH_TOKEN: "gh-tok" })).toBe("cp-tok");
+  });
+
+  it("undefined when env has no token keys (ignores any on-disk file)", () => {
+    expect(findCopilotAuthTokenFromEnv({})).toBeUndefined();
+  });
+});
+
+describe("findCopilotAuthTokenFromFile", () => {
+  it("returns the file token", () => {
+    const home = homeWithEnvFile("GH_TOKEN=ghp_from_file\n");
+    expect(findCopilotAuthTokenFromFile(home)).toBe("ghp_from_file");
+  });
+
+  it("undefined when the file is missing or has no auth keys", () => {
+    expect(findCopilotAuthTokenFromFile(homeWithEnvFile("UNRELATED=1\n"))).toBeUndefined();
+    expect(findCopilotAuthTokenFromFile(homeWithEnvFile(null))).toBeUndefined();
   });
 });
 

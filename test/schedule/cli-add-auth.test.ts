@@ -14,12 +14,12 @@ vi.mock("../../src/schedule/installer.js", () => ({
 vi.mock("../../src/schedule/copilot-auth.js", async (importActual) => ({
   ...(await importActual<typeof import("../../src/schedule/copilot-auth.js")>()),
   copilotAuthConfigured: vi.fn(() => true),
-  findCopilotAuthToken: vi.fn(() => "tok"),
+  findCopilotAuthTokenFromEnv: vi.fn(() => "tok"),
   validateCopilotToken: vi.fn(async () => "valid" as const),
 }));
 
 import { runCli } from "../../src/cli.js";
-import { findCopilotAuthToken, validateCopilotToken } from "../../src/schedule/copilot-auth.js";
+import { findCopilotAuthTokenFromEnv, validateCopilotToken } from "../../src/schedule/copilot-auth.js";
 
 let root: string;
 const savedSkipUserEnv = process.env.OMP_SKIP_USER_ENV;
@@ -30,7 +30,7 @@ beforeEach(() => {
   // skipped under the flag, so these tests must lift it explicitly.
   delete process.env.OMP_SKIP_USER_ENV;
   vi.clearAllMocks();
-  vi.mocked(findCopilotAuthToken).mockReturnValue("tok");
+  vi.mocked(findCopilotAuthTokenFromEnv).mockReturnValue("tok");
   vi.mocked(validateCopilotToken).mockResolvedValue("valid");
 });
 
@@ -86,7 +86,7 @@ describe("schedule add: live token validity check", () => {
   });
 
   it("skips the live check when no token is configured", async () => {
-    vi.mocked(findCopilotAuthToken).mockReturnValue(undefined);
+    vi.mocked(findCopilotAuthTokenFromEnv).mockReturnValue(undefined);
     const r = await runCli(addArgs());
     expect(r.ok).toBe(true);
     expect(validateCopilotToken).not.toHaveBeenCalled();
