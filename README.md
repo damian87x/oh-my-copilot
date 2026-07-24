@@ -371,7 +371,10 @@ Linux systemd-user timers, or a managed `crontab` block as a cross-platform fall
 invokes `omp schedule run --id <id>` on the cron schedule. Each tick spawns a fresh agent
 session; overlapping runs are locked out and every run is killed at its `--timeout`
 (default 5 min). Jobs default to **read-only** (`--allow-all-tools` is opt-in and prints a
-warning) and auto-expire after 72h unless `--ttl-hours`/`--max-runs` say otherwise. Recent
+warning) and auto-expire after 72h unless `--ttl-hours`/`--max-runs` say otherwise. Because
+ticks run unattended with no keychain access, Copilot jobs need `COPILOT_GITHUB_TOKEN` (and
+any `gh` commands need `GH_TOKEN`) in `~/.omp/.env` — `omp schedule add` warns when none is
+found (see `omp env init`). Recent
 run results are surfaced automatically at the start of new Copilot sessions, and
 `omp schedule open <id>` prints any job's latest status + full captured output on demand.
 Opt into end-of-run **notifications** (default off; failures never affect the job): `--notify-target slack:…`

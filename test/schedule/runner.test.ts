@@ -11,7 +11,7 @@ import {
   resolveSchedulePaths,
   type SchedulePaths,
 } from "../../src/schedule/paths.js";
-import { runScheduledJob } from "../../src/schedule/runner.js";
+import { agentEnvPath, runScheduledJob } from "../../src/schedule/runner.js";
 import type { ScheduleJob } from "../../src/schedule/types.js";
 
 const saved = { bin: process.env.OMP_COPILOT_BIN, log: process.env.OMP_STUB_LOG };
@@ -287,5 +287,18 @@ describe("schedule runner", () => {
         else process.env.OMP_DISABLE_DESKTOP_NOTIFY = saved;
       }
     });
+  });
+});
+
+describe("agentEnvPath", () => {
+  it("augments a minimal scheduler PATH with node/omp/user bin locations", () => {
+    const p = agentEnvPath({ PATH: "/usr/bin:/bin" }, "/Users/x/.nvm/versions/node/v22/bin/omp");
+    const parts = p.split(":");
+    expect(parts).toContain(path.dirname(process.execPath));
+    expect(parts).toContain("/Users/x/.nvm/versions/node/v22/bin");
+    expect(parts).toContain("/opt/homebrew/bin");
+    expect(parts).toContain("/usr/local/bin");
+    expect(parts).toContain("/usr/bin");
+    expect(new Set(parts).size).toBe(parts.length);
   });
 });

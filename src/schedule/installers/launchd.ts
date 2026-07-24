@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { scheduleRunArgv } from "./invocation.js";
 import type { ScheduleJob } from "../types.js";
 
 export function launchdLabel(id: string): string {
@@ -80,6 +81,11 @@ export function generatePlist(job: ScheduleJob, sched: LaunchdSchedule, logsDir:
       : calendarXml(sched.startCalendarInterval ?? {});
   // run from stateRoot and pass --root so state resolves correctly; the agent
   // subprocess cwd (job.cwd) is set by the runner, not by WorkingDirectory.
+  // Node + CLI script are invoked explicitly (see invocation.ts): launchd's
+  // minimal PATH cannot resolve the `env node` shebang of the omp wrapper.
+  const programArgs = scheduleRunArgv(job.id, stateRoot)
+    .map((arg) => `    <string>${xmlEscape(arg)}</string>`)
+    .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -88,13 +94,7 @@ export function generatePlist(job: ScheduleJob, sched: LaunchdSchedule, logsDir:
   <string>${xmlEscape(label)}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${xmlEscape(job.ompBinPath)}</string>
-    <string>schedule</string>
-    <string>run</string>
-    <string>--id</string>
-    <string>${xmlEscape(job.id)}</string>
-    <string>--root</string>
-    <string>${xmlEscape(stateRoot)}</string>
+${programArgs}
   </array>
   <key>WorkingDirectory</key>
   <string>${xmlEscape(stateRoot)}</string>
