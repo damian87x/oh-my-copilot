@@ -13,7 +13,9 @@ never the model's claim — decides when to stop.
 ## When to use
 
 - "PR checks are failing — keep fixing until green":
-  `/loop --gate "gh pr checks 123" "investigate and fix the failing checks"`
+  `/loop --gate "gh pr checks 123 --watch" "investigate and fix the failing checks"`
+  (use `--watch` for PR gates: plain `gh pr checks` exits non-zero for *pending*
+  checks too — exit 8 — and pending is not a failure to fix)
 - "Iterate until the tests pass": `/loop --gate "npm test" "make the suite green"`
 - "Keep going until the task is done" with no shell gate:
   `/loop "migrate all tests to vitest"` (plain mode)
@@ -38,7 +40,8 @@ never the model's claim — decides when to stop.
 1. **Register the loop FIRST** — run `omp ralph start "<task>" --max-iterations N`.
    This is the same machinery as `/ralph`: the agent-stop hook re-prompts until
    you emit the completion sentinel or hit the cap. Skipping registration leaves
-   the loop invisible to `omp ralph status`/`cancel`.
+   the loop invisible to `omp ralph status`/`cancel`. (Gate mode below does NOT
+   register ralph state — the gate command itself is the tracker.)
 2. Work the task slice by slice, verifying each slice (see `/ralph`).
 3. When acceptance criteria are genuinely met — with fresh evidence — end the
    loop (`omp ralph cancel`).
@@ -48,34 +51,48 @@ never the model's claim — decides when to stop.
 1. **Validate the gate first** — run the gate command once yourself before
    looping. If it errors for environmental reasons (missing tool, auth, wrong
    cwd), fix that NOW, not inside the loop. Note the current output: that is the
-   failure signature you are fixing.
+   failure signature you are fixing. Make sure the gate distinguishes **pending**
+   from **failed** — e.g. `gh pr checks` without `--watch` exits 8 while checks
+   are still running; a gate that treats "in progress" as "broken" will spawn
+   speculative fixes against a moving target.
 2. **Pick the driver by gate cost:**
    - **Fast gate** (seconds: `npm test`, `tsc`, `pytest`) → loop **in-session**:
      run gate → exit 0: report PASS with evidence, stop. Non-zero: read the
      failure output, make ONE focused fix, re-run the gate. Repeat up to the cap.
-   - **Slow gate** (minutes: CI, `gh pr checks`, deploy probes) → don't burn the
-     session polling. Choose one:
+   - **Slow gate** (minutes: CI, `gh pr checks --watch`, deploy probes) → don't
+     burn the session polling. Choose one:
      - **2a. Managed schedule (default)** — register a self-terminating job:
        ```bash
-       omp schedule add --id loop-<slug> --cron "*/15 * * * *" --max-runs <cap> \
-         --prompt "Run: <gate>. If it exits 0: report PASS and run \`omp schedule remove --id loop-<slug>\`. If it fails: <task> — make one focused fix, commit it, stop." \
+       omp schedule add --id loop-<slug> --cron "*/15 * * * *" \
+         --max-runs <cap> --ttl-hours 72 \
+         --prompt "Run: <gate>. If it exits 0: report PASS and run \`omp schedule remove loop-<slug>\`. If it fails: <task> — make one focused fix, commit AND PUSH it to the PR branch, then stop." \
          --allow-all-tools --cwd <repo>
        ```
-       `--max-runs` IS the iteration cap; the default 72h TTL is the final
-       safety. Confirm with the user before `--allow-all-tools` (unattended
-       full access). Inspect ticks with `omp schedule status --id loop-<slug>`.
+       `--max-runs` IS the iteration cap (scheduled ticks are stateless — the
+       3× circuit breaker below only works in-session, so keep `<cap>` small,
+       e.g. 4–8). Pass `--ttl-hours` explicitly: with `--max-runs` alone the
+       job gets NO expiry backstop. Confirm with the user before
+       `--allow-all-tools` (unattended full access). Inspect ticks with
+       `omp schedule status loop-<slug>`. Note: after a tick self-removes the
+       job, `omp schedule list` may still show a stale record (the runner
+       rewrites its captured job) — if so, run `omp schedule remove loop-<slug>`
+       once more.
      - **2b. Gate-first wrapper (token-frugal)** — green ticks should cost zero
        agent tokens. Write `loop-<slug>.sh`:
        ```bash
        #!/bin/bash
        cd <repo> || exit 1
-       <gate> && exit 0            # green: no agent spawned
-       omp "Gate failed: <gate>. <task> — make one focused fix and commit it."
+       [ -f .loop-<slug>.done ] && exit 0        # already passed: disabled
+       <gate> && { touch .loop-<slug>.done; exit 0; }   # green: no agent spawned
+       omp --yolo -p "Gate failed: <gate>. <task> — make one focused fix, commit and push it."
        ```
-       Register the script with the OS scheduler (crontab/launchd) instead of
-       `omp schedule` (which fires prompts only), and record the removal step
-       for cleanup. Trade-off: invisible to `omp schedule list` — prefer 2a
-       unless token cost matters.
+       (`omp "<text>"` is NOT a valid invocation — positional text falls
+       through to "Unknown command"; headless launches need `-p`, and
+       unattended fixing needs `--yolo`.) Register the script with the OS
+       scheduler (crontab/launchd) instead of `omp schedule` (which fires
+       prompts only), and record the removal step for cleanup (delete the
+       crontab/launchd entry + the `.done` marker). Trade-off: invisible to
+       `omp schedule list` — prefer 2a unless token cost matters.
 3. **On gate pass** — remove any schedule/wrapper you registered, then report
    PASS with the final gate output as evidence.
 
@@ -90,6 +107,10 @@ appears **3 times** after 3 different fix attempts, **stop**. Report:
 
 Do not keep trying the same approach. Escalate the blocker.
 
+This breaker only works where one mind sees every iteration — the in-session
+drivers. Scheduled ticks (2a/2b) are stateless fresh sessions: there
+`--max-runs` / the crontab entry is the only cap, so set it deliberately.
+
 ## Scope freeze
 
 Fix only what the gate complains about. If you discover unrelated broken work:
@@ -100,7 +121,10 @@ which case stop and report.
 
 - The gate decides done-ness — never declare PASS without a fresh gate exit 0
 - One focused fix per iteration; don't batch speculative changes
-- Commit working increments on the PR/task branch
+- Fixes against a remote gate (PR checks, deploy) must be committed AND pushed —
+  a local commit never moves the remote gate
+- Right after a push, `gh pr checks --watch` can briefly show the PREVIOUS run;
+  if the result looks stale, check `gh run list` and wait for the new run
 - Read the gate output — don't assume green means pass
 - Every schedule/wrapper you create gets removed when the loop ends
 
