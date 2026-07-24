@@ -61,38 +61,53 @@ never the model's claim — decides when to stop.
      failure output, make ONE focused fix, re-run the gate. Repeat up to the cap.
    - **Slow gate** (minutes: CI, `gh pr checks --watch`, deploy probes) → don't
      burn the session polling. Choose one:
-     - **2a. Managed schedule (default)** — register a self-terminating job:
+     - **2a. Managed schedule (default)** — register a bounded job:
        ```bash
        omp schedule add --id loop-<slug> --cron "*/15 * * * *" \
-         --max-runs <cap> --ttl-hours 72 \
-         --prompt "Run: <gate>. If it exits 0: report PASS and run \`omp schedule remove loop-<slug>\`. If it fails: <task> — make one focused fix, commit AND PUSH it to the PR branch, then stop." \
+         --max-runs <cap> --ttl-hours 72 --timeout 900000 \
+         --prompt "Run: <gate>. If it looks stale (previous SHA right after a push), use gh run list and wait for the new run before judging. If it exits 0: report PASS in the run summary and stop — do NOT remove the schedule from inside the run. If it fails: <task> — make one focused fix, commit AND PUSH it to the PR branch, then stop." \
          --allow-all-tools --cwd <repo>
        ```
        `--max-runs` IS the iteration cap (scheduled ticks are stateless — the
        3× circuit breaker below only works in-session, so keep `<cap>` small,
        e.g. 4–8). Pass `--ttl-hours` explicitly: with `--max-runs` alone the
-       job gets NO expiry backstop. Confirm with the user before
-       `--allow-all-tools` (unattended full access). Inspect ticks with
-       `omp schedule status loop-<slug>`. Note: after a tick self-removes the
-       job, `omp schedule list` may still show a stale record (the runner
-       rewrites its captured job) — if so, run `omp schedule remove loop-<slug>`
-       once more.
+       job gets NO expiry backstop. Set `--timeout` to cover a full
+       watch-fix-push cycle — ticks killed at the 5-min default still
+       increment `runCount`, silently eating the cap. Confirm with the user
+       before `--allow-all-tools` (unattended full access). Inspect ticks
+       with `omp schedule status loop-<slug>`. When a PASS summary surfaces
+       (run results appear at the next session start), remove the job from
+       an interactive session: `omp schedule remove loop-<slug>`. Do not have
+       the tick self-remove — the runner rewrites the job record after the
+       child deletes it, leaving a stale active entry.
      - **2b. Gate-first wrapper (token-frugal)** — green ticks should cost zero
-       agent tokens. Write `loop-<slug>.sh`:
+       agent tokens. Write `loop-<slug>.sh` (bounded, overlap-locked,
+       self-terminating):
        ```bash
        #!/bin/bash
        cd <repo> || exit 1
-       [ -f .loop-<slug>.done ] && exit 0        # already passed: disabled
-       <gate> && { touch .loop-<slug>.done; exit 0; }   # green: no agent spawned
+       mkdir ".loop-<slug>.lock" 2>/dev/null || exit 0      # no overlapping runs
+       trap 'rmdir ".loop-<slug>.lock"' EXIT
+       [ -f .loop-<slug>.done ] && exit 0                    # already passed
+       n=$(cat ".loop-<slug>.count" 2>/dev/null || echo 0)
+       [ "${n:-0}" -ge <cap> ] && exit 1                     # cap hit: stop, escalate
+       <gate> && { touch .loop-<slug>.done
+                   crontab -l | grep -v 'loop-<slug>\.sh' | crontab -
+                   exit 0; }                                 # green: remove own cron entry, no agent
+       echo $((n + 1)) > ".loop-<slug>.count"
        omp --yolo -p "Gate failed: <gate>. <task> — make one focused fix, commit and push it."
        ```
        (`omp "<text>"` is NOT a valid invocation — positional text falls
        through to "Unknown command"; headless launches need `-p`, and
-       unattended fixing needs `--yolo`.) Register the script with the OS
+       unattended fixing needs `--yolo`. The lock uses `mkdir`, not `flock`,
+       which macOS lacks.) Register the script with the OS
        scheduler (crontab/launchd) instead of `omp schedule` (which fires
-       prompts only), and record the removal step for cleanup (delete the
-       crontab/launchd entry + the `.done` marker). Trade-off: invisible to
-       `omp schedule list` — prefer 2a unless token cost matters.
+       prompts only). Without the counter and lock above, a permanent
+       failure spawns unbounded overlapping `--yolo` agents — do not skip
+       them. Cleanup: verify the cron entry removed itself on pass (or
+       remove it), then delete the `.done`/`.count` files.
+       Trade-off: invisible to `omp schedule list` — prefer 2a unless token
+       cost matters.
 3. **On gate pass** — remove any schedule/wrapper you registered, then report
    PASS with the final gate output as evidence.
 
@@ -109,7 +124,8 @@ Do not keep trying the same approach. Escalate the blocker.
 
 This breaker only works where one mind sees every iteration — the in-session
 drivers. Scheduled ticks (2a/2b) are stateless fresh sessions: there
-`--max-runs` / the crontab entry is the only cap, so set it deliberately.
+`--max-runs` (2a) or the wrapper's counter file (2b) is the only cap, so set
+it deliberately.
 
 ## Scope freeze
 
