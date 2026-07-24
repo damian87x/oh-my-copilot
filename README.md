@@ -149,6 +149,7 @@ flowchart TB
 | **Team**             | tmux CLI workers on a shared task list with file-state outbox    | Coordinated parallel work on one objective     |
 | **Autopilot**        | Single-lead autonomous loop (`/omp-autopilot`)                   | End-to-end feature work with minimal ceremony  |
 | **Ralph**            | Persistent verify/fix loop with explicit reviewer                | Tasks that must complete fully (no partials)   |
+| **Loop**             | Gate-driven retry loop (`/loop --gate …`) — repeats until a shell gate passes | PR checks / tests that must go green           |
 | **Ultrawork**        | Maximum parallelism for fan-out tasks                            | Burst parallel fixes / refactors               |
 | **UltraQA**          | QA cycling until tests/build/lint/typecheck all pass             | Quality gates needing repeat diagnose/fix      |
 | **Ralplan**          | Consensus planning step before any loop                          | Vague requests that need decomposition first   |
@@ -157,7 +158,7 @@ flowchart TB
 ### Intelligent Orchestration
 
 - **8 specialized agents** — planner, architect, critic, executor, verifier, code-reviewer, designer, researcher (all `--agent <name>` compatible with Copilot CLI)
-- **31 in-session skills** auto-discovered from `.github/skills/`
+- **33 in-session skills** auto-discovered from `.github/skills/`
 - **Smart pipeline routing** — `/research-codebase` → `/ralplan` → `/team` / `/ralph` / `/ultrawork` → `/code-review` → `/ultraqa`
 
 ### Developer Experience
