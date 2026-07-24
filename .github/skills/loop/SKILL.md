@@ -103,7 +103,7 @@ never the model's claim — decides when to stop.
        trap 'rm -f ".loop-<slug>.lock"' EXIT
        remove_cron() {  # never rewrite the crontab from a failed read
          cur=$(crontab -l 2>/dev/null) || return 1
-         printf '%s\n' "${cur}" | grep -v -F '<abs-path>/loop-<slug>.sh' | crontab -
+         printf '%s\n' "${cur}" | grep -v -F "/bin/bash '<abs-path>/loop-<slug>.sh'" | crontab -
        }
        # gate FIRST: even after the cap, a green gate must be observed
        <gate> && { remove_cron && touch .loop-<slug>.done \
@@ -132,11 +132,12 @@ never the model's claim — decides when to stop.
        a failed read:
        ```bash
        cur=$(crontab -l) && \
-         { printf '%s\n' "${cur}" | grep -v -F '<abs-path>/loop-<slug>.sh'; \
+         { printf '%s\n' "${cur}" | grep -v -F "/bin/bash '<abs-path>/loop-<slug>.sh'"; \
            printf '%s\n' "*/15 * * * * /bin/bash '<abs-path>/loop-<slug>.sh'"; } | crontab -
        ```
-       The `grep -v -F` on the full absolute path makes re-registration
-       idempotent and won't touch unrelated entries. Self-removal is
+       The `grep -v -F` matches the exact installed command including the
+       closing quote, so re-registration is idempotent and even sibling
+       paths (`loop-<slug>.sh.bak`) survive. Self-removal is
        crontab-specific —
        on launchd you must instead `launchctl bootout` the job and delete
        its plist. Without the counter and lock above, a permanent failure
