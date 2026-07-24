@@ -179,6 +179,12 @@ which case stop and report.
   CI workflow, or the assertions — to make it pass. That falsifies the signal.
   If you believe the gate is genuinely broken (not just failing), STOP and
   report the broken gate with evidence instead of weakening it.
+- **Prompt rules alone do not stop gate-gaming** — a determined agent with write
+  access can still rewrite the referee (observed in testing, twice). Prefer
+  gates outside the agent's write reach (external CI on a protected branch, a
+  read-only-mounted check). Whatever the gate, a PASS from a loop that ran with
+  write access is not proof until a human or a fresh reviewer session inspects
+  the final diff — include that review in your definition of done.
 - One focused fix per iteration; don't batch speculative changes
 - Fixes against a remote gate (PR checks, deploy) must be committed AND pushed —
   a local commit never moves the remote gate
