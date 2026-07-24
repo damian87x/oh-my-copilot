@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync, unlinkSync } from "node:fs";
+import { copilotAuthConfigured } from "./copilot-auth.js";
 import { getInstalledStatus, installJob, uninstallJob } from "./installer.js";
 import { deleteJob, listJobs, readJob, writeJob } from "./job-store.js";
 import {
@@ -94,6 +95,14 @@ export function addScheduleJob(stateCwd: string, opts: ScheduleAddOptions): AddR
     notifyDesktop: opts.notifyDesktop ?? false,
     notifyOpenOmp: opts.notifyOpenOmp ?? false,
   };
+
+  if (job.bin === "copilot" && !copilotAuthConfigured()) {
+    messages.push(
+      `⚠ WARNING: "${job.id}" runs unattended with no keychain access, so Copilot CLI and gh cannot use interactive credentials. ` +
+        `No COPILOT_GITHUB_TOKEN/GH_TOKEN/GITHUB_TOKEN found in the environment or ~/.omp/.env — ` +
+        `Copilot needs COPILOT_GITHUB_TOKEN and gh needs GH_TOKEN in ~/.omp/.env (see \`omp env init\`), or runs will fail with "No authentication information found".`,
+    );
+  }
 
   if (opts.dryRun) {
     messages.push(`[dry-run] would install job "${job.id}" (cron ${job.cron}) for agent ${job.bin} in ${job.cwd}`);

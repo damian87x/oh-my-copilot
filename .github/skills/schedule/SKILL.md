@@ -87,6 +87,10 @@ remove jobs (not create one), route straight to the CLI; do NOT reach for
   deliberately, scope the `--cwd`, and prefer a `--max-runs`/`--ttl-hours` cap.
 - Overlapping runs are prevented automatically (one run per job at a time), and
   every run is killed at its `--timeout` (default 5 min).
+- Unattended runs have no OS keychain access, so interactive credentials are
+  unavailable: Copilot auth requires `COPILOT_GITHUB_TOKEN` and any `gh`
+  commands require `GH_TOKEN` in `~/.omp/.env` (see `omp env init`).
+  `omp schedule add` warns when no such token is found.
 
 ## Examples
 

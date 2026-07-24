@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { realpathSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ScheduleJob } from "../../src/schedule/types.js";
 
 // Mock only the side-effecting install/uninstall/status fns; keep the pure
@@ -61,7 +62,14 @@ describe("cron translation", () => {
 });
 
 describe("template generation", () => {
+  const savedOmpBin = process.env.OMP_BIN;
+  afterEach(() => {
+    if (savedOmpBin === undefined) delete process.env.OMP_BIN;
+    else process.env.OMP_BIN = savedOmpBin;
+  });
+
   it("plist has ProgramArguments with omp bin + schedule run + --root, and NO KeepAlive", () => {
+    process.env.OMP_BIN = "/usr/local/bin/omp"; // custom wrapper: single-arg old shape
     const xml = generatePlist(job(), { startInterval: 900 }, "/work/proj/.omp/state/schedule/logs", "/work/proj");
     expect(xml).toContain("<string>/usr/local/bin/omp</string>");
     expect(xml).toContain("<string>schedule</string>");
@@ -70,24 +78,46 @@ describe("template generation", () => {
     expect(xml).toContain("<integer>900</integer>");
     expect(xml).not.toContain("KeepAlive");
   });
+  it("plist invokes node + real CLI script explicitly when OMP_BIN is unset (minimal-PATH fix)", () => {
+    delete process.env.OMP_BIN;
+    const xml = generatePlist(job(), { startInterval: 900 }, "/logs", "/state");
+    expect(xml).toContain(`<string>${process.execPath}</string>`);
+    expect(xml).toContain(`<string>${realpathSync(process.argv[1]!)}</string>`);
+    expect(xml).not.toContain("/usr/local/bin/omp"); // job.ompBinPath is NOT relied on
+  });
   it("plist XML-escapes interpolated paths", () => {
-    const xml = generatePlist(job({ ompBinPath: "/x & y/omp" }), { startInterval: 900 }, "/logs", "/state");
+    process.env.OMP_BIN = "/x & y/omp";
+    const xml = generatePlist(job(), { startInterval: 900 }, "/logs", "/state");
     expect(xml).toContain("/x &amp; y/omp");
     expect(xml).not.toContain("/x & y/omp");
   });
   it("systemd service/timer contain quoted ExecStart with --root and OnCalendar", () => {
+    process.env.OMP_BIN = "/usr/local/bin/omp";
     const svc = generateService(job(), "/work/state");
-    expect(svc).toContain('ExecStart="/usr/local/bin/omp" schedule run --id pr --root "/work/state"');
+    expect(svc).toContain('ExecStart="/usr/local/bin/omp" "schedule" "run" "--id" "pr" "--root" "/work/state"');
     expect(generateTimer(job())).toContain("OnCalendar=*:0/15");
+  });
+  it("systemd ExecStart invokes node + real CLI script when OMP_BIN is unset", () => {
+    delete process.env.OMP_BIN;
+    const svc = generateService(job(), "/work/state");
+    expect(svc).toContain(`ExecStart="${process.execPath}" "${realpathSync(process.argv[1]!)}"`);
+    expect(svc).not.toContain("/usr/local/bin/omp");
   });
   it("systemd OnCalendar keeps the day-of-week constraint", () => {
     expect(cronToSystemdCalendar("0 9 * * 1")).toBe("Mon *-*-* 09:00:00");
     expect(cronToSystemdCalendar("30 8 * * 1-5")).toBe("Mon..Fri *-*-* 08:30:00");
   });
   it("crontab entry shell-quotes paths and passes --root", () => {
+    process.env.OMP_BIN = "/usr/local/bin/omp";
     const line = crontabEntryLine(job({ cwd: "/a b/proj" }), "/logs", "/a b/state");
-    expect(line).toContain("--root '/a b/state'");
-    expect(line).toContain("'/usr/local/bin/omp' schedule run --id pr");
+    expect(line).toContain("'--root' '/a b/state'"); // every argv token is quoted
+    expect(line).toContain("'/usr/local/bin/omp' 'schedule' 'run' '--id' 'pr'");
+  });
+  it("crontab entry invokes node + real CLI script when OMP_BIN is unset", () => {
+    delete process.env.OMP_BIN;
+    const line = crontabEntryLine(job(), "/logs", "/state");
+    expect(line).toContain(`'${process.execPath}' '${realpathSync(process.argv[1]!)}' 'schedule' 'run'`);
+    expect(line).not.toContain("/usr/local/bin/omp");
   });
 });
 

@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import { join } from "node:path";
+import { scheduleRunArgv } from "./invocation.js";
 import type { ScheduleJob } from "../types.js";
 
 export const BLOCK_BEGIN = "# BEGIN omp-schedule";
@@ -15,7 +16,10 @@ function shq(s: string): string {
 export function crontabEntryLine(job: ScheduleJob, logsDir: string, stateRoot: string): string {
   const logFile = join(logsDir, job.id, `${job.id}.cron.log`);
   // `omp schedule run` resolves state from --root (independent of the agent cwd).
-  return `${job.cron} ${shq(job.ompBinPath)} schedule run --id ${job.id} --root ${shq(stateRoot)} >> ${shq(logFile)} 2>&1`;
+  // Node + CLI script are invoked explicitly (see invocation.ts): cron's minimal
+  // PATH cannot resolve the `env node` shebang of the omp wrapper.
+  const cmd = scheduleRunArgv(job.id, stateRoot).map(shq).join(" ");
+  return `${job.cron} ${cmd} >> ${shq(logFile)} 2>&1`;
 }
 
 /** Parse the managed block of an existing crontab into an ordered id→line map. */
