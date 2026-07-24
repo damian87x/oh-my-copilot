@@ -81,8 +81,8 @@ never the model's claim — decides when to stop.
        the tick self-remove — the runner rewrites the job record after the
        child deletes it, leaving a stale active entry.
      - **2b. Gate-first wrapper (token-frugal)** — green ticks should cost zero
-       agent tokens. Write `loop-<slug>.sh` (bounded, overlap-locked,
-       self-terminating):
+       agent tokens. Write `loop-<slug>.sh` (bounded, best-effort
+       overlap-locked, self-terminating):
        ```bash
        #!/bin/bash
        # cron runs with a minimal PATH — point at YOUR omp/gh/node first
@@ -90,7 +90,10 @@ never the model's claim — decides when to stop.
        export PATH="${HOME}/.nvm/versions/node/<node-version>/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
        cd <repo> || exit 1
        [ -f .loop-<slug>.done ] && exit 0                    # already passed
-       # atomic lock: noclobber create+write in one step; stale locks (dead pid) are broken
+       [ -f .loop-<slug>.failed ] && exit 1                  # cap already hit: stay stopped
+       # best-effort lock: atomic noclobber create; stale locks (dead pid) are broken.
+       # Caveat: a theoretical takeover race remains under concurrent stale-breaking —
+       # fine for a watch loop; use 2a for anything critical.
        if ! (set -o noclobber; echo $$ > ".loop-<slug>.lock") 2>/dev/null; then
          pid=$(cat ".loop-<slug>.lock" 2>/dev/null || true)
          { [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; } && exit 0   # live run in progress
@@ -98,17 +101,17 @@ never the model's claim — decides when to stop.
          (set -o noclobber; echo $$ > ".loop-<slug>.lock") 2>/dev/null || exit 0
        fi
        trap 'rm -f ".loop-<slug>.lock"' EXIT
-       remove_cron() {  # never rewrite the crontab from a failed/empty read
+       remove_cron() {  # never rewrite the crontab from a failed read
          cur=$(crontab -l 2>/dev/null) || return 1
-         printf '%s\n' "${cur}" | grep -v 'loop-<slug>\.sh' | crontab -
+         printf '%s\n' "${cur}" | grep -v -F '<abs-path>/loop-<slug>.sh' | crontab -
        }
        # gate FIRST: even after the cap, a green gate must be observed
        <gate> && { remove_cron && touch .loop-<slug>.done \
-                   || echo "loop-<slug>: cron self-removal failed" >&2
+                   || echo "loop-<slug>: cron self-removal failed — remove the entry manually" >&2
                    exit 0; }                                 # green: remove own cron entry, no agent
        n=$(cat ".loop-<slug>.count" 2>/dev/null || echo 0)
        if [ "${n:-0}" -ge <cap> ]; then                      # cap hit on a FAILED gate: stop polling, escalate
-         remove_cron
+         remove_cron || echo "loop-<slug>: cap reached but cron removal failed — remove manually" >&2
          touch .loop-<slug>.failed
          exit 1
        fi
@@ -118,20 +121,29 @@ never the model's claim — decides when to stop.
        (`omp "<text>"` is NOT a valid invocation — positional text falls
        through to "Unknown command"; headless launches need `-p`, and
        unattended fixing needs `--yolo`.) Register the script with
-       **crontab** instead of `omp schedule` (which fires prompts only):
+       **crontab** instead of `omp schedule` (which fires prompts only).
+       First run `crontab -l` yourself. If it errors with "no crontab",
+       install fresh:
        ```bash
        chmod +x loop-<slug>.sh
-       (crontab -l 2>/dev/null | grep -v 'loop-<slug>\.sh'; \
-        echo "*/15 * * * * /bin/bash <abs-path>/loop-<slug>.sh") | crontab -
+       printf '%s\n' "*/15 * * * * /bin/bash '<abs-path>/loop-<slug>.sh'" | crontab -
        ```
-       The `grep -v` makes registration idempotent (no duplicate entries).
-       Self-removal is crontab-specific — on launchd you must instead
-       `launchctl bootout` the job and delete its plist. Without the
-       counter and lock above, a permanent failure spawns unbounded
-       overlapping `--yolo` agents — do not skip them. The wrapper
-       self-terminates on green (`.done`) and on cap (`.failed`) — cleanup:
-       verify the cron entry is gone (or remove it), then delete the
-       `.done`/`.failed`/`.count` files and any stale `.loop-<slug>.lock`.
+       If it lists existing entries, merge — never rebuild the table from
+       a failed read:
+       ```bash
+       cur=$(crontab -l) && \
+         { printf '%s\n' "${cur}" | grep -v -F '<abs-path>/loop-<slug>.sh'; \
+           printf '%s\n' "*/15 * * * * /bin/bash '<abs-path>/loop-<slug>.sh'"; } | crontab -
+       ```
+       The `grep -v -F` on the full absolute path makes re-registration
+       idempotent and won't touch unrelated entries. Self-removal is
+       crontab-specific —
+       on launchd you must instead `launchctl bootout` the job and delete
+       its plist. Without the counter and lock above, a permanent failure
+       spawns unbounded overlapping `--yolo` agents — do not skip them. The
+       wrapper self-terminates on green (`.done`) and on cap (`.failed`) —
+       cleanup: verify the cron entry is gone (or remove it), then delete
+       the `.done`/`.failed`/`.count` files and any stale `.loop-<slug>.lock`.
        Trade-off: invisible to `omp schedule list` — prefer 2a unless token
        cost matters.
 3. **On gate pass** — remove any schedule/wrapper you registered, then report
