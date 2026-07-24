@@ -90,34 +90,48 @@ never the model's claim — decides when to stop.
        export PATH="${HOME}/.nvm/versions/node/<node-version>/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
        cd <repo> || exit 1
        [ -f .loop-<slug>.done ] && exit 0                    # already passed
-       if ! mkdir ".loop-<slug>.lock" 2>/dev/null; then
-         pid=$(cat ".loop-<slug>.lock/pid" 2>/dev/null || true)
+       # atomic lock: noclobber create+write in one step; stale locks (dead pid) are broken
+       if ! (set -o noclobber; echo $$ > ".loop-<slug>.lock") 2>/dev/null; then
+         pid=$(cat ".loop-<slug>.lock" 2>/dev/null || true)
          { [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; } && exit 0   # live run in progress
-         rm -rf ".loop-<slug>.lock" && mkdir ".loop-<slug>.lock"      # stale lock (crash/reboot): break it
+         rm -f ".loop-<slug>.lock"
+         (set -o noclobber; echo $$ > ".loop-<slug>.lock") 2>/dev/null || exit 0
        fi
-       echo $$ > ".loop-<slug>.lock/pid"
-       trap 'rm -rf ".loop-<slug>.lock"' EXIT
+       trap 'rm -f ".loop-<slug>.lock"' EXIT
+       remove_cron() {  # never rewrite the crontab from a failed/empty read
+         cur=$(crontab -l 2>/dev/null) || return 1
+         printf '%s\n' "${cur}" | grep -v 'loop-<slug>\.sh' | crontab -
+       }
        # gate FIRST: even after the cap, a green gate must be observed
-       <gate> && { crontab -l | grep -v 'loop-<slug>\.sh' | crontab - \
-                   && touch .loop-<slug>.done \
+       <gate> && { remove_cron && touch .loop-<slug>.done \
                    || echo "loop-<slug>: cron self-removal failed" >&2
                    exit 0; }                                 # green: remove own cron entry, no agent
        n=$(cat ".loop-<slug>.count" 2>/dev/null || echo 0)
-       [ "${n:-0}" -ge <cap> ] && exit 1                     # cap hit on a FAILED gate: stop, escalate
+       if [ "${n:-0}" -ge <cap> ]; then                      # cap hit on a FAILED gate: stop polling, escalate
+         remove_cron
+         touch .loop-<slug>.failed
+         exit 1
+       fi
        echo $((n + 1)) > ".loop-<slug>.count"
        omp --yolo -p "Gate failed: <gate>. <task> — make one focused fix, commit and push it."
        ```
        (`omp "<text>"` is NOT a valid invocation — positional text falls
        through to "Unknown command"; headless launches need `-p`, and
        unattended fixing needs `--yolo`.) Register the script with
-       **crontab** (`(crontab -l; echo "*/15 * * * * <path>/loop-<slug>.sh") | crontab -`)
-       instead of `omp schedule` (which fires prompts only). The
-       self-removal line is crontab-specific — on launchd you must instead
+       **crontab** instead of `omp schedule` (which fires prompts only):
+       ```bash
+       chmod +x loop-<slug>.sh
+       (crontab -l 2>/dev/null | grep -v 'loop-<slug>\.sh'; \
+        echo "*/15 * * * * /bin/bash <abs-path>/loop-<slug>.sh") | crontab -
+       ```
+       The `grep -v` makes registration idempotent (no duplicate entries).
+       Self-removal is crontab-specific — on launchd you must instead
        `launchctl bootout` the job and delete its plist. Without the
        counter and lock above, a permanent failure spawns unbounded
-       overlapping `--yolo` agents — do not skip them. Cleanup: verify the
-       cron entry removed itself on pass (or remove it), then delete the
-       `.done`/`.count` files and any stale `.loop-<slug>.lock/` directory.
+       overlapping `--yolo` agents — do not skip them. The wrapper
+       self-terminates on green (`.done`) and on cap (`.failed`) — cleanup:
+       verify the cron entry is gone (or remove it), then delete the
+       `.done`/`.failed`/`.count` files and any stale `.loop-<slug>.lock`.
        Trade-off: invisible to `omp schedule list` — prefer 2a unless token
        cost matters.
 3. **On gate pass** — remove any schedule/wrapper you registered, then report
