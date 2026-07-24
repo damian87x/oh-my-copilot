@@ -175,6 +175,10 @@ which case stop and report.
 ## Rules
 
 - The gate decides done-ness — never declare PASS without a fresh gate exit 0
+- **Never modify the gate itself** — not the gate script, the tests it runs, the
+  CI workflow, or the assertions — to make it pass. That falsifies the signal.
+  If you believe the gate is genuinely broken (not just failing), STOP and
+  report the broken gate with evidence instead of weakening it.
 - One focused fix per iteration; don't batch speculative changes
 - Fixes against a remote gate (PR checks, deploy) must be committed AND pushed —
   a local commit never moves the remote gate
