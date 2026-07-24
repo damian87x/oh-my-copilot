@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { scheduleRunArgv } from "./invocation.js";
 import type { ScheduleJob } from "../types.js";
 
 export function unitBaseName(id: string): string {
@@ -82,12 +83,15 @@ function sdq(s: string): string {
 
 export function generateService(job: ScheduleJob, stateRoot: string): string {
   // Run from stateRoot with --root so state resolves independent of agent cwd.
+  // Node + CLI script are invoked explicitly (see invocation.ts): systemd's
+  // minimal PATH cannot resolve the `env node` shebang of the omp wrapper.
+  const execStart = scheduleRunArgv(job.id, stateRoot).map(sdq).join(" ");
   return `[Unit]
 Description=omp scheduled job ${job.id}
 
 [Service]
 Type=oneshot
-ExecStart=${sdq(job.ompBinPath)} schedule run --id ${job.id} --root ${sdq(stateRoot)}
+ExecStart=${execStart}
 WorkingDirectory=${sdq(stateRoot)}
 `;
 }

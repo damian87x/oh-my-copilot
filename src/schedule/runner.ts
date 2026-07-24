@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { resolveCopilotBin } from "../copilot/launch.js";
 import { appendRunResult, readJob, writeJob } from "./job-store.js";
 import { acquireLock, forceReleaseStaleLock, isLockStale } from "./lock.js";
@@ -30,6 +30,24 @@ function isExpired(job: ScheduleJob): boolean {
   if (job.maxRuns !== undefined && job.runCount >= job.maxRuns) return true;
   if (job.expiresAt && Date.now() > Date.parse(job.expiresAt)) return true;
   return false;
+}
+
+/**
+ * PATH for the spawned agent. OS schedulers (cron/launchd/systemd) run the
+ * entry with a minimal PATH (`/usr/bin:/bin`), so the agent CLI (`copilot`)
+ * and the tools it shells out to (`gh`, `node`, …) would not resolve.
+ * Augment with the locations of the current node and the omp wrapper plus
+ * the usual user bin dirs; existing PATH entries are kept last.
+ */
+export function agentEnvPath(env: NodeJS.ProcessEnv = process.env, ompBinPath?: string): string {
+  const parts = [
+    dirname(process.execPath),
+    ...(ompBinPath ? [dirname(ompBinPath)] : []),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    env.PATH ?? "",
+  ];
+  return [...new Set(parts.filter(Boolean))].join(":");
 }
 
 function timestampSlug(): string {
@@ -131,7 +149,11 @@ export async function runScheduledJob(
     if (job.allowAllTools) args.push("--allow-all-tools");
 
     const result = await new Promise<ScheduleRunResult>((resolveFn) => {
-      const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"], cwd: job.cwd });
+      const child = spawn(bin, args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        cwd: job.cwd,
+        env: { ...process.env, PATH: agentEnvPath(process.env, job.ompBinPath) },
+      });
       let stdout = "";
       let stderr = "";
       let timedOut = false;

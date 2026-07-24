@@ -2171,6 +2171,28 @@ async function handleScheduleCommand(argv: string[], json: boolean): Promise<Cli
       notifyDesktop: hasFlag(argv, "--notify-desktop"),
       notifyOpenOmp: hasFlag(argv, "--notify-open-omp"),
     });
+    // A stored token can go stale (e.g. after re-authing gh) — existence is
+    // checked by addScheduleJob; here we validate it live so the user learns
+    // at add time, not on every failed tick. Best-effort: "unknown" (offline/
+    // timeout) stays silent, and the check is skipped entirely under
+    // OMP_SKIP_USER_ENV (hermetic CI/test runs must not hit the network). The
+    // warning goes onto result.messages so --json output stays well-formed,
+    // same as the other schedule add warnings.
+    if (
+      result.ok &&
+      result.job &&
+      !hasFlag(argv, "--dry-run") &&
+      result.job.bin === "copilot" &&
+      !process.env.OMP_SKIP_USER_ENV
+    ) {
+      const { findCopilotAuthToken, validateCopilotToken } = await import("./schedule/copilot-auth.js");
+      const token = findCopilotAuthToken();
+      if (token && (await validateCopilotToken(token)) === "invalid") {
+        result.messages.push(
+          `⚠ WARNING: the stored Copilot/GitHub token is invalid or expired — re-authenticate (\`gh auth login\`, then refresh COPILOT_GITHUB_TOKEN/GH_TOKEN in ~/.omp/.env) or unattended runs of "${result.job.id}" will fail to authenticate.`,
+        );
+      }
+    }
     return json
       ? { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result }
       : { ok: result.ok, exitCode: result.ok ? 0 : 1, message: result.ok ? result.messages.join("\n") : (result.error ?? "schedule add failed") };
