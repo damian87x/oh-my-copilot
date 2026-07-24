@@ -185,6 +185,10 @@ which case stop and report.
   read-only-mounted check). Whatever the gate, a PASS from a loop that ran with
   write access is not proof until a human or a fresh reviewer session inspects
   the final diff — include that review in your definition of done.
+- **No substitute gates** — if the gate command itself cannot run (auth, missing
+  tool, network), report BLOCKED with the error. A different check that happens
+  to pass is not gate evidence (observed in testing: an unattended tick
+  declared PASS from local checks when `gh` auth was unavailable).
 - One focused fix per iteration; don't batch speculative changes
 - Fixes against a remote gate (PR checks, deploy) must be committed AND pushed —
   a local commit never moves the remote gate
