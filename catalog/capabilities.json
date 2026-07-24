@@ -220,6 +220,29 @@
       }
     },
     {
+      "id": "loop",
+      "name": "loop",
+      "title": "Loop",
+      "category": "execution",
+      "summary": "Re-run an agent until a shell gate command passes.",
+      "notes": "Lite slash project skill; instructional only, with no bundled scripts, durable orchestration, or external runtime requirement.",
+      "defaultCommand": "loop",
+      "phase1": true,
+      "sourceSkill": "loop",
+      "providers": {
+        "copilot": "supported"
+      },
+      "support": {
+        "copilot": "native"
+      },
+      "providerSupport": {
+        "copilot": {
+          "state": "native",
+          "notes": "Use /loop from .github/skills/loop/SKILL.md. Project skill only; not a durable runtime."
+        }
+      }
+    },
+    {
       "id": "execution.single-owner",
       "name": "execution.single-owner",
       "title": "Ralph",

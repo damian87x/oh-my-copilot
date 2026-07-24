@@ -134,6 +134,32 @@
       "phase1": true
     },
     {
+      "name": "loop",
+      "capabilityId": "loop",
+      "capabilityIds": [
+        "loop",
+        "execution.single-owner"
+      ],
+      "source": ".github/skills/loop/SKILL.md",
+      "sourcePath": ".github/skills/loop/SKILL.md",
+      "canonicalPath": ".github/skills/loop/SKILL.md",
+      "description": "Re-run an agent until a shell gate command passes.",
+      "summary": "Re-run an agent until a shell gate passes.",
+      "support": "project-skill",
+      "aliases": [],
+      "slashCommands": [
+        "loop"
+      ],
+      "projections": {
+        "copilot": {
+          "command": "/loop",
+          "state": "supported"
+        }
+      },
+      "projection": "project-skill",
+      "phase1": true
+    },
+    {
       "name": "ultrawork",
       "capabilityId": "ultrawork",
       "capabilityIds": [
