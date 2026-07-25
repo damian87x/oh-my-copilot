@@ -47,6 +47,12 @@ All mutations require `--session-id` and a unique `--operation-id`. Evidence
 files must be regular project files; outside paths, symlinks, and hardlinks are
 rejected.
 
+When the outer Session Goal is **replaced**, its `goalGeneration` changes.
+Hook context (SessionStart and UserPromptSubmit) drops Ultragoal stories bound
+to the previous generation. A later `omp ultragoal create` with the new
+generation supersedes the old plan (fresh ledger + plan id); same-generation
+recreate still fails with `ULTRAGOAL_EXISTS`.
+
 Run `omp help` or `/ultragoal` for the command sequence.
 
 ## Local linked CLI smoke

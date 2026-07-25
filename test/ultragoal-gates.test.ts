@@ -11,6 +11,7 @@ import {
   createUltragoal,
   readUltragoal,
   startNextUltragoalStory,
+  steerUltragoal,
 } from "../src/ultragoal/runtime.js";
 import {
   createDefaultGateSpawn,
@@ -421,6 +422,31 @@ describe("Ultragoal three-role gate", () => {
         resolver: { role: "architect", gateRevision: before.revision },
       },
     ]);
+  });
+
+  it("keeps lastGate when steering with annotate after a blocked gate", async () => {
+    const root = completedPlan();
+    await runUltragoalGate(
+      {
+        cwd: root,
+        sessionId: "session-1",
+        operationId: "gate-blocked-for-annotate",
+      },
+      { spawn: spawnWith({ architect: "BLOCK" }) },
+    );
+    const blocked = readUltragoal(root, "session-1");
+    expect(blocked.lastGate).toMatchObject({ status: "blocked" });
+
+    const annotated = steerUltragoal({
+      cwd: root,
+      sessionId: "session-1",
+      operationId: "steer-annotate-gate",
+      kind: "annotate",
+      evidence: "Operator note only.",
+      rationale: "Annotation must not wipe gate metadata.",
+    });
+    expect(annotated.lastGate).toEqual(blocked.lastGate);
+    expect(annotated.revision).toBe(blocked.revision + 1);
   });
 
   it("replays a recorded blocked gate without respawning roles or duplicating resolvers", async () => {

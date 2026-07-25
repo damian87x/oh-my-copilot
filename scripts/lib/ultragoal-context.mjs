@@ -28,6 +28,22 @@ export function readUltragoalManifest(directory, sessionId) {
   }
 }
 
+/**
+ * Ultragoal context for an active Goal: unbound plans still inject; plans bound
+ * to a different goalGeneration are suppressed so replace cannot zombie-steer.
+ */
+export function selectUltragoalForGoal(manifest, goalGeneration) {
+  if (!manifest) return undefined;
+  if (
+    manifest.goalGeneration !== undefined
+    && goalGeneration !== undefined
+    && manifest.goalGeneration !== goalGeneration
+  ) {
+    return undefined;
+  }
+  return manifest;
+}
+
 export function formatUltragoalContext(manifest) {
   if (!manifest || manifest.status === "complete") return "";
   if (manifest.status === "awaiting_gate") {

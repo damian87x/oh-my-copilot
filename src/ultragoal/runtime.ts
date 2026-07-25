@@ -1195,7 +1195,22 @@ export function createUltragoal(input: CreateUltragoalInput): UltragoalManifest 
     if (existsSync(paths.manifest)) {
       const existing = readUnlocked(paths);
       if (checkOperation(existing, operationId, operationFingerprint)) return existing;
-      throw new UltragoalError("ULTRAGOAL_EXISTS", "an Ultragoal plan already exists for this session");
+      // Goal replace rotates goalGeneration; allow a new plan for the new
+      // generation instead of leaving a permanent same-session Ultragoal zombie.
+      const canSupersede =
+        goalGeneration !== undefined
+        && existing.goalGeneration !== undefined
+        && existing.goalGeneration !== goalGeneration;
+      if (!canSupersede) {
+        throw new UltragoalError(
+          "ULTRAGOAL_EXISTS",
+          "an Ultragoal plan already exists for this session",
+        );
+      }
+      // Fresh plan identity needs a fresh ledger chain and operation map.
+      rmSync(paths.ledger, { force: true });
+      rmSync(paths.pending, { force: true });
+      rmSync(paths.manifest, { force: true });
     }
 
     const source = readSource(paths, input);
@@ -1568,7 +1583,10 @@ export function steerUltragoal(input: SteerUltragoalInput): UltragoalManifest {
       )
         ? "awaiting_gate"
         : "active";
-      delete manifest.lastGate;
+      // annotate is operator metadata only — structural kinds still invalidate gates.
+      if (input.kind !== "annotate") {
+        delete manifest.lastGate;
+      }
       return {
         event: "steering_accepted",
         payload: { kind: input.kind, evidence, rationale, affected },

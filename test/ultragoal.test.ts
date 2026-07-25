@@ -546,4 +546,64 @@ describe("sequential Ultragoal", () => {
     expect(reordered.stories.map((story) => story.id)).toEqual(["G001", "G003", "G002"]);
     expect(readUltragoal(root, "session-1").revision).toBe(3);
   });
+
+  it("supersedes a plan bound to an older Goal generation on create", () => {
+    const root = project();
+    const oldGeneration = "a".repeat(64);
+    const newGeneration = "b".repeat(64);
+    const first = createUltragoal({
+      cwd: root,
+      sessionId: "session-1",
+      operationId: "plan-old",
+      objective: "Original objective",
+      goalGeneration: oldGeneration,
+      stories: [
+        {
+          title: "Old story",
+          objective: "Bound to the previous Goal generation.",
+          criteria: ["old criterion"],
+        },
+      ],
+    });
+    expect(first.goalGeneration).toBe(oldGeneration);
+    expect(first.stories[0]?.id).toBe("G001");
+
+    const second = createUltragoal({
+      cwd: root,
+      sessionId: "session-1",
+      operationId: "plan-new",
+      objective: "Replacement objective",
+      goalGeneration: newGeneration,
+      stories: [
+        {
+          title: "New story",
+          objective: "Bound to the current Goal generation.",
+          criteria: ["new criterion"],
+        },
+      ],
+    });
+    expect(second.goalGeneration).toBe(newGeneration);
+    expect(second.planId).not.toBe(first.planId);
+    expect(second.objective).toBe("Replacement objective");
+    expect(second.stories.map((story) => story.title)).toEqual(["New story"]);
+    expect(readUltragoal(root, "session-1").revision).toBe(1);
+
+    expect(() =>
+      createUltragoal({
+        cwd: root,
+        sessionId: "session-1",
+        operationId: "plan-same-generation",
+        objective: "Still current generation",
+        goalGeneration: newGeneration,
+        stories: [
+          {
+            title: "Duplicate",
+            objective: "Must not replace the current generation plan.",
+            criteria: ["should fail"],
+          },
+        ],
+      }),
+    ).toThrow(/already exists/i);
+  });
+
 });

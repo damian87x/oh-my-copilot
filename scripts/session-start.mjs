@@ -8,7 +8,11 @@ import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
 import { scanScheduleResults } from "./lib/schedule-results.mjs";
 import { readProjectGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
 import { formatGoalContext, goalCommand } from "./lib/goal-runtime.mjs";
-import { formatUltragoalContext, readUltragoalManifest } from "./lib/ultragoal-context.mjs";
+import {
+  formatUltragoalContext,
+  readUltragoalManifest,
+  selectUltragoalForGoal,
+} from "./lib/ultragoal-context.mjs";
 import { readDirectives } from "./lib/project-memory.mjs";
 import { pendingDirectivesNudge } from "./lib/pending-directives.mjs";
 import { readDirectiveCaps } from "./lib/memory-config.mjs";
@@ -159,7 +163,10 @@ export async function handleSessionStart(raw) {
       const context = formatGoalContext(goal.result);
       if (context) parts.push(context);
       const ultragoalContext = formatUltragoalContext(
-        readUltragoalManifest(root, sessionId),
+        selectUltragoalForGoal(
+          readUltragoalManifest(root, sessionId),
+          goal.result?.goalGeneration,
+        ),
       );
       if (ultragoalContext) parts.push(ultragoalContext);
     }

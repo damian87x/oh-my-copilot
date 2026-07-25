@@ -228,4 +228,82 @@ describe("Goal lifecycle hook context", () => {
     expect(output.additionalContext).not.toContain("[ULTRAGOAL STORY");
     expect(output.additionalContext).not.toContain("Old story");
   });
+
+  it("SessionStart also drops Ultragoal bound to an older Goal generation", async () => {
+    process.env.OMP_VERSION_OVERRIDE = "999.0.0";
+    const root = project();
+    const goal = createGoal(root, "goal-session", "Original Goal");
+    createUltragoal({
+      cwd: root,
+      sessionId: "goal-session",
+      operationId: "plan-create",
+      objective: "Original Goal",
+      goalGeneration: goal.result.goalGeneration,
+      stories: [
+        {
+          title: "Old story",
+          objective: "This must not steer the replacement Goal.",
+          criteria: ["old criterion"],
+        },
+      ],
+    });
+    startNextUltragoalStory({
+      cwd: root,
+      sessionId: "goal-session",
+      operationId: "story-start",
+    });
+    goalCommand({
+      root,
+      command: "replace",
+      sessionId: "goal-session",
+      operationId: "goal-replace",
+      objective: "Replacement Goal",
+    });
+
+    const output = await handleSessionStart(
+      JSON.stringify({ cwd: root, sessionId: "goal-session" }),
+    );
+    const context = output.additionalContext ?? "";
+
+    expect(context).toContain("Replacement Goal");
+    expect(context).not.toContain("[ULTRAGOAL STORY");
+    expect(context).not.toContain("Old story");
+  });
+
+  it("does not inject global loop modes when Goal status is busy", async () => {
+    const { createHash } = await import("node:crypto");
+    const { openSync, closeSync, fsyncSync, writeFileSync: write } = await import("node:fs");
+    const { randomUUID } = await import("node:crypto");
+    // @ts-expect-error - plain .mjs hook script export.
+    const { buildContinuationContext } = await import("../../scripts/prompt-submit.mjs");
+    const root = project();
+    createGoal(root, "goal-session");
+    await startRalph({
+      cwd: root,
+      prompt: "global ralph should stay out",
+      maxIterations: 3,
+    });
+    const key = createHash("sha256").update("goal-session", "utf8").digest("hex");
+    const lockPath = join(root, ".omp", "state", "goals", key, "aggregate.lock");
+    const fd = openSync(lockPath, "wx", 0o600);
+    try {
+      write(
+        fd,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          pid: process.pid,
+          acquiredAt: new Date().toISOString(),
+          token: randomUUID(),
+        })}\n`,
+        "utf8",
+      );
+      fsyncSync(fd);
+      const context = buildContinuationContext(root, "goal-session");
+      expect(context).not.toContain("[RALPH ACTIVE");
+      expect(context).not.toContain("[ULTRAWORK ACTIVE");
+      expect(context).not.toContain("[ULTRAQA ACTIVE");
+    } finally {
+      closeSync(fd);
+    }
+  });
 });

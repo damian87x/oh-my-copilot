@@ -9,7 +9,11 @@ import { ompRoot } from "./lib/omp-root.mjs";
 import { parseHookInput } from "./lib/hook-input.mjs";
 import { appendCostRecord, countTokens } from "./lib/cost-ledger.mjs";
 import { formatGoalContext, goalCommand } from "./lib/goal-runtime.mjs";
-import { formatUltragoalContext, readUltragoalManifest } from "./lib/ultragoal-context.mjs";
+import {
+  formatUltragoalContext,
+  readUltragoalManifest,
+  selectUltragoalForGoal,
+} from "./lib/ultragoal-context.mjs";
 
 const HOOK_NAME = "UserPromptSubmit";
 
@@ -31,6 +35,8 @@ export function buildContinuationContext(directory, sessionId) {
   const goal = sessionId && sessionId !== "unknown"
     ? goalCommand({ root: directory, command: "status", sessionId })
     : undefined;
+  // Busy/corrupt Goal status must not fall through to global loop injection.
+  const goalUnavailable = Boolean(goal && !goal.ok);
   const goalState = goal?.ok ? goal.result : undefined;
   const goalContext =
     goalState?.status === "active" || goalState?.status === "paused"
@@ -38,12 +44,11 @@ export function buildContinuationContext(directory, sessionId) {
       : "";
   if (goalContext) parts.push(goalContext);
   if (goalState?.status === "active") {
-    const ultragoal = readUltragoalManifest(directory, sessionId);
     const ultragoalContext = formatUltragoalContext(
-      ultragoal?.goalGeneration === undefined
-        || ultragoal.goalGeneration === goalState.goalGeneration
-        ? ultragoal
-        : undefined,
+      selectUltragoalForGoal(
+        readUltragoalManifest(directory, sessionId),
+        goalState.goalGeneration,
+      ),
     );
     if (ultragoalContext) parts.push(ultragoalContext);
   }
@@ -64,8 +69,10 @@ export function buildContinuationContext(directory, sessionId) {
         `[ULTRAWORK ACTIVE]\nObjective: ${ultrawork.objective}\nSustain the objective. Batch parallel tasks.`,
       );
     }
-  } else if (!goalState || goalState.status === "empty") {
+  } else if (!goalUnavailable && (!goalState || goalState.status === "empty")) {
     // Backward-compatible global mode behavior when no session Goal exists.
+    // Skip entirely when Goal status failed (busy/corrupt) so nested sessions
+    // never receive unscoped ralph/ultraqa/ultrawork frames mid-mutation.
     if (ralph?.active)
       parts.push(
         `[RALPH ACTIVE: iteration ${ralph.iteration}/${ralph.maxIterations}]\nPrompt: ${ralph.prompt}\nContinue the loop. Report concrete progress.`,
