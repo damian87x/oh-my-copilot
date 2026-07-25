@@ -12,6 +12,7 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   truncateSync,
   writeFileSync,
@@ -1192,27 +1193,30 @@ export function createUltragoal(input: CreateUltragoalInput): UltragoalManifest 
 
   return withLock(paths, () => {
     recoverPending(paths);
+    let superseding = false;
     if (existsSync(paths.manifest)) {
       const existing = readUnlocked(paths);
       if (checkOperation(existing, operationId, operationFingerprint)) return existing;
       // Goal replace rotates goalGeneration; allow a new plan for the new
       // generation instead of leaving a permanent same-session Ultragoal zombie.
+      // Unbound plans (no generation) are also supersedable once the outer Goal
+      // binds a generation on create.
       const canSupersede =
         goalGeneration !== undefined
-        && existing.goalGeneration !== undefined
-        && existing.goalGeneration !== goalGeneration;
+        && (
+          existing.goalGeneration === undefined
+          || existing.goalGeneration !== goalGeneration
+        );
       if (!canSupersede) {
         throw new UltragoalError(
           "ULTRAGOAL_EXISTS",
           "an Ultragoal plan already exists for this session",
         );
       }
-      // Fresh plan identity needs a fresh ledger chain and operation map.
-      rmSync(paths.ledger, { force: true });
-      rmSync(paths.pending, { force: true });
-      rmSync(paths.manifest, { force: true });
+      superseding = true;
     }
 
+    // Validate the full replacement before unlinking any durable plan history.
     const source = readSource(paths, input);
     if (source.stories.length > MAX_STORIES) {
       throw new UltragoalError(
@@ -1220,41 +1224,72 @@ export function createUltragoal(input: CreateUltragoalInput): UltragoalManifest 
         `a plan may have at most ${MAX_STORIES} stories`,
       );
     }
-    ensureDir(paths.brief);
-    atomicWrite(paths.brief, source.text);
-    const now = new Date().toISOString();
     const stories = source.stories.map((story, index) => storyFromInput(story, index + 1));
     assertCriteriaCapacity(stories);
-    const manifest: UltragoalManifest = {
-      schemaVersion: 1,
-      planId: randomUUID(),
-      sessionId,
-      sessionKey: paths.sessionKey,
-      ...(goalGeneration ? { goalGeneration } : {}),
-      objective,
-      status: "active",
-      revision: 0,
-      activeStoryId: null,
-      source: {
-        kind: source.kind,
-        sha256: sha256(source.text),
-        snapshotPath: relative(paths.root, paths.brief),
-        ...(source.originalPath ? { originalPath: source.originalPath } : {}),
-      },
-      stories,
-      operations: {},
-      lastLedgerHash: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    return commitMutation(
-      paths,
-      manifest,
-      operationId,
-      operationFingerprint,
-      "plan_created",
-      { storyIds: manifest.stories.map((story) => story.id), source: manifest.source },
-    );
+
+    const stashLedger = `${paths.ledger}.supersede-stash`;
+    const stashManifest = `${paths.manifest}.supersede-stash`;
+    const stashPending = `${paths.pending}.supersede-stash`;
+    if (superseding) {
+      rmSync(stashLedger, { force: true });
+      rmSync(stashManifest, { force: true });
+      rmSync(stashPending, { force: true });
+      if (existsSync(paths.ledger)) renameSync(paths.ledger, stashLedger);
+      if (existsSync(paths.manifest)) renameSync(paths.manifest, stashManifest);
+      if (existsSync(paths.pending)) renameSync(paths.pending, stashPending);
+    }
+
+    try {
+      ensureDir(paths.brief);
+      atomicWrite(paths.brief, source.text);
+      const now = new Date().toISOString();
+      const manifest: UltragoalManifest = {
+        schemaVersion: 1,
+        planId: randomUUID(),
+        sessionId,
+        sessionKey: paths.sessionKey,
+        ...(goalGeneration ? { goalGeneration } : {}),
+        objective,
+        status: "active",
+        revision: 0,
+        activeStoryId: null,
+        source: {
+          kind: source.kind,
+          sha256: sha256(source.text),
+          snapshotPath: relative(paths.root, paths.brief),
+          ...(source.originalPath ? { originalPath: source.originalPath } : {}),
+        },
+        stories,
+        operations: {},
+        lastLedgerHash: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const committed = commitMutation(
+        paths,
+        manifest,
+        operationId,
+        operationFingerprint,
+        "plan_created",
+        { storyIds: manifest.stories.map((story) => story.id), source: manifest.source },
+      );
+      if (superseding) {
+        rmSync(stashLedger, { force: true });
+        rmSync(stashManifest, { force: true });
+        rmSync(stashPending, { force: true });
+      }
+      return committed;
+    } catch (error) {
+      if (superseding) {
+        rmSync(paths.ledger, { force: true });
+        rmSync(paths.manifest, { force: true });
+        rmSync(paths.pending, { force: true });
+        if (existsSync(stashLedger)) renameSync(stashLedger, paths.ledger);
+        if (existsSync(stashManifest)) renameSync(stashManifest, paths.manifest);
+        if (existsSync(stashPending)) renameSync(stashPending, paths.pending);
+      }
+      throw error;
+    }
   });
 }
 

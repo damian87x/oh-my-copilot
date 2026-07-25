@@ -606,4 +606,44 @@ describe("sequential Ultragoal", () => {
     ).toThrow(/already exists/i);
   });
 
+  it("keeps the old Ultragoal plan when a superseding create fails validation", () => {
+    const root = project();
+    const oldGeneration = "c".repeat(64);
+    const newGeneration = "d".repeat(64);
+    const first = createUltragoal({
+      cwd: root,
+      sessionId: "session-1",
+      operationId: "plan-keep",
+      objective: "Keep me on failed supersede",
+      goalGeneration: oldGeneration,
+      stories: [
+        {
+          title: "Preserved",
+          objective: "Must remain after failed recreate.",
+          criteria: ["still readable"],
+        },
+      ],
+    });
+
+    expect(() =>
+      createUltragoal({
+        cwd: root,
+        sessionId: "session-1",
+        operationId: "plan-fail",
+        objective: "Too many stories",
+        goalGeneration: newGeneration,
+        stories: Array.from({ length: 101 }, (_, index) => ({
+          title: `Story ${index}`,
+          objective: `Objective ${index}`,
+          criteria: ["x"],
+        })),
+      }),
+    ).toThrow(/at most 100 stories/i);
+
+    const kept = readUltragoal(root, "session-1");
+    expect(kept.planId).toBe(first.planId);
+    expect(kept.goalGeneration).toBe(oldGeneration);
+    expect(kept.objective).toBe("Keep me on failed supersede");
+  });
+
 });

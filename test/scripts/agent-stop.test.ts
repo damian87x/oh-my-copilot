@@ -536,6 +536,33 @@ describe("agent-stop Goal orchestration", () => {
     });
   });
 
+  it("does not advance unscoped loop modes when Goal status is non-retryably unavailable", () => {
+    const { root } = makeFixture();
+    createGoal(root);
+    startRalph({ cwd: root, prompt: "global ralph must stay put", maxIterations: 4 });
+    const key = createHash("sha256").update("s1", "utf8").digest("hex");
+    const ledger = path.join(root, ".omp", "state", "goals", key, "ledger.jsonl");
+    writeFileSync(ledger, "{not-json\n", "utf8");
+
+    const out = runAgentStop(
+      {
+        cwd: root,
+        sessionId: "s1",
+        transcriptPath: writeGoalTranscript(root, [
+          { id: "corrupt-goal", content: "loop marker would advance without Goal." },
+        ]),
+      },
+      DEDUPE_ENV,
+    );
+
+    // allow reasons are stripped by the stop output helper; assert nesting by
+    // state: unscoped ralph must not advance when Goal status is corrupt.
+    expect(out.decision).toBe("allow");
+    expect(readJson(ralphFile(root)).iteration).toBe(0);
+    expect(readJson(ralphFile(root)).active).toBe(true);
+  });
+
+
   it("uses only the latest assistant message to decide Goal completion", () => {
     const { root } = makeFixture();
     createGoal(root);

@@ -267,11 +267,31 @@ export function handleAgentStop(raw, env = process.env) {
   const hasGoalLifecycle = goalState && goalState.status !== "empty";
   let result;
 
-  if (goalStatus && !goalStatus.ok && goalStatus.error.retryable) {
-    result = {
-      decision: "block",
-      reason: "Goal state is busy; retry this stop after the concurrent operation finishes.",
-    };
+  if (goalStatus && !goalStatus.ok) {
+    // Busy: block and retry. Domain corruption (ledger/state): skip unscoped
+    // loop modes so nesting cannot be hijacked. Infrastructure failures
+    // (GOAL_INTERNAL_ERROR, e.g. unwritable state dir in tests) preserve
+    // prior global loop behavior.
+    const code = goalStatus.error?.code;
+    if (goalStatus.error?.retryable) {
+      result = {
+        decision: "block",
+        reason: "Goal state is busy; retry this stop after the concurrent operation finishes.",
+      };
+    } else if (
+      code === "LEDGER_CORRUPT"
+      || code === "GOAL_STATE_CORRUPT"
+      || code === "PENDING_CORRUPT"
+      || code === "MANIFEST_CORRUPT"
+    ) {
+      result = {
+        decision: "allow",
+        reason:
+          `Goal state unavailable (${code}); skipping unscoped loop modes.`,
+      };
+    } else {
+      result = decideLoop(states, transcript);
+    }
   } else if (goalState?.status === "active") {
     // Under Goal, nested loop state is strictly session-owned. Legacy unscoped
     // or other-session state remains untouched and cannot hijack this stop.

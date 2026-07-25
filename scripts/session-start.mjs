@@ -162,13 +162,16 @@ export async function handleSessionStart(raw) {
     if (goal.ok) {
       const context = formatGoalContext(goal.result);
       if (context) parts.push(context);
-      const ultragoalContext = formatUltragoalContext(
-        selectUltragoalForGoal(
-          readUltragoalManifest(root, sessionId),
-          goal.result?.goalGeneration,
-        ),
-      );
-      if (ultragoalContext) parts.push(ultragoalContext);
+      // Align with prompt-submit: only active Goals surface Ultragoal frames.
+      if (goal.result?.status === "active") {
+        const ultragoalContext = formatUltragoalContext(
+          selectUltragoalForGoal(
+            readUltragoalManifest(root, sessionId),
+            goal.result?.goalGeneration,
+          ),
+        );
+        if (ultragoalContext) parts.push(ultragoalContext);
+      }
     }
   }
   // Memory-review's gated directive queue is invisible without a nudge.

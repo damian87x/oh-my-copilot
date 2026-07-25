@@ -161,12 +161,13 @@ describe("Goal lifecycle hook context", () => {
 
   it("injects the current sequential Ultragoal story and its unmet criteria", async () => {
     const root = project();
-    createGoal(root, "goal-session");
+    const goal = createGoal(root, "goal-session");
     createUltragoal({
       cwd: root,
       sessionId: "goal-session",
       operationId: "plan-create",
       objective: "Finish the session objective",
+      goalGeneration: goal.result.goalGeneration,
       stories: [
         {
           title: "Prove the hook",
