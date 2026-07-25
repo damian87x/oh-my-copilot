@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -140,6 +140,48 @@ describe("runCli: bare-flag launch routing", () => {
     const result = await runCli(["--help"]);
     expect(result.ok).toBe(true);
     expect(result.message ?? "").toMatch(/oh-my-copilot/);
+  });
+
+  it.each([
+    ["goal", "goal complete --reason"],
+    ["ultragoal", "ultragoal create|status|next"],
+  ])("%s --help prints usage before command validation", async (group, usage) => {
+    const result = await runCli([group, "--help"]);
+
+    expect(result.ok).toBe(true);
+    expect(result.message ?? "").toContain(usage);
+  });
+
+  it("shows the session Goal, project-goal, and Ultragoal command surfaces", async () => {
+    const result = await runCli(["help"]);
+    const message = result.message ?? "";
+
+    expect(message).toContain("goal complete --reason");
+    expect(message).toContain("goal extend --reason");
+    expect(message).toContain("project-goal set");
+    expect(message).toContain("ultragoal create|status|next");
+    expect(message).not.toContain('goal read [--json]');
+  });
+});
+
+describe("runCli: setup help", () => {
+  it("prints help without running setup", async () => {
+    const root = mkdtempSync(join(tmpdir(), "omp-setup-help-"));
+    const copilotHome = join(root, "copilot-home");
+    const previous = process.env.COPILOT_HOME;
+    process.env.COPILOT_HOME = copilotHome;
+    try {
+      const result = await runCli(["setup", "--help", "--root", root]);
+
+      expect(result.ok).toBe(true);
+      expect(result.message ?? "").toContain("setup [--root <dir>]");
+      expect(existsSync(join(root, ".github", "copilot-instructions.md"))).toBe(false);
+      expect(existsSync(join(copilotHome, "hooks", "omp.json"))).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.COPILOT_HOME;
+      else process.env.COPILOT_HOME = previous;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

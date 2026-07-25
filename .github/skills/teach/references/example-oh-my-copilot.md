@@ -15,7 +15,7 @@ a task instead of hand-driving Copilot.
 
 ## Success looks like
 - Run the right skill for a task without checking the README (`/ralplan` → `/team`/`/ralph` → `/code-review`).
-- Configure goal + memory so sessions start smart (`/goal`, `/daily-log`, self-evolve).
+- Configure project goal + memory so sessions start smart (`/project-goal`, `/daily-log`, self-evolve).
 - Drive the CLI (`omp`, `omp council`, `omp schedule`) from the shell.
 
 ## Constraints
@@ -51,7 +51,7 @@ a task instead of hand-driving Copilot.
 
 1. The two halves — shell `omp` CLI vs in-session `/skills` (and why they share state).
 2. The default pipeline — `/research-codebase` → `/ralplan` → `/team`/`/ralph`/`/ultrawork` → `/code-review` → `/ultraqa`.
-3. Memory & goals — `/goal`, `/daily-log`, self-evolve; how the next session starts smarter.
+3. Memory & goals — `/project-goal`, `/daily-log`, self-evolve; how the next session starts smarter.
 4. Picking a skill — quiz: given a task, name the skill. Source every answer to the README row.
 
 Cite every claim with a link to the README row or the skill's `SKILL.md`, exactly as

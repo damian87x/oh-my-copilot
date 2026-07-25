@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -56,6 +65,24 @@ function tempPlugin() {
     }),
   );
   return root;
+}
+
+function tempGoalPlugin() {
+  const root = tempPlugin();
+  for (const name of ["goal", "project-goal"]) {
+    const target = path.join(root, ".github", "skills", name);
+    mkdirSync(target, { recursive: true });
+    writeFileSync(
+      path.join(target, "SKILL.md"),
+      readFileSync(path.join(process.cwd(), ".github", "skills", name, "SKILL.md"), "utf8"),
+      "utf8",
+    );
+  }
+  return root;
+}
+
+function sha256(value: string | Buffer) {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function tempPluginWithHooksManifest(manifest: string) {
@@ -224,6 +251,377 @@ describe("runSetup", () => {
     expect(readFileSync(localSkill, "utf8")).toContain("Says hello"); // bundled content restored
   });
 
+  it("migrates the hash-known legacy /goal skill without changing .omp/goal.md", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+    const home = tempHome();
+    const legacy = readFileSync(
+      path.join(process.cwd(), "test", "fixtures", "legacy-goal-skill.md"),
+      "utf8",
+    );
+    const goalTarget = path.join(home, "skills", "goal", "SKILL.md");
+    mkdirSync(path.dirname(goalTarget), { recursive: true });
+    writeFileSync(goalTarget, legacy, "utf8");
+    mkdirSync(path.join(project, ".omp"), { recursive: true });
+    writeFileSync(path.join(project, ".omp", "goal.md"), "# Repo Goal\n\nKeep this objective\n");
+
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(true);
+    expect(result.conflicts).toEqual([]);
+    expect(result.actions.find((action) => action.target === goalTarget)?.kind).toBe("update");
+    expect(readFileSync(goalTarget, "utf8")).toBe(
+      readFileSync(path.join(plugin, ".github", "skills", "goal", "SKILL.md"), "utf8"),
+    );
+    expect(existsSync(path.join(home, "skills", "project-goal", "SKILL.md"))).toBe(true);
+    expect(readFileSync(path.join(project, ".omp", "goal.md"), "utf8")).toContain(
+      "Keep this objective",
+    );
+    const manifest = JSON.parse(
+      readFileSync(path.join(home, "omp-bundle-manifest.json"), "utf8"),
+    );
+    expect(manifest).toMatchObject({
+      version: 2,
+      scope: "user",
+      validation: {
+        bundle: { status: "valid" },
+        catalog: { status: "absent" },
+      },
+    });
+  });
+
+  it("reports a known legacy /goal migration in dry-run without writing it or a manifest", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+    const home = tempHome();
+    const legacy = readFileSync(
+      path.join(process.cwd(), "test", "fixtures", "legacy-goal-skill.md"),
+      "utf8",
+    );
+    const goalTarget = path.join(home, "skills", "goal", "SKILL.md");
+    mkdirSync(path.dirname(goalTarget), { recursive: true });
+    writeFileSync(goalTarget, legacy, "utf8");
+
+    const result = runSetup({
+      cwd: project,
+      pluginRoot: plugin,
+      copilotHome: home,
+      dryRun: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.actions.find((action) => action.target === goalTarget)?.kind).toBe("update");
+    expect(readFileSync(goalTarget, "utf8")).toBe(legacy);
+    expect(existsSync(path.join(home, "skills", "project-goal", "SKILL.md"))).toBe(false);
+    expect(existsSync(path.join(home, "omp-bundle-manifest.json"))).toBe(false);
+  });
+
+  it("protects an unknown effective /goal while installing unaffected files, even with --force", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+    const home = tempHome();
+    const goalTarget = path.join(home, "skills", "goal", "SKILL.md");
+    mkdirSync(path.dirname(goalTarget), { recursive: true });
+    writeFileSync(goalTarget, "CUSTOM GOAL WORKFLOW\n", "utf8");
+
+    const result = runSetup({
+      cwd: project,
+      pluginRoot: plugin,
+      copilotHome: home,
+      force: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({
+        code: "UNKNOWN_EFFECTIVE_GOAL",
+        path: goalTarget,
+      }),
+    );
+    expect(readFileSync(goalTarget, "utf8")).toBe("CUSTOM GOAL WORKFLOW\n");
+    expect(existsSync(path.join(home, "skills", "project-goal", "SKILL.md"))).toBe(true);
+    expect(existsSync(path.join(home, "hooks", "omp.json"))).toBe(true);
+    expect(existsSync(path.join(project, ".github", "copilot-instructions.md"))).toBe(true);
+    const formatted = formatSetup(result);
+    expect(formatted).toContain("move or rename");
+    expect(formatted).not.toContain("re-run with --force");
+  });
+
+  it("uses project > user > bundle precedence when finding an unknown effective /goal", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+    const home = tempHome();
+    const projectGoal = path.join(project, ".github", "skills", "goal", "SKILL.md");
+    mkdirSync(path.dirname(projectGoal), { recursive: true });
+    writeFileSync(projectGoal, "PROJECT CUSTOM GOAL\n", "utf8");
+
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(true);
+    expect(result.validation.goalDiscovery.map((entry) => entry.scope)).toEqual([
+      "project",
+      "user",
+      "bundle",
+    ]);
+    expect(result.validation.effectiveGoalPath).toBe(projectGoal);
+    expect(existsSync(path.join(home, "skills", "goal", "SKILL.md"))).toBe(true);
+    expect(existsSync(path.join(home, "hooks", "omp.json"))).toBe(true);
+  });
+
+  it("never overwrites a shadowed unknown /goal target, even with --force", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+    const home = tempHome();
+    const projectGoal = path.join(project, ".github", "skills", "goal", "SKILL.md");
+    mkdirSync(path.dirname(projectGoal), { recursive: true });
+    writeFileSync(
+      projectGoal,
+      readFileSync(path.join(plugin, ".github", "skills", "goal", "SKILL.md"), "utf8"),
+      "utf8",
+    );
+    const userGoal = path.join(home, "skills", "goal", "SKILL.md");
+    mkdirSync(path.dirname(userGoal), { recursive: true });
+    writeFileSync(userGoal, "USER CUSTOM GOAL\n", "utf8");
+
+    const result = runSetup({
+      cwd: project,
+      pluginRoot: plugin,
+      copilotHome: home,
+      force: true,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.actions.find((action) => action.target === userGoal)?.kind).toBe(
+      "skip-changed",
+    );
+    expect(readFileSync(userGoal, "utf8")).toBe("USER CUSTOM GOAL\n");
+  });
+
+  it("upgrades a v1 managed-file manifest to v2 with validated bundle state", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+    const home = tempHome();
+    const target = path.join(home, "skills", "goal", "SKILL.md");
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, "MANAGED LEGACY GOAL\n", "utf8");
+    writeFileSync(
+      path.join(home, "omp-bundle-manifest.json"),
+      JSON.stringify({
+        version: 1,
+        files: {
+          "skills/goal/SKILL.md": sha256(readFileSync(target)),
+        },
+      }),
+      "utf8",
+    );
+
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
+    const manifest = JSON.parse(
+      readFileSync(path.join(home, "omp-bundle-manifest.json"), "utf8"),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.actions.find((action) => action.target === target)?.kind).toBe("update");
+    expect(manifest.version).toBe(2);
+    expect(manifest.validation.bundle.status).toBe("valid");
+    expect(manifest.files["skills/goal/SKILL.md"]).toBe(
+      sha256(readFileSync(path.join(plugin, ".github", "skills", "goal", "SKILL.md"))),
+    );
+  });
+
+  it("treats goal content that drifted from its manifest hash as unknown", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+    const home = tempHome();
+    const target = path.join(home, "skills", "goal", "SKILL.md");
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, "EDITED AFTER INSTALL\n", "utf8");
+    writeFileSync(
+      path.join(home, "omp-bundle-manifest.json"),
+      JSON.stringify({
+        version: 1,
+        files: {
+          "skills/goal/SKILL.md": sha256("ORIGINAL MANAGED CONTENT\n"),
+        },
+      }),
+      "utf8",
+    );
+
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(true);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({ code: "UNKNOWN_EFFECTIVE_GOAL", path: target }),
+    );
+    expect(readFileSync(target, "utf8")).toBe("EDITED AFTER INSTALL\n");
+  });
+
+  it("writes a project-scoped v2 manifest under .omp", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+
+    const result = runSetup({
+      cwd: project,
+      pluginRoot: plugin,
+      copilotHome: tempHome(),
+      scope: "project",
+    });
+    const manifestPath = path.join(project, ".omp", "omp-bundle-manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+
+    expect(result.ok).toBe(true);
+    expect(manifest).toMatchObject({
+      version: 2,
+      scope: "project",
+      root: project,
+      validation: { bundle: { status: "valid" } },
+    });
+    expect(manifest.files).toHaveProperty(".github/skills/goal/SKILL.md");
+  });
+
+  it("rejects a mismatched catalog before copying any bundle file", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+    const home = tempHome();
+    mkdirSync(path.join(plugin, "catalog"), { recursive: true });
+    writeFileSync(
+      path.join(plugin, "catalog", "capabilities.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        providerStates: ["native"],
+        capabilities: [],
+      }),
+    );
+    writeFileSync(
+      path.join(plugin, "catalog", "skills-general.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        canonicalRoot: ".",
+        commandPrefix: "/",
+        skills: [{
+          name: "ghost",
+          capabilityId: "missing",
+          capabilityIds: ["missing"],
+          source: "ghost",
+          sourcePath: "ghost",
+          canonicalPath: "ghost",
+          description: "ghost",
+          aliases: [],
+          slashCommands: ["ghost"],
+          projections: {},
+          summary: "ghost",
+          support: "ghost",
+          projection: "skill-wrapper",
+          phase1: false,
+        }],
+      }),
+    );
+
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(false);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({ code: "CATALOG_INVALID" }),
+    );
+    expect(existsSync(path.join(home, "skills", "hello", "SKILL.md"))).toBe(false);
+  });
+
+  it("rejects a symlinked bundle entry before following or copying it", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+    const home = tempHome();
+    const outside = path.join(tempHome(), "outside-skill.md");
+    writeFileSync(outside, "outside\n", "utf8");
+    const escaped = path.join(plugin, ".github", "skills", "escape", "SKILL.md");
+    mkdirSync(path.dirname(escaped), { recursive: true });
+    symlinkSync(outside, escaped);
+
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(false);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({ code: "BUNDLE_SYMLINK", path: escaped }),
+    );
+    expect(existsSync(path.join(home, "skills", "hello", "SKILL.md"))).toBe(false);
+  });
+
+  it("rejects a symlinked install target before --force can write outside the scope", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+    const home = tempHome();
+    const outside = tempHome();
+    const outsideSkill = path.join(outside, "SKILL.md");
+    writeFileSync(outsideSkill, "DO NOT OVERWRITE\n", "utf8");
+    mkdirSync(path.join(home, "skills"), { recursive: true });
+    symlinkSync(outside, path.join(home, "skills", "hello"));
+
+    const result = runSetup({
+      cwd: project,
+      pluginRoot: plugin,
+      copilotHome: home,
+      force: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({
+        code: "TARGET_SYMLINK",
+        path: path.join(home, "skills", "hello"),
+      }),
+    );
+    expect(readFileSync(outsideSkill, "utf8")).toBe("DO NOT OVERWRITE\n");
+    expect(existsSync(path.join(home, "skills", "project-goal", "SKILL.md"))).toBe(false);
+  });
+
+  it("reports a blocking conflict for a symlinked hooks directory without writing outside the user scope", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const outside = tempHome();
+    symlinkSync(outside, path.join(home, "hooks"), "dir");
+
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(false);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({
+        code: "TARGET_SYMLINK",
+        path: path.join(home, "hooks", "omp.json"),
+      }),
+    );
+    expect(existsSync(path.join(outside, "omp.json"))).toBe(false);
+  });
+
+  it("reports legacy /goal routing without blocking unrelated user installation", () => {
+    const project = tempProject();
+    const plugin = tempGoalPlugin();
+    const home = tempHome();
+    const instruction = path.join(
+      project,
+      ".github",
+      "instructions",
+      "legacy.instructions.md",
+    );
+    mkdirSync(path.dirname(instruction), { recursive: true });
+    writeFileSync(
+      instruction,
+      "The repo goal lives at .omp/goal.md. Run omp goal set or omp goal read.\n",
+      "utf8",
+    );
+
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(true);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({ code: "LEGACY_GOAL_INSTRUCTIONS", path: instruction }),
+    );
+    expect(result.validation.instructionSources.map((source) => source.path)).toEqual(
+      [...result.validation.instructionSources.map((source) => source.path)].sort(),
+    );
+    expect(existsSync(path.join(home, "skills", "goal", "SKILL.md"))).toBe(true);
+    expect(existsSync(path.join(home, "hooks", "omp.json"))).toBe(true);
+  });
+
   it("preserves existing copilot-instructions.md", () => {
     const project = tempProject();
     const plugin = tempPlugin();
@@ -390,6 +788,25 @@ describe("installUserHooks", () => {
     expect(existsSync(path.join(home, "skills"))).toBe(false);
     expect(actions.some((a) => a.target.endsWith("omp.json"))).toBe(true);
   });
+
+  it("rejects a symlinked hooks directory without writing outside the user scope", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const outside = tempHome();
+    symlinkSync(outside, path.join(home, "hooks"), "dir");
+
+    const result = installUserHooks({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(false);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({
+        code: "TARGET_SYMLINK",
+        path: path.join(home, "hooks", "omp.json"),
+      }),
+    );
+    expect(existsSync(path.join(outside, "omp.json"))).toBe(false);
+  });
 });
 
 describe("installUserBundle / refreshUserInstall (used by omp update + auto-update)", () => {
@@ -419,6 +836,25 @@ describe("installUserBundle / refreshUserInstall (used by omp update + auto-upda
     expect(existsSync(path.join(project, ".github", "agents"))).toBe(false);
     expect(existsSync(path.join(project, ".github", "copilot-instructions.md"))).toBe(false);
     expect(actions.some((a) => a.target.endsWith("omp.json"))).toBe(true);
+  });
+
+  it("reports a blocking conflict for a symlinked hooks directory without writing outside the user scope", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const outside = tempHome();
+    symlinkSync(outside, path.join(home, "hooks"), "dir");
+
+    const result = refreshUserInstall({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(false);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({
+        code: "TARGET_SYMLINK",
+        path: path.join(home, "hooks", "omp.json"),
+      }),
+    );
+    expect(existsSync(path.join(outside, "omp.json"))).toBe(false);
   });
 
   it("updates an unmodified bundled copy when the bundle changes (managed-file migration)", () => {

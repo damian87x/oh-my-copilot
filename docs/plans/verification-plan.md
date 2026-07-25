@@ -54,8 +54,8 @@ Install a throwaway diagnostic that writes a file, then start a session.
 - Acceptance: ≥ sessionStart + agentStop fire. (If none fire, the `${OMP_PLUGIN_ROOT}` env resolution in `hooks/hooks.json` is the suspect — see design doc risk.)
 
 ### B2 — Native memory injection (sessionStart)
-- `omp goal set "ship v1"`, start a fresh session, ask the model "what is the repo goal?".
-- Acceptance: model reports the goal from `additionalContext` (not only from copilot-instructions.md). Confirm by temporarily blanking the instructions block and re-testing.
+- `omp project-goal set "ship v1"`, start a fresh session, ask the model "what is the project goal?".
+- Acceptance: model reports the project goal from `additionalContext` (not only from copilot-instructions.md). Confirm by temporarily blanking the instructions block and re-testing.
 
 ### B3 — agentStop loop driver (headline feature)
 - `omp ralph start "add a --version flag to the omp CLI" --max-iterations 3`.
@@ -92,7 +92,7 @@ Targeted acceptance for the previously-broken skills:
 
 ## C. Sign-off checklist
 - [ ] B1 sessionStart + agentStop fire
-- [ ] B2 goal visible via hook injection
+- [ ] B2 project goal visible via hook injection
 - [ ] B3 ralph/ultraqa/ultrawork loops re-prompt and stop correctly
 - [ ] B4 all 5 previously-broken skills exhibit corrected behavior; 23-skill scores recorded to `.review/`
 - [ ] B5 team completes a task end-to-end

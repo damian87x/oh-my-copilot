@@ -1,8 +1,19 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, relative } from "node:path";
 import { resolveCopilotPaths, type CopilotPaths, type ResolveCopilotPathsOptions } from "./paths.js";
-import { atomicWrite } from "../utils/fs.js";
+import { atomicWrite, atomicWriteTrustedFile, ensureTrustedParentDirectory } from "../utils/fs.js";
+import { loadCatalogBundle, validateCatalogBundle } from "../catalog.js";
 
 export interface SetupOptions extends ResolveCopilotPathsOptions {
   dryRun?: boolean;
@@ -28,11 +39,59 @@ export interface SetupAction {
   kind: SetupActionKind;
 }
 
+export interface SetupConflict {
+  code:
+    | "UNKNOWN_EFFECTIVE_GOAL"
+    | "GOAL_SCOPE_MIGRATION_REQUIRED"
+    | "LEGACY_GOAL_INSTRUCTIONS"
+    | "BUNDLE_SYMLINK"
+    | "BUNDLE_ENTRY_INVALID"
+    | "TARGET_SYMLINK"
+    | "TARGET_HARDLINK"
+    | "TARGET_ENTRY_INVALID"
+    | "CATALOG_INCOMPLETE"
+    | "CATALOG_INVALID";
+  path: string;
+  message: string;
+}
+
+export interface GoalDiscoveryEntry {
+  scope: "project" | "user" | "bundle";
+  path: string;
+  status: "missing" | "current" | "legacy-known" | "managed" | "unknown";
+  sha256?: string;
+}
+
+export interface InstructionSource {
+  scope: "project" | "user";
+  path: string;
+  status: "current" | "legacy-goal" | "unreadable";
+}
+
+export interface SetupValidation {
+  bundle: {
+    status: "valid" | "invalid";
+    sha256: string;
+    fileCount: number;
+  };
+  catalog: {
+    status: "valid" | "absent" | "invalid";
+    sha256?: string;
+    skillNames: string[];
+  };
+  goalDiscovery: GoalDiscoveryEntry[];
+  effectiveGoalPath?: string;
+  instructionSources: InstructionSource[];
+}
+
 export interface SetupResult {
   ok: boolean;
   dryRun: boolean;
   scope: "project" | "user";
   actions: SetupAction[];
+  conflicts: SetupConflict[];
+  validation: SetupValidation;
+  manifestPath: string;
   paths: CopilotPaths;
 }
 
@@ -89,41 +148,139 @@ function hashFile(path: string): string | undefined {
  *  Files installed before the manifest existed have no entry and keep the old
  *  skip-changed behaviour (one interactive/`--force` override seeds them). */
 interface BundleManifest {
+  version: 2;
+  scope: "project" | "user";
   root: string;
+  path: string;
   files: Record<string, string>;
-  dirty: boolean;
+  validation: SetupValidation;
 }
 
 const BUNDLE_MANIFEST_NAME = "omp-bundle-manifest.json";
+const KNOWN_LEGACY_GOAL_HASHES = new Set([
+  "e730467f9bdb03f72143f0177f1fe813644c7aac1e09bd78da76545f3d5b2723",
+  "fe5fe83753c82a5ec63353068941257ffdd9c161d0c95473ca432b654eb94b07",
+]);
 
-function loadBundleManifest(root: string): BundleManifest {
+function manifestLocation(
+  paths: CopilotPaths,
+  scope: "project" | "user",
+): { root: string; path: string } {
+  if (scope === "user") {
+    return {
+      root: paths.userScope,
+      path: join(paths.userScope, BUNDLE_MANIFEST_NAME),
+    };
+  }
+  return {
+    root: paths.projectRoot,
+    path: join(paths.projectRoot, ".omp", BUNDLE_MANIFEST_NAME),
+  };
+}
+
+function emptyValidation(): SetupValidation {
+  return {
+    bundle: { status: "valid", sha256: "", fileCount: 0 },
+    catalog: { status: "absent", skillNames: [] },
+    goalDiscovery: [],
+    instructionSources: [],
+  };
+}
+
+function loadBundleManifest(
+  paths: CopilotPaths,
+  scope: "project" | "user",
+): BundleManifest {
+  const location = manifestLocation(paths, scope);
   let files: Record<string, string> = {};
   try {
-    const raw = JSON.parse(readFileSync(join(root, BUNDLE_MANIFEST_NAME), "utf8")) as {
+    const raw = JSON.parse(readFileSync(location.path, "utf8")) as {
       files?: Record<string, string>;
     };
     if (raw.files && typeof raw.files === "object") files = raw.files;
   } catch {
     // Missing or unparseable → start empty; first real copy seeds it.
   }
-  return { root, files, dirty: false };
+  return {
+    version: 2,
+    scope,
+    root: location.root,
+    path: location.path,
+    files,
+    validation: emptyValidation(),
+  };
 }
 
 function recordInstalled(manifest: BundleManifest, target: string, source: string): void {
   const hash = hashFile(source);
   if (!hash) return;
   const key = relative(manifest.root, target);
-  if (manifest.files[key] !== hash) {
-    manifest.files[key] = hash;
-    manifest.dirty = true;
-  }
+  manifest.files[key] = hash;
 }
 
-function saveBundleManifest(manifest: BundleManifest, dryRun: boolean): void {
-  if (dryRun || !manifest.dirty) return;
-  const target = join(manifest.root, BUNDLE_MANIFEST_NAME);
-  mkdirSync(dirname(target), { recursive: true });
-  atomicWrite(target, `${JSON.stringify({ version: 1, files: manifest.files }, null, 2)}\n`);
+function saveBundleManifest(
+  manifest: BundleManifest,
+  dryRun: boolean,
+  conflicts: SetupConflict[],
+): void {
+  if (dryRun) return;
+  const content = `${JSON.stringify(
+    {
+      version: 2,
+      scope: manifest.scope,
+      root: manifest.root,
+      files: manifest.files,
+      validation: manifest.validation,
+    },
+    null,
+    2,
+  )}\n`;
+  writeTrustedSetupFile(manifest.path, () => content, manifest.root, conflicts);
+}
+
+class SetupWriteSafetyConflict extends Error {
+  readonly name = "SetupWriteSafetyConflict";
+}
+
+function writeSafetyConflict(target: string, error: unknown): SetupConflict {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/\bsymlink\b/.test(message)) {
+    return {
+      code: "TARGET_SYMLINK",
+      path: target,
+      message: "setup will not write through a symbolic-link target",
+    };
+  }
+  if (/\bhardlink\b/.test(message)) {
+    return {
+      code: "TARGET_HARDLINK",
+      path: target,
+      message: "setup will not overwrite a multiply-linked target file",
+    };
+  }
+  return {
+    code: "TARGET_ENTRY_INVALID",
+    path: target,
+    message,
+  };
+}
+
+function writeTrustedSetupFile(
+  target: string,
+  content: () => string | Buffer,
+  trustedRoot: string,
+  conflicts: SetupConflict[],
+): void {
+  try {
+    ensureTrustedParentDirectory(target, trustedRoot);
+    atomicWriteTrustedFile(target, content(), {
+      rejectHardlinks: true,
+      trustedRoot,
+    });
+  } catch (error) {
+    conflicts.push(writeSafetyConflict(target, error));
+    throw new SetupWriteSafetyConflict();
+  }
 }
 
 function copyDirRecursive(
@@ -133,17 +290,29 @@ function copyDirRecursive(
   dryRun: boolean,
   force: boolean,
   manifest?: BundleManifest,
+  trustedOverwriteTargets: ReadonlySet<string> = new Set(),
+  protectedTargets: ReadonlySet<string> = new Set(),
+  conflicts: SetupConflict[] = [],
 ): void {
   if (!existsSync(source)) {
     actions.push({ source, target, kind: "skip-source-missing" });
     return;
   }
-  if (!dryRun && !existsSync(target)) mkdirSync(target, { recursive: true });
   for (const entry of readdirSync(source, { withFileTypes: true })) {
     const sPath = join(source, entry.name);
     const tPath = join(target, entry.name);
     if (entry.isDirectory()) {
-      copyDirRecursive(sPath, tPath, actions, dryRun, force, manifest);
+      copyDirRecursive(
+        sPath,
+        tPath,
+        actions,
+        dryRun,
+        force,
+        manifest,
+        trustedOverwriteTargets,
+        protectedTargets,
+        conflicts,
+      );
     } else if (entry.isFile()) {
       if (existsSync(tPath)) {
         // Identical → always skip. Differs → skip unless forced (the CLI offers
@@ -153,7 +322,11 @@ function copyDirRecursive(
           if (manifest) recordInstalled(manifest, tPath, sPath);
           continue;
         }
-        if (!force) {
+        if (protectedTargets.has(tPath)) {
+          actions.push({ source: sPath, target: tPath, kind: "skip-changed" });
+          continue;
+        }
+        if (!force && !trustedOverwriteTargets.has(tPath)) {
           // Managed-file migration: the target differs from the new bundle but
           // still matches what WE installed last time → the user never edited
           // it, so the upgrade may refresh it without clobbering real edits.
@@ -164,16 +337,24 @@ function copyDirRecursive(
           }
         }
         if (!dryRun) {
-          mkdirSync(dirname(tPath), { recursive: true });
-          copyFileSync(sPath, tPath);
+          writeTrustedSetupFile(
+            tPath,
+            () => readFileSync(sPath),
+            manifest?.root ?? target,
+            conflicts,
+          );
         }
         actions.push({ source: sPath, target: tPath, kind: "update" });
         if (manifest && !dryRun) recordInstalled(manifest, tPath, sPath);
         continue;
       }
       if (!dryRun) {
-        mkdirSync(dirname(tPath), { recursive: true });
-        copyFileSync(sPath, tPath);
+        writeTrustedSetupFile(
+          tPath,
+          () => readFileSync(sPath),
+          manifest?.root ?? target,
+          conflicts,
+        );
       }
       actions.push({ source: sPath, target: tPath, kind: "copy" });
       if (manifest && !dryRun) recordInstalled(manifest, tPath, sPath);
@@ -221,11 +402,16 @@ function pinPluginRoot(bash: string, pluginRoot: string): string {
   return `export COPILOT_PLUGIN_ROOT='${esc}' OMP_PLUGIN_ROOT='${esc}'; ${bash}`;
 }
 
-function installHooks(paths: CopilotPaths, dryRun: boolean, actions: SetupAction[]): void {
+function installHooks(
+  paths: CopilotPaths,
+  dryRun: boolean,
+  actions: SetupAction[],
+  conflicts: SetupConflict[] = [],
+): boolean {
   const source = paths.hooksManifest;
   if (!existsSync(source)) {
     actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-missing" });
-    return;
+    return true;
   }
   let manifest: { version?: number; hooks?: Record<string, unknown> };
   try {
@@ -233,12 +419,12 @@ function installHooks(paths: CopilotPaths, dryRun: boolean, actions: SetupAction
   } catch {
     // Present but unparseable — surface it rather than masking as "missing".
     actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-invalid" });
-    return;
+    return true;
   }
   const hooks = manifest.hooks;
   if (!hooks || typeof hooks !== "object") {
     actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-invalid" });
-    return;
+    return true;
   }
   // Rewrite every command's bash to pin the absolute plugin root.
   for (const handlers of Object.values(hooks)) {
@@ -256,12 +442,20 @@ function installHooks(paths: CopilotPaths, dryRun: boolean, actions: SetupAction
   // new events propagate (unlike copied skills, which we never clobber).
   const kind: SetupActionKind = existsSync(target) ? "update" : "create";
   if (!dryRun) {
-    mkdirSync(dirname(target), { recursive: true });
-    const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
-    writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-    renameSync(tmp, target);
+    try {
+      writeTrustedSetupFile(
+        target,
+        () => `${JSON.stringify(manifest, null, 2)}\n`,
+        paths.userScope,
+        conflicts,
+      );
+    } catch (error) {
+      if (!(error instanceof SetupWriteSafetyConflict)) throw error;
+      return false;
+    }
   }
   actions.push({ source, target, kind });
+  return true;
 }
 
 /** Absolute path of the user-level hook file omp installs/refreshes. Lets callers
@@ -304,11 +498,19 @@ export function userHooksNeedRefresh(options: SetupOptions = {}): boolean {
 /** Install just the user-level hooks (the piece copilot won't load from the
  *  plugin dir). Used by bare launch self-repair when only hooks are stale.
  *  Idempotent. */
-export function installUserHooks(options: SetupOptions = {}): { actions: SetupAction[]; paths: CopilotPaths } {
+export function installUserHooks(
+  options: SetupOptions = {},
+): {
+  ok: boolean;
+  actions: SetupAction[];
+  conflicts: SetupConflict[];
+  paths: CopilotPaths;
+} {
   const paths = resolveCopilotPaths(options);
   const actions: SetupAction[] = [];
-  installHooks(paths, Boolean(options.dryRun), actions);
-  return { actions, paths };
+  const conflicts: SetupConflict[] = [];
+  installHooks(paths, Boolean(options.dryRun), actions, conflicts);
+  return { ok: !hasBlockingConflict(conflicts), actions, conflicts, paths };
 }
 
 /** Copy bundled skills/agents into the user home (`~/.copilot/skills|agents`).
@@ -316,27 +518,72 @@ export function installUserHooks(options: SetupOptions = {}): { actions: SetupAc
  *  auto-update so personal installs stay in lockstep with the CLI. */
 export function installUserBundle(
   options: SetupOptions = {},
-): { actions: SetupAction[]; paths: CopilotPaths } {
+): {
+  ok: boolean;
+  actions: SetupAction[];
+  conflicts: SetupConflict[];
+  validation: SetupValidation;
+  paths: CopilotPaths;
+} {
   const paths = resolveCopilotPaths(options);
   const dryRun = Boolean(options.dryRun);
   const force = Boolean(options.force);
   const actions: SetupAction[] = [];
-  copyBundledSkillsAndAgents(paths, "user", actions, dryRun, force);
-  return { actions, paths };
+  const preparation = prepareBundleInstall(paths, "user");
+  let blocked = hasBlockingConflict(preparation.conflicts);
+  if (!blocked) {
+    try {
+      copyBundledSkillsAndAgents(paths, "user", actions, dryRun, force, preparation);
+    } catch (error) {
+      if (!(error instanceof SetupWriteSafetyConflict)) throw error;
+    }
+    blocked = hasBlockingConflict(preparation.conflicts);
+  }
+  return {
+    ok: !blocked,
+    actions,
+    conflicts: preparation.conflicts,
+    validation: preparation.validation,
+    paths,
+  };
 }
 
 /** Refresh the full user-home install: hooks + skills + agents. No project
  *  scaffolding. Shared by `omp update` and bare-`omp` "Update now?" yes. */
 export function refreshUserInstall(
   options: SetupOptions = {},
-): { actions: SetupAction[]; paths: CopilotPaths } {
+): {
+  ok: boolean;
+  actions: SetupAction[];
+  conflicts: SetupConflict[];
+  validation: SetupValidation;
+  paths: CopilotPaths;
+} {
   const paths = resolveCopilotPaths(options);
   const dryRun = Boolean(options.dryRun);
   const force = Boolean(options.force);
   const actions: SetupAction[] = [];
-  installHooks(paths, dryRun, actions);
-  copyBundledSkillsAndAgents(paths, "user", actions, dryRun, force);
-  return { actions, paths };
+  const preparation = prepareBundleInstall(paths, "user");
+  let blocked = hasBlockingConflict(preparation.conflicts);
+  if (!blocked) {
+    try {
+      copyBundledSkillsAndAgents(paths, "user", actions, dryRun, force, preparation);
+    } catch (error) {
+      if (!(error instanceof SetupWriteSafetyConflict)) throw error;
+    }
+    blocked = hasBlockingConflict(preparation.conflicts);
+    if (!blocked) {
+      installHooks(paths, dryRun, actions, preparation.conflicts);
+      blocked = hasBlockingConflict(preparation.conflicts);
+    }
+  }
+  return {
+    ok: !blocked,
+    actions,
+    conflicts: preparation.conflicts,
+    validation: preparation.validation,
+    paths,
+  };
 }
 
 function skillsTargetFor(paths: CopilotPaths, scope: "project" | "user"): string {
@@ -347,27 +594,436 @@ function agentsTargetFor(paths: CopilotPaths, scope: "project" | "user"): string
   return scope === "project" ? paths.projectScopeAgents : paths.userScopeAgents;
 }
 
+interface InstallPreparation {
+  conflicts: SetupConflict[];
+  manifest: BundleManifest;
+  validation: SetupValidation;
+  trustedOverwriteTargets: Set<string>;
+  protectedTargets: Set<string>;
+}
+
+const ADVISORY_CONFLICT_CODES = new Set<SetupConflict["code"]>([
+  "UNKNOWN_EFFECTIVE_GOAL",
+  "GOAL_SCOPE_MIGRATION_REQUIRED",
+  "LEGACY_GOAL_INSTRUCTIONS",
+]);
+
+function hasBlockingConflict(conflicts: readonly SetupConflict[]): boolean {
+  return conflicts.some((conflict) => !ADVISORY_CONFLICT_CODES.has(conflict.code));
+}
+
+function hashRecords(records: Array<{ path: string; sha256: string }>): string {
+  const hash = createHash("sha256");
+  for (const record of [...records].sort((left, right) => left.path.localeCompare(right.path))) {
+    hash.update(record.path, "utf8");
+    hash.update("\0", "utf8");
+    hash.update(record.sha256, "utf8");
+    hash.update("\n", "utf8");
+  }
+  return hash.digest("hex");
+}
+
+function scanBundleTree(
+  root: string,
+  current: string,
+  records: Array<{ path: string; sha256: string }>,
+  conflicts: SetupConflict[],
+): void {
+  if (!existsSync(current)) return;
+  for (const entry of readdirSync(current, { withFileTypes: true }).sort((left, right) =>
+    left.name.localeCompare(right.name)
+  )) {
+    const path = join(current, entry.name);
+    if (entry.isSymbolicLink()) {
+      conflicts.push({
+        code: "BUNDLE_SYMLINK",
+        path,
+        message: "bundled setup sources must not contain symbolic links",
+      });
+      continue;
+    }
+    if (entry.isDirectory()) {
+      scanBundleTree(root, path, records, conflicts);
+      continue;
+    }
+    if (!entry.isFile()) {
+      conflicts.push({
+        code: "BUNDLE_ENTRY_INVALID",
+        path,
+        message: "bundled setup sources must contain only directories and regular files",
+      });
+      continue;
+    }
+    const sha256 = hashFile(path);
+    if (!sha256) {
+      conflicts.push({
+        code: "BUNDLE_ENTRY_INVALID",
+        path,
+        message: "bundled setup source could not be hashed",
+      });
+      continue;
+    }
+    records.push({ path: relative(root, path), sha256 });
+  }
+}
+
+function scanInstallTarget(path: string, conflicts: SetupConflict[]): void {
+  if (!existsSync(path)) return;
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch (error) {
+    conflicts.push({
+      code: "TARGET_ENTRY_INVALID",
+      path,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+  if (stat.isSymbolicLink()) {
+    conflicts.push({
+      code: "TARGET_SYMLINK",
+      path,
+      message: "setup will not write through a symbolic-link target",
+    });
+    return;
+  }
+  if (stat.isFile()) {
+    if (stat.nlink > 1) {
+      conflicts.push({
+        code: "TARGET_HARDLINK",
+        path,
+        message: "setup will not overwrite a multiply-linked target file",
+      });
+    }
+    return;
+  }
+  if (!stat.isDirectory()) {
+    conflicts.push({
+      code: "TARGET_ENTRY_INVALID",
+      path,
+      message: "setup targets must contain only directories and regular files",
+    });
+    return;
+  }
+  try {
+    for (const entry of readdirSync(path, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name)
+    )) {
+      scanInstallTarget(join(path, entry.name), conflicts);
+    }
+  } catch (error) {
+    conflicts.push({
+      code: "TARGET_ENTRY_INVALID",
+      path,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function validateBundle(paths: CopilotPaths): {
+  bundle: SetupValidation["bundle"];
+  catalog: SetupValidation["catalog"];
+  conflicts: SetupConflict[];
+} {
+  const conflicts: SetupConflict[] = [];
+  const records: Array<{ path: string; sha256: string }> = [];
+  for (const directory of [
+    join(paths.pluginRoot, ".github", "skills"),
+    join(paths.pluginRoot, ".github", "agents"),
+    join(paths.pluginRoot, "hooks"),
+    join(paths.pluginRoot, "catalog"),
+  ]) {
+    scanBundleTree(paths.pluginRoot, directory, records, conflicts);
+  }
+
+  const catalogDir = join(paths.pluginRoot, "catalog");
+  const capabilitiesPath = join(catalogDir, "capabilities.json");
+  const skillsPath = join(catalogDir, "skills-general.json");
+  const hasCapabilities = existsSync(capabilitiesPath);
+  const hasSkills = existsSync(skillsPath);
+  let catalog: SetupValidation["catalog"] = {
+    status: "absent",
+    skillNames: [],
+  };
+  if (hasCapabilities !== hasSkills) {
+    conflicts.push({
+      code: "CATALOG_INCOMPLETE",
+      path: catalogDir,
+      message: "catalog must contain both capabilities.json and skills-general.json",
+    });
+    catalog = { status: "invalid", skillNames: [] };
+  } else if (hasCapabilities && hasSkills) {
+    try {
+      const validation = validateCatalogBundle(loadCatalogBundle(catalogDir));
+      const catalogRecords = records.filter((record) => record.path.startsWith("catalog/"));
+      catalog = {
+        status: validation.ok ? "valid" : "invalid",
+        sha256: hashRecords(catalogRecords),
+        skillNames: validation.skillNames,
+      };
+      if (!validation.ok) {
+        conflicts.push({
+          code: "CATALOG_INVALID",
+          path: catalogDir,
+          message: validation.issues
+            .map((issue) => `${issue.code}: ${issue.message}`)
+            .join("; ")
+            .slice(0, 4_000),
+        });
+      }
+    } catch (error) {
+      catalog = { status: "invalid", skillNames: [] };
+      conflicts.push({
+        code: "CATALOG_INVALID",
+        path: catalogDir,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return {
+    bundle: {
+      status: conflicts.some((conflict) =>
+        conflict.code === "BUNDLE_SYMLINK" || conflict.code === "BUNDLE_ENTRY_INVALID"
+      )
+        ? "invalid"
+        : "valid",
+      sha256: hashRecords(records),
+      fileCount: records.length,
+    },
+    catalog,
+    conflicts,
+  };
+}
+
+function classifyGoalSurface(
+  scope: "project" | "user",
+  path: string,
+  manifest: BundleManifest,
+  currentHash: string,
+): GoalDiscoveryEntry {
+  if (!existsSync(path)) return { scope, path, status: "missing" };
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    return { scope, path, status: "unknown" };
+  }
+  if (!stat.isFile()) return { scope, path, status: "unknown" };
+  const sha256 = hashFile(path);
+  if (!sha256) return { scope, path, status: "unknown" };
+  if (sha256 === currentHash) return { scope, path, status: "current", sha256 };
+  if (KNOWN_LEGACY_GOAL_HASHES.has(sha256)) {
+    return { scope, path, status: "legacy-known", sha256 };
+  }
+  const recorded = manifest.files[relative(manifest.root, path)];
+  if (recorded === sha256) return { scope, path, status: "managed", sha256 };
+  return { scope, path, status: "unknown", sha256 };
+}
+
+function collectInstructionFiles(directory: string, output: string[]): void {
+  if (!existsSync(directory)) return;
+  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+    left.name.localeCompare(right.name)
+  )) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) collectInstructionFiles(path, output);
+    else if (entry.isFile() && /\.md$/i.test(entry.name)) output.push(path);
+  }
+}
+
+function scanInstructionSources(paths: CopilotPaths): InstructionSource[] {
+  const candidates = [
+    { scope: "project" as const, path: paths.copilotInstructions },
+    { scope: "user" as const, path: join(paths.userScope, "copilot-instructions.md") },
+  ];
+  const projectInstructions: string[] = [];
+  const userInstructions: string[] = [];
+  collectInstructionFiles(
+    join(paths.projectRoot, ".github", "instructions"),
+    projectInstructions,
+  );
+  collectInstructionFiles(join(paths.userScope, "instructions"), userInstructions);
+  candidates.push(
+    ...projectInstructions.map((path) => ({ scope: "project" as const, path })),
+    ...userInstructions.map((path) => ({ scope: "user" as const, path })),
+  );
+
+  const inspected: Array<{
+    scope: "project" | "user";
+    path: string;
+    status: "current" | "legacy-goal" | "unreadable";
+  }> = [];
+  for (const candidate of candidates.sort((left, right) =>
+    left.path.localeCompare(right.path))) {
+    let fd: number | undefined;
+    try {
+      // Descriptor-bound read — no exists/lstat then path re-read (CodeQL TOCTOU).
+      fd = openSync(
+        candidate.path,
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      );
+      const stat = fstatSync(fd);
+      if (!stat.isFile()) {
+        inspected.push({ ...candidate, status: "unreadable" });
+        continue;
+      }
+      const content = readFileSync(fd, "utf8");
+      const legacyGoal =
+        /\bomp\s+goal\s+(?:set|read)\b/i.test(content)
+        && !/\bomp\s+goal\b[^\n]*--session-id\b/i.test(content);
+      inspected.push({
+        ...candidate,
+        status: legacyGoal ? "legacy-goal" : "current",
+      });
+    } catch (error) {
+      // Missing paths are skipped (same as the old existsSync filter). Other
+      // open failures stay visible as unreadable.
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code === "ENOENT") continue;
+      inspected.push({ ...candidate, status: "unreadable" });
+    } finally {
+      if (fd !== undefined) {
+        try {
+          closeSync(fd);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+  return inspected;
+}
+
+function prepareBundleInstall(
+  paths: CopilotPaths,
+  scope: "project" | "user",
+): InstallPreparation {
+  const bundleValidation = validateBundle(paths);
+  const conflicts = [...bundleValidation.conflicts];
+  scanInstallTarget(skillsTargetFor(paths, scope), conflicts);
+  scanInstallTarget(agentsTargetFor(paths, scope), conflicts);
+  const userManifest = loadBundleManifest(paths, "user");
+  const projectManifest = loadBundleManifest(paths, "project");
+  const manifest = scope === "user" ? userManifest : projectManifest;
+  const goalSource = join(paths.pluginRoot, ".github", "skills", "goal", "SKILL.md");
+  const goalDiscovery: GoalDiscoveryEntry[] = [];
+  const trustedOverwriteTargets = new Set<string>();
+  const protectedTargets = new Set<string>();
+  let effectiveGoalPath: string | undefined;
+
+  if (existsSync(goalSource)) {
+    const currentHash = hashFile(goalSource) ?? "";
+    const projectGoal = join(paths.projectScopeSkills, "goal", "SKILL.md");
+    const userGoal = join(paths.userScopeSkills, "goal", "SKILL.md");
+    goalDiscovery.push(
+      classifyGoalSurface("project", projectGoal, projectManifest, currentHash),
+      classifyGoalSurface("user", userGoal, userManifest, currentHash),
+      {
+        scope: "bundle",
+        path: goalSource,
+        status: "current",
+        ...(currentHash ? { sha256: currentHash } : {}),
+      },
+    );
+    const effective = goalDiscovery.find((entry) => entry.status !== "missing");
+    effectiveGoalPath = effective?.path;
+    if (effective?.status === "unknown") {
+      conflicts.push({
+        code: "UNKNOWN_EFFECTIVE_GOAL",
+        path: effective.path,
+        message:
+          "effective /goal content is unknown and was preserved; move or rename it, "
+          + "then rerun setup if you want the bundled workflow (--force will not overwrite it)",
+      });
+    } else if (
+      scope === "user"
+      && effective?.scope === "project"
+      && effective.status !== "current"
+    ) {
+      conflicts.push({
+        code: "GOAL_SCOPE_MIGRATION_REQUIRED",
+        path: effective.path,
+        message: "run setup with --scope project to migrate the effective project /goal",
+      });
+    }
+
+    const target = scope === "user" ? goalDiscovery[1] : goalDiscovery[0];
+    if (target?.status === "legacy-known") trustedOverwriteTargets.add(target.path);
+    if (target?.status === "unknown") protectedTargets.add(target.path);
+  }
+
+  const instructionSources = scanInstructionSources(paths);
+  for (const source of instructionSources) {
+    if (source.status === "legacy-goal") {
+      conflicts.push({
+        code: "LEGACY_GOAL_INSTRUCTIONS",
+        path: source.path,
+        message:
+          "instruction source still routes repository objectives through /goal; "
+          + "update it to /project-goal or add the required --session-id",
+      });
+    }
+  }
+
+  const validation: SetupValidation = {
+    bundle: bundleValidation.bundle,
+    catalog: bundleValidation.catalog,
+    goalDiscovery,
+    ...(effectiveGoalPath ? { effectiveGoalPath } : {}),
+    instructionSources,
+  };
+  manifest.validation = validation;
+  return {
+    conflicts,
+    manifest,
+    validation,
+    trustedOverwriteTargets,
+    protectedTargets,
+  };
+}
+
 function copyBundledSkillsAndAgents(
   paths: CopilotPaths,
   scope: "project" | "user",
   actions: SetupAction[],
   dryRun: boolean,
   force: boolean,
+  preparation: InstallPreparation,
 ): void {
-  // Managed-file migration is tracked for the user scope only: project-scope
-  // copies live in the repo, where an extra manifest file would pollute it.
-  const manifest = scope === "user" ? loadBundleManifest(paths.userScope) : undefined;
+  const manifest = preparation.manifest;
   const skillsTarget = skillsTargetFor(paths, scope);
   const agentsTarget = agentsTargetFor(paths, scope);
   const bundleSkills = join(paths.pluginRoot, ".github", "skills");
   if (relative(bundleSkills, skillsTarget) !== "") {
-    copyDirRecursive(bundleSkills, skillsTarget, actions, dryRun, force, manifest);
+    copyDirRecursive(
+      bundleSkills,
+      skillsTarget,
+      actions,
+      dryRun,
+      force,
+      manifest,
+      preparation.trustedOverwriteTargets,
+      preparation.protectedTargets,
+      preparation.conflicts,
+    );
   }
   const bundleAgents = join(paths.pluginRoot, ".github", "agents");
   if (relative(bundleAgents, agentsTarget) !== "") {
-    copyDirRecursive(bundleAgents, agentsTarget, actions, dryRun, force, manifest);
+    copyDirRecursive(
+      bundleAgents,
+      agentsTarget,
+      actions,
+      dryRun,
+      force,
+      manifest,
+      preparation.trustedOverwriteTargets,
+      preparation.protectedTargets,
+      preparation.conflicts,
+    );
   }
-  if (manifest) saveBundleManifest(manifest, dryRun);
+  saveBundleManifest(manifest, dryRun, preparation.conflicts);
 }
 
 export function runSetup(options: SetupOptions = {}): SetupResult {
@@ -377,25 +1033,70 @@ export function runSetup(options: SetupOptions = {}): SetupResult {
   // Default user home so setup never pollutes a project unless --scope project.
   const scope = options.scope ?? "user";
   const actions: SetupAction[] = [];
+  const preparation = prepareBundleInstall(paths, scope);
+  let blocked = hasBlockingConflict(preparation.conflicts);
 
-  copyBundledSkillsAndAgents(paths, scope, actions, dryRun, force);
+  if (!blocked) {
+    try {
+      copyBundledSkillsAndAgents(
+        paths,
+        scope,
+        actions,
+        dryRun,
+        force,
+        preparation,
+      );
+    } catch (error) {
+      if (!(error instanceof SetupWriteSafetyConflict)) throw error;
+    }
+    blocked = hasBlockingConflict(preparation.conflicts);
 
-  ensureFile(paths.copilotInstructions, COPILOT_INSTRUCTIONS_TEMPLATE, actions, dryRun);
-  ensureDir(paths.stateDir, actions, dryRun);
-  installHooks(paths, dryRun, actions);
+    if (!blocked) {
+      ensureFile(paths.copilotInstructions, COPILOT_INSTRUCTIONS_TEMPLATE, actions, dryRun);
+      ensureDir(paths.stateDir, actions, dryRun);
+      installHooks(paths, dryRun, actions, preparation.conflicts);
+      blocked = hasBlockingConflict(preparation.conflicts);
+    }
+  }
 
-  return { ok: true, dryRun, scope, actions, paths };
+  return {
+    ok: !blocked,
+    dryRun,
+    scope,
+    actions,
+    conflicts: preparation.conflicts,
+    validation: preparation.validation,
+    manifestPath: preparation.manifest.path,
+    paths,
+  };
 }
 
 export function formatSetup(result: SetupResult): string {
-  const prefix = result.dryRun ? "DRY-RUN" : "PASS";
+  const prefix = result.ok ? (result.dryRun ? "DRY-RUN" : "PASS") : "FAIL";
   const lines = [`${prefix}: omp setup (scope=${result.scope})`];
+  for (const conflict of result.conflicts ?? []) {
+    lines.push(`  [conflict:${conflict.code}] ${conflict.path}: ${conflict.message}`);
+  }
   for (const action of result.actions) {
     lines.push(`  [${action.kind}] ${action.target}`);
   }
-  const changed = result.actions.filter((a) => a.kind === "skip-changed").length;
+  const protectedPaths = new Set(
+    (result.conflicts ?? [])
+      .filter((conflict) => conflict.code === "UNKNOWN_EFFECTIVE_GOAL")
+      .map((conflict) => conflict.path),
+  );
+  const changed = result.actions.filter(
+    (action) => action.kind === "skip-changed" && !protectedPaths.has(action.target),
+  ).length;
   if (changed > 0) {
     lines.push(`${changed} bundled file(s) differ from your local copies — re-run with --force to override.`);
   }
   return lines.join("\n");
+}
+
+export function formatUserInstallRefreshBlock(conflicts: readonly SetupConflict[]): string {
+  const details = conflicts
+    .map((conflict) => `[${conflict.code}] ${conflict.path}: ${conflict.message}`)
+    .join("; ");
+  return `User install refresh blocked by setup safety checks${details ? `: ${details}` : "."} Run \`omp setup --dry-run\` to inspect the migration.`;
 }

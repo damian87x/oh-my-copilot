@@ -24,7 +24,7 @@
     "scripts"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node tools/clean-dist.mjs && tsc -p tsconfig.json && node tools/finalize-build.mjs",
     "release": "bash tools/release.sh",
     "release:publish-only": "bash tools/release.sh --publish-only",
     "check:catalog": "npm run build && node dist/src/cli.js catalog validate",

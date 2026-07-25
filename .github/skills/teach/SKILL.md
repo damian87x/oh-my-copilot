@@ -75,6 +75,6 @@ Read the matching file only when you write that artifact:
 
 ## oh-my-copilot ties
 
-- Set/update the repo objective with `/goal` when the mission is established or shifts.
+- Set/update the project objective with `/project-goal` when the mission is established or shifts.
 - Run `/self-evolve` at session end to capture teaching corrections.
 - To teach oh-my-copilot itself (`/teach oh-my-copilot`), follow `references/example-oh-my-copilot.md` — it seeds `MISSION.md` + `RESOURCES.md` from first-party docs, so skip the web search.

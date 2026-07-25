@@ -29,6 +29,7 @@ import {
 import { appendTraceEntry } from "../src/trace.js";
 import { noteIndex, readNote } from "../src/project-memory.js";
 import { syncInstructionsMemory } from "../src/instructions-memory.js";
+import { writeProjectGoal } from "../src/project-goal.js";
 
 const cwd = () => {
   const root = mkdtempSync(path.join(tmpdir(), "omc-ho-"));
@@ -223,6 +224,15 @@ describe("markdown serialize/parse round-trip", () => {
 });
 
 describe("deterministic generation + redaction + bounds", () => {
+  it("keeps the legacy goal source alias alongside projectGoal", () => {
+    const root = cwd();
+    writeProjectGoal(root, "Ship the compatibility fix");
+
+    const draft = buildDeterministicDraft(root);
+
+    expect(draft.sources).toMatchObject({ projectGoal: true, goal: true });
+  });
+
   it("builds a bounded draft with zero model calls", async () => {
     const root = cwd();
     mkdirSync(path.join(root, "src"), { recursive: true });
@@ -283,7 +293,7 @@ describe("deterministic generation + redaction + bounds", () => {
       references: Array.from({ length: 30 }, (_, i) => ({ path: `path/${i}/${huge}`, label: `l${i}` })),
       suggested_skills: Array.from({ length: 20 }, (_, i) => `skill-${i}`),
       focus: huge,
-      sources: { git: false, trace: false, goal: false, daily: false },
+      sources: { git: false, trace: false, goal: false, projectGoal: false, daily: false },
     });
     expect(draftCharCount(draft)).toBeLessThanOrEqual(HANDOFF_BOUNDS.maxPacketChars);
   });
@@ -291,6 +301,8 @@ describe("deterministic generation + redaction + bounds", () => {
   it("redactSecrets covers common token shapes", () => {
     expect(redactSecrets("key sk-abcdefghijklmnopqrstuv")).toContain("[REDACTED]");
     expect(redactSecrets("xoxb-1234567890-abcdefghij")).toContain("[REDACTED]");
+    expect(redactSecrets('token="TRACKED_SECRET_1234567890"')).toBe("[REDACTED]");
+    expect(redactSecrets('"api_key": "JSON_SECRET_1234567890"')).toBe("[REDACTED]");
     expect(sanitizeForInstructions("hi <!-- omp:memory:end --> there")).not.toMatch(/omp:memory/);
   });
 });

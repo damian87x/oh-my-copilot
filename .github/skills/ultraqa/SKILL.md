@@ -20,7 +20,10 @@ Use `/ultraqa` after implementation when shallow checks are not enough.
 
 ## Steps
 
-Register the QA run first: `omp ultraqa start "<goal>" --max-cycles 5`. This tracks the cycle count and enforces the cap, and lets `omp ultraqa status`/`cancel` see the run.
+Read `[OMP SESSION]` from SessionStart context, then register the QA run first:
+`omp ultraqa start "<goal>" --max-cycles 5 --session-id "<session>"`. This
+tracks the cycle count, binds nested execution to the active `/goal`, enforces
+the cap, and lets `omp ultraqa status`/`cancel` see the run.
 
 ### Cycle 1 (and each subsequent cycle)
 

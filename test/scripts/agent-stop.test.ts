@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +8,8 @@ import { cancelRalph, readRalph, startRalph } from "../../src/mode-state/ralph.j
 import { readUltraqa, recordUltraqaCycle, startUltraqa } from "../../src/mode-state/ultraqa.js";
 // @ts-expect-error - plain .mjs hook script exports are exercised as public hook handlers.
 import { agentStopLocksDir, claimAgentStopCounter, handleAgentStop, releaseAgentStopMarker } from "../../scripts/agent-stop.mjs";
+// @ts-expect-error - plain .mjs runtime exports are exercised through their public API.
+import { goalCommand } from "../../scripts/lib/goal-runtime.mjs";
 
 const fixtures: string[] = [];
 
@@ -468,5 +471,327 @@ describe("agent-stop duplicate-fire dedupe", () => {
 
     expect(out.decision).toBe("block");
     expect(readJson(ralphFile(root)).iteration).toBe(1);
+  });
+});
+
+describe("agent-stop Goal orchestration", () => {
+  const DEDUPE_ENV = { OMP_AGENTSTOP_DEDUPE_MS: "3000" };
+
+  function createGoal(root: string, sessionId = "s1") {
+    return goalCommand({
+      root,
+      command: "set",
+      sessionId,
+      operationId: "create-goal",
+      objective: "Finish the durable objective",
+    });
+  }
+
+  function goalStatus(root: string, sessionId = "s1") {
+    return goalCommand({ root, command: "status", sessionId });
+  }
+
+  function writeGoalTranscript(
+    root: string,
+    messages: Array<{ id: string; content: string; turnId?: string }>,
+  ) {
+    const transcript = path.join(root, "goal-events.jsonl");
+    writeFileSync(
+      transcript,
+      messages
+        .map(({ id, content, turnId = "0" }) =>
+          JSON.stringify({
+            type: "assistant.message",
+            id: `event-${id}`,
+            data: { messageId: `message-${id}`, turnId, content },
+          }))
+        .join("\n") + "\n",
+      "utf8",
+    );
+    return transcript;
+  }
+
+  it("does not suppress a newly created Goal with a stale cached allow", () => {
+    const { root } = makeFixture();
+    expect(runAgentStop({ cwd: root, sessionId: "s1" }, DEDUPE_ENV)).toMatchObject({
+      decision: "allow",
+    });
+
+    createGoal(root);
+    const transcript = writeGoalTranscript(root, [
+      { id: "first-goal-turn", content: "Goal work is still in progress." },
+    ]);
+    const out = runAgentStop(
+      { cwd: root, sessionId: "s1", transcriptPath: transcript },
+      DEDUPE_ENV,
+    );
+
+    expect(out).toMatchObject({
+      decision: "block",
+      reason: expect.stringContaining("[GOAL TURN 1/20]"),
+    });
+    expect(goalStatus(root)).toMatchObject({
+      ok: true,
+      result: { status: "active", turnCount: 1 },
+    });
+  });
+
+  it("does not advance unscoped loop modes when Goal status is non-retryably unavailable", () => {
+    const { root } = makeFixture();
+    createGoal(root);
+    startRalph({ cwd: root, prompt: "global ralph must stay put", maxIterations: 4 });
+    const key = createHash("sha256").update("s1", "utf8").digest("hex");
+    const ledger = path.join(root, ".omp", "state", "goals", key, "ledger.jsonl");
+    writeFileSync(ledger, "{not-json\n", "utf8");
+
+    const out = runAgentStop(
+      {
+        cwd: root,
+        sessionId: "s1",
+        transcriptPath: writeGoalTranscript(root, [
+          { id: "corrupt-goal", content: "loop marker would advance without Goal." },
+        ]),
+      },
+      DEDUPE_ENV,
+    );
+
+    // allow reasons are stripped by the stop output helper; assert nesting by
+    // state: unscoped ralph must not advance when Goal status is corrupt.
+    expect(out.decision).toBe("allow");
+    expect(readJson(ralphFile(root)).iteration).toBe(0);
+    expect(readJson(ralphFile(root)).active).toBe(true);
+  });
+
+
+  it("uses only the latest assistant message to decide Goal completion", () => {
+    const { root } = makeFixture();
+    createGoal(root);
+    const transcript = writeGoalTranscript(root, [
+      { id: "old", content: "OMP_GOAL_COMPLETE" },
+      { id: "latest", content: "Still working." },
+    ]);
+
+    const out = runAgentStop({ cwd: root, sessionId: "s1", transcriptPath: transcript });
+
+    expect(out.decision).toBe("block");
+    expect(out.reason).toContain("[GOAL TURN 1/20]");
+    expect(goalStatus(root)).toMatchObject({
+      ok: true,
+      result: { status: "active", turnCount: 1 },
+    });
+  });
+
+  it("completes from the latest exact marker and replays duplicate delivery once", () => {
+    const complete = makeFixture();
+    createGoal(complete.root);
+    const completionTranscript = writeGoalTranscript(complete.root, [
+      { id: "complete", content: "Verified.\nOMP_GOAL_COMPLETE" },
+    ]);
+    expect(
+      runAgentStop({
+        cwd: complete.root,
+        sessionId: "s1",
+        transcriptPath: completionTranscript,
+      }),
+    ).toMatchObject({ decision: "allow" });
+    expect(goalStatus(complete.root)).toMatchObject({
+      ok: true,
+      result: { status: "complete", turnCount: 1 },
+    });
+
+    const duplicate = makeFixture();
+    createGoal(duplicate.root);
+    const duplicateTranscript = writeGoalTranscript(duplicate.root, [
+      { id: "same-delivery", content: "Still working." },
+    ]);
+    const first = runAgentStop({
+      cwd: duplicate.root,
+      sessionId: "s1",
+      transcriptPath: duplicateTranscript,
+    }, DEDUPE_ENV);
+    const replay = runAgentStop({
+      cwd: duplicate.root,
+      sessionId: "s1",
+      transcriptPath: duplicateTranscript,
+    }, DEDUPE_ENV);
+    expect(replay).toEqual(first);
+    expect(goalStatus(duplicate.root)).toMatchObject({
+      ok: true,
+      result: { status: "active", turnCount: 1 },
+    });
+  });
+
+  it("counts a live Copilot stop by hook identity when the current transcript is not flushed", () => {
+    const { root } = makeFixture();
+    createGoal(root);
+    const payload = {
+      cwd: root,
+      sessionId: "s1",
+      timestamp: 1784881914646,
+      transcriptPath: path.join(root, "not-flushed-events.jsonl"),
+      stopReason: "end_turn",
+    };
+
+    const first = runAgentStop(payload);
+    const replay = runAgentStop(payload);
+
+    expect(first).toMatchObject({
+      decision: "block",
+      reason: expect.stringContaining("[GOAL TURN 1/20]"),
+    });
+    expect(replay).toEqual(first);
+    expect(goalStatus(root)).toMatchObject({
+      ok: true,
+      result: { status: "active", turnCount: 1 },
+    });
+  });
+
+  it("does not mistake the previously flushed Copilot turn for the current stop", () => {
+    const { root } = makeFixture();
+    createGoal(root);
+    expect(
+      runAgentStop({
+        cwd: root,
+        sessionId: "s1",
+        timestamp: 1000,
+        transcriptPath: path.join(root, "not-yet-created.jsonl"),
+      }),
+    ).toMatchObject({ decision: "block" });
+
+    const staleTranscript = writeGoalTranscript(root, [
+      { id: "previous", turnId: "0", content: "OMP_GOAL_COMPLETE" },
+    ]);
+    expect(
+      runAgentStop({
+        cwd: root,
+        sessionId: "s1",
+        timestamp: 2000,
+        transcriptPath: staleTranscript,
+      }),
+    ).toMatchObject({
+      decision: "block",
+      reason: expect.stringContaining("[GOAL TURN 2/20]"),
+    });
+    expect(goalStatus(root)).toMatchObject({
+      ok: true,
+      result: { status: "active", turnCount: 2 },
+    });
+  });
+
+  it("falls back to each hook timestamp when the transcript turn id is non-numeric", () => {
+    const { root } = makeFixture();
+    createGoal(root);
+    const transcript = writeGoalTranscript(root, [
+      { id: "stable-message", turnId: "uuid-turn-id", content: "Still working." },
+    ]);
+
+    for (const timestamp of [1000, 2000, 3000]) {
+      expect(
+        runAgentStop({
+          cwd: root,
+          sessionId: "s1",
+          timestamp,
+          transcriptPath: transcript,
+        }),
+      ).toMatchObject({ decision: "block" });
+    }
+    expect(goalStatus(root)).toMatchObject({
+      ok: true,
+      result: { status: "active", turnCount: 3 },
+    });
+  });
+
+  it("blocks instead of failing open while another Goal operation owns the lock", () => {
+    const { root } = makeFixture();
+    createGoal(root);
+    const streamId = createHash("sha256").update("s1", "utf8").digest("hex");
+    const lock = path.join(root, ".omp", "state", "goals", streamId, "aggregate.lock");
+    writeFileSync(
+      lock,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        pid: process.pid,
+        acquiredAt: new Date().toISOString(),
+      })}\n`,
+      "utf8",
+    );
+
+    expect(
+      runAgentStop({
+        cwd: root,
+        sessionId: "s1",
+        timestamp: 4000,
+      }),
+    ).toMatchObject({
+      decision: "block",
+      reason: expect.stringContaining("busy"),
+    });
+  });
+
+  it("excludes team workers and lets the top session-scoped nested mode progress alone", () => {
+    const worker = makeFixture();
+    createGoal(worker.root);
+    const workerTranscript = writeGoalTranscript(worker.root, [
+      { id: "worker", content: "worker answer" },
+    ]);
+    expect(
+      runAgentStop(
+        { cwd: worker.root, sessionId: "s1", transcriptPath: workerTranscript },
+        { OMP_TEAM_WORKER: "1" },
+      ),
+    ).toMatchObject({ decision: "allow" });
+    expect(goalStatus(worker.root)).toMatchObject({
+      ok: true,
+      result: { status: "active", turnCount: 0 },
+    });
+
+    const nested = makeFixture();
+    createGoal(nested.root);
+    startRalph({
+      cwd: nested.root,
+      prompt: "nested work",
+      maxIterations: 3,
+      sessionId: "s1",
+    });
+    const nestedTranscript = writeGoalTranscript(nested.root, [
+      { id: "nested", content: "nested work continues" },
+    ]);
+    expect(
+      runAgentStop({
+        cwd: nested.root,
+        sessionId: "s1",
+        transcriptPath: nestedTranscript,
+      }),
+    ).toMatchObject({ decision: "block", reason: expect.stringContaining("[RALPH ITERATION 1/3]") });
+    expect(goalStatus(nested.root)).toMatchObject({
+      ok: true,
+      result: { status: "active", turnCount: 0 },
+    });
+  });
+
+  it("ignores another session's nested mode instead of leaking it into the Goal", () => {
+    const { root } = makeFixture();
+    createGoal(root, "goal-session");
+    startRalph({
+      cwd: root,
+      prompt: "other session",
+      maxIterations: 3,
+      sessionId: "other-session",
+    });
+    const transcript = writeGoalTranscript(root, [
+      { id: "goal-turn", content: "goal continues" },
+    ]);
+
+    const out = runAgentStop({
+      cwd: root,
+      sessionId: "goal-session",
+      transcriptPath: transcript,
+    });
+
+    expect(out).toMatchObject({
+      decision: "block",
+      reason: expect.stringContaining("[GOAL TURN 1/20]"),
+    });
+    expect(readRalph(root)).toMatchObject({ active: true, iteration: 0 });
   });
 });

@@ -71,6 +71,21 @@ describe("maybePromptUpdate", () => {
         pluginRan += 1;
         return "updated";
       },
+      refreshUserInstall: () => ({
+        ok: true,
+        actions: [
+          { source: "(template)", target: "/tmp/hooks/omp.json", kind: "create" },
+          { source: "/tmp/src", target: "/tmp/skills/hello/SKILL.md", kind: "copy" },
+        ],
+        conflicts: [],
+        validation: {
+          bundle: { status: "valid", sha256: "", fileCount: 0 },
+          catalog: { status: "absent", skillNames: [] },
+          goalDiscovery: [],
+          instructionSources: [],
+        },
+        paths: {} as never,
+      }),
     });
     expect(ran).toBe(1);
     expect(pluginRan).toBe(1);
@@ -79,6 +94,34 @@ describe("maybePromptUpdate", () => {
     expect(prints.some((p) => p.includes("Copilot plugin updated"))).toBe(true);
     // After a successful self-update we also refresh user-home install.
     expect(prints.some((p) => p.includes("User skills/agents") || p.includes("Hooks"))).toBe(true);
+    expect(outcome.updated).toBe(true);
+  });
+
+  it("reports a blocked user-install refresh instead of claiming it is current", async () => {
+    const { io, prints } = fakeIO(["y"]);
+    const outcome = await maybePromptUpdate({
+      cwd: newProject(),
+      io,
+      interactive: true,
+      ...baseOpts,
+      runUpdate: async () => true,
+      updatePlugin: async () => "updated",
+      refreshUserInstall: () => ({
+        ok: false,
+        actions: [],
+        conflicts: [
+          {
+            code: "UNKNOWN_EFFECTIVE_GOAL",
+            path: "/tmp/.copilot/skills/goal/SKILL.md",
+            message: "existing /goal is not a known legacy or managed copy",
+          },
+        ],
+      }),
+    });
+
+    expect(prints.some((line) => line.includes("User install refresh blocked"))).toBe(true);
+    expect(prints.some((line) => line.includes("UNKNOWN_EFFECTIVE_GOAL"))).toBe(true);
+    expect(prints.some((line) => line.includes("up to date"))).toBe(false);
     expect(outcome.updated).toBe(true);
   });
 

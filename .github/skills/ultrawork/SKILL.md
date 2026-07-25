@@ -31,7 +31,14 @@ Pick `/ultrawork` when the work is many independent mechanical items. It can als
 
 ### 1. Inventory
 
-**Register the batch FIRST** — before editing any file, run `omp ultrawork start "<objective>" --task-count <n>`. This is mandatory: it tracks the run so `omp ultrawork status`/`cancel` and `/team` nudges can see it. Skipping it leaves the batch invisible to the CLI. (For fewer than 5 items, don't use ultrawork at all — just do them inline.) Then list all tasks. For each, note the files it touches. Flag any collisions.
+**Register the batch FIRST** — before editing any file, read `[OMP SESSION]`
+from SessionStart context and run
+`omp ultrawork start "<objective>" --task-count <n> --session-id "<session>"`.
+This is mandatory: it tracks the run so `omp ultrawork status`/`cancel` and
+`/team` nudges can see it, and binds nested execution to the active `/goal`.
+Skipping it leaves the batch invisible to the CLI. (For fewer than 5 items,
+don't use ultrawork at all — just do them inline.) Then list all tasks. For each,
+note the files it touches. Flag any collisions.
 
 ### 2. Dependency check
 

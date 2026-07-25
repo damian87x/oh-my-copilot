@@ -16,11 +16,18 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { readStdin } from "./lib/stdin.mjs";
 import { isMain } from "./lib/is-main.mjs";
 import { buildStopDecisionOutput, appendHookLog, printStopDecision } from "./lib/hook-output.mjs";
-import { decideLoop, extractAssistantText, LOOP_MODES } from "./lib/loop-driver.mjs";
+import {
+  decideLoop,
+  extractAssistantText,
+  extractLatestAssistantMessage,
+  LOOP_MODES,
+} from "./lib/loop-driver.mjs";
+import { goalCommand } from "./lib/goal-runtime.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
 import { parseHookInput } from "./lib/hook-input.mjs";
 
@@ -192,6 +199,32 @@ function readTranscriptTail(path) {
   }
 }
 
+function goalTurnOperationId(message) {
+  const identity = message?.messageId ?? message?.eventId;
+  if (identity) return `agent-stop:${identity}`;
+  const digest = createHash("sha256")
+    .update(`${message?.turnId ?? ""}\0${message?.content ?? ""}`, "utf8")
+    .digest("hex");
+  return `agent-stop:${digest}`;
+}
+
+function currentGoalAssistant(message, goalState) {
+  if (!message) return undefined;
+  const rawTurnId = message.turnId;
+  if (typeof rawTurnId !== "string" || !/^\d+$/.test(rawTurnId)) return undefined;
+  return Number(rawTurnId) === goalState.turnCount ? message : undefined;
+}
+
+function hookTurnMessage(input) {
+  const identity = String(input.timestamp ?? "").trim();
+  if (!identity) return undefined;
+  return {
+    content: "",
+    eventId: `hook-${identity}`,
+    turnId: `hook-${identity}`,
+  };
+}
+
 export function handleAgentStop(raw, env = process.env) {
   const input = parseHookInput(raw);
   const directory = input.cwd;
@@ -224,8 +257,111 @@ export function handleAgentStop(raw, env = process.env) {
   const states = {};
   for (const m of LOOP_MODES) states[m.key] = readState(directory, m.key);
 
-  const transcript = extractAssistantText(readTranscriptTail(input.transcriptPath));
-  const result = decideLoop(states, transcript);
+  const transcriptTail = readTranscriptTail(input.transcriptPath);
+  const latestAssistant = extractLatestAssistantMessage(transcriptTail);
+  const transcript = extractAssistantText(transcriptTail);
+  const goalStatus = sessionId && sessionId !== "unknown"
+    ? goalCommand({ root: directory, command: "status", sessionId })
+    : undefined;
+  const goalState = goalStatus?.ok ? goalStatus.result : undefined;
+  const hasGoalLifecycle = goalState && goalState.status !== "empty";
+  let result;
+
+  if (goalStatus && !goalStatus.ok) {
+    // Busy: block and retry. Domain corruption (ledger/state): skip unscoped
+    // loop modes so nesting cannot be hijacked. Infrastructure failures
+    // (GOAL_INTERNAL_ERROR, e.g. unwritable state dir in tests) preserve
+    // prior global loop behavior.
+    const code = goalStatus.error?.code;
+    if (goalStatus.error?.retryable) {
+      result = {
+        decision: "block",
+        reason: "Goal state is busy; retry this stop after the concurrent operation finishes.",
+      };
+    } else if (
+      code === "LEDGER_CORRUPT"
+      || code === "GOAL_STATE_CORRUPT"
+      || code === "PENDING_CORRUPT"
+      || code === "MANIFEST_CORRUPT"
+    ) {
+      result = {
+        decision: "allow",
+        reason:
+          `Goal state unavailable (${code}); skipping unscoped loop modes.`,
+      };
+    } else {
+      result = decideLoop(states, transcript);
+    }
+  } else if (goalState?.status === "active") {
+    // Under Goal, nested loop state is strictly session-owned. Legacy unscoped
+    // or other-session state remains untouched and cannot hijack this stop.
+    const scopedStates = {};
+    for (const mode of LOOP_MODES) {
+      const state = states[mode.key];
+      scopedStates[mode.key] =
+        state?.active && state.sessionId === sessionId ? state : undefined;
+    }
+    const hasNestedMode = LOOP_MODES.some((mode) => scopedStates[mode.key]?.active);
+    if (hasNestedMode) {
+      result = decideLoop(scopedStates, transcript);
+      // A nested completion/cap returns control to the outer Goal. The nested
+      // mode is cleared on this stop, while Goal itself advances next turn.
+      if (result.decision === "allow" && result.clear) {
+        result = {
+          ...result,
+          decision: "block",
+          reason: `[GOAL RESUME] Nested ${result.clear} finished. Continue "${goalState.objective}".`,
+        };
+      }
+    } else {
+      // Copilot 1.0.74 invokes agentStop before flushing the current
+      // assistant.message to events.jsonl. Numeric turn ids let us reject the
+      // previous flushed turn; the hook timestamp then becomes the durable,
+      // idempotent identity for the current stop. Explicit Goal lifecycle
+      // commands carry completion/extension decisions before this hook runs.
+      const turnMessage =
+        currentGoalAssistant(latestAssistant, goalState)
+        ?? hookTurnMessage(input);
+      if (!turnMessage) {
+        // A missing transcript and missing hook timestamp provide no replay
+        // identity. Fail open rather than risk counting a duplicate.
+        result = { decision: "allow", reason: "Goal transcript unavailable" };
+      } else {
+        const turn = goalCommand({
+          root: directory,
+          command: "turn",
+          sessionId,
+          expectedGoalGeneration: goalState.goalGeneration,
+          operationId: goalTurnOperationId(turnMessage),
+          turnId:
+            turnMessage.turnId
+            ?? turnMessage.messageId
+            ?? turnMessage.eventId
+            ?? goalTurnOperationId(turnMessage),
+          assistantText: turnMessage.content,
+        });
+        result = turn.ok
+          ? {
+              decision: turn.result.decision,
+              reason: turn.result.reason,
+            }
+          : turn.error.retryable || turn.error.code === "GOAL_GENERATION_MISMATCH"
+            ? {
+                decision: "block",
+                reason:
+                  turn.error.code === "GOAL_GENERATION_MISMATCH"
+                    ? "Goal changed during this stop; continue the current Goal."
+                    : "Goal state is busy; retry this stop after the concurrent operation finishes.",
+              }
+            : { decision: "allow", reason: `Goal turn failed: ${turn.error.code}` };
+      }
+    }
+  } else if (hasGoalLifecycle) {
+    // Goal pause/terminal state outranks and suspends any nested loop frames.
+    result = { decision: "allow", reason: `Goal is ${goalState.status}` };
+  } else {
+    result = decideLoop(states, transcript);
+  }
 
   // Cache BEFORE mutating state: a duplicate that misses the cache then still
   // reads pre-advance state and is deduped by the counter marker. Caching after

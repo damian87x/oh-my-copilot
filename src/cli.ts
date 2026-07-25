@@ -8,6 +8,7 @@ import type { CliResult } from "./commands/types.js";
 import { loadOmpEnv } from "./env/dotenv.js";
 import { ompRoot } from "./omp-root.js";
 import { inspectProject, packageRootFromImportMeta } from "./project.js";
+import type { SteeringKind, StoryInput } from "./ultragoal/runtime.js";
 
 function hasFlag(args: string[], flag: string): boolean {
   return args.includes(flag);
@@ -17,6 +18,10 @@ function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
   if (index === -1) return undefined;
   return args[index + 1];
+}
+
+function positionalValue(value: string | undefined): string | undefined {
+  return value && !value.startsWith("-") ? value : undefined;
 }
 
 /**
@@ -143,9 +148,44 @@ function printResult(result: CliResult, json: boolean): void {
   }
 }
 
-function help(): string {
+function legacyHelp(): string {
   return `oh-my-copilot\n\nRun \`omp\` with no arguments to launch copilot (permissions bypass OFF).\nUse \`omp help\` to show this list.\n\nCommands:\n  (no args)                                     launch copilot (bypass OFF by default)\n  version [--json]\n  update                                        (self-update CLI + refresh ~/.copilot skills/agents/hooks)\n  list [--json]\n  setup [--dry-run] [--scope user|project] [--plugin-root <dir>] [--force] [--json]\n                                                (default --scope user → ~/.copilot/skills|agents; --scope project → .github/. --force overrides locally-changed bundled files; always refreshes ~/.copilot/hooks/omp.json)\n  doctor [--json] [--copilot-bin <path>] [--skip-copilot] [--hooks] [--deep]\n  cost [--json] [--session <id>] [--days <n>]\n  launch -- <args...>\n  --madmax [args...]                          (bare-flag launch with permissions bypass; alias of --yolo)\n  team <N:role> "<task>" [--name <name>] [--json]\n  team status <name> [--json]\n  team shutdown <name> [--json]\n  team api claim-task --input '<json>' [--json]\n  team api transition-task-status --input '<json>' [--json]\n  team api send-message --input '<json>' [--json]\n  team api broadcast --input '<json>' [--json]\n  team api mailbox-list --input '<json>' [--json]\n  team api mailbox-mark-delivered --input '<json>' [--json]\n  council "<question>" [--models a,b,c|m:role:weight] [--context <text|@file>] [--rubric <text|@file>] [--synth <model>] [--probe] [--timeout <ms>] [--synth-timeout <ms>] [--min-survivors <n>] [--max-concurrency <n>] [--tmp-dir <dir>] [--json]\n  comms status [--session <name>] [--json]      (is copilot on + online? auto-discovers session)\n  comms send --text "<prompt>" [--force] [--session <name>] [--json]\n  comms recv [--wait] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  comms ask --text "<prompt>" [--force] [--lines <n>] [--timeout <ms>] [--session <name>] [--json]\n  gateway serve [--only <name>[,<name>]]        (run all configured connectors; today: slack)\n  gateway status [--json] [--only <name>[,...]] (per-connector readiness; no sockets opened)\n  gateway doctor [--json] [--only <name>[,...]] (alias for 'gateway status')\n  gateway notify --text "<msg>" [--target slack:C\\|D\\|G\\|U... [:thread_ts]] [--thread-ts <ts>] [--json]\n                                                (one-shot outbound Slack post; falls back to SLACK_HOME_CHANNEL)\n  slack serve                                   (deprecated alias for 'gateway serve --only slack')\n  slack doctor [--json]                         (deprecated alias for 'gateway status --only slack')\n  env init [--force]                            (interactive: write ~/.omp/.env with Slack tokens + optional SLACK_HOME_CHANNEL)\n                                                non-interactive: set OMP_INIT_BOT_TOKEN/OMP_INIT_APP_TOKEN/OMP_INIT_HOME_CHANNEL\n                                                (env vars preferred over --bot-token/--app-token/--home-channel flags)\n  (--session is optional when exactly one omp-<digits> tmux session is running)\n${registeredCommandHelpLines().join("\n")}\n  ralph start "<task>" [--max-iterations <n>] [--session-id <id>] [--json]\n  ralph status [--json]\n  ralph tick [--json]\n  ralph cancel [--json]\n  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]\n  ultrawork status [--json]\n  ultrawork cancel [--json]\n  ultraqa start "<goal>" [--max-cycles <n>] [--json]\n  ultraqa cycle pass|fail|pending [--json]\n  ultraqa status [--json]\n  ultraqa cancel [--json]\n  ponytail start [lite|full|ultra] [--json]    (lazy senior dev mode; persisted + re-injected each turn)\n  ponytail status [--json]\n  ponytail off [--json]\n  schedule add --id <id> --cron "<expr>" --prompt "<text>" [--bin copilot] [--model <m>] [--cwd <dir>] [--timeout <ms>] [--max-runs <n>] [--ttl-hours <h>] [--allow-all-tools] [--notify-target slack:<ID>] [--notify-desktop] [--notify-open-omp] [--dry-run] [--json]
                                                 (--notify-desktop: native OS notification on completion [macOS uses osascript]; --notify-open-omp: click opens an omp session in the state root — needs OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1 + terminal-notifier on macOS)\n  schedule list [--json]\n  schedule status <id> [--json]\n  schedule open <id> [--tmux] [--json]          (show this id's latest status + full output; --tmux instead opens an interactive omp session in the project — recent runs show via the startup banner)\n  schedule run-now <id> [--json]\n  schedule remove <id> [--json]\n  goal set "<objective>" [--json]\n  goal read [--json]\n  memory sync [--json]                          (refresh the managed memory block in copilot-instructions.md)\n  config get [--json] | config set memory-mode on|off [--no-validate] [--model <slug>] | config set memory-review-model <slug> | config set memory-review-min-messages <n> | config set memory-note-cap <n> | config set memory-note-char-cap <n> | config set memory-topic-cap <n> | config set memory-topic-char-cap <n> | config set memory-directive-cap <n> | config set memory-directive-char-cap <n> | config set memory-note-auto-keep <n> | config set handoff-llm on|off [--global]\n                                                (memory-mode on probes/validates a model + writes ~/.omp globally; --no-validate skips the probe. --global writes ~/.omp/config.json; project .omp/config.json overrides per key; handoff-llm enables automatic LLM handoff generation)\n  memory-review --session <uuid|latest> [--model <slug>] [--json]   (cheap-model end-of-session review; opt-in via memory-mode)\n  daily-log set-goal "<text>" [--json]\n  daily-log add "<text>" [--json]\n  daily-log read [--days <n>] [--json]\n  daily-log prune [--keep-days <n>] [--json]\n  handoff create [--objective "<text>"] [--done "<item>"]... [--pending "<item>"]... [--blockers "<item>"]... [--files "<path>"]... [--verification "<text>"] [--next "<text>"] [--ref "<path|url>"]... [--skill "<name>"]... [--focus "<text>"] [--llm] [--json]\n                                                (deterministic from git/traces by default; --llm is cost-bearing; auto-LLM only via config set handoff-llm on)\n  handoff list [--all] [--state active|closed|archived] [--json]\n  handoff read <id> [--json]\n  handoff close <id> [--promote] [--json]\n  handoff archive <id> [--json]\n  handoff prune [--older-than-days <n>] [--json]\n  state write <key> <val> [--ttl <s>] | read|delete|status <key> | list | cleanup [--json]\n  project-memory read [<id>] | index | search "<query>" [--topic <id>] [--limit <n>] | add-note "<title>" [--body "<text>"] | add-directive "<rule>" | pending | promote-directive <n|--all> | dismiss-directive <n|--all> | add-topic <id> [--description "..."] | add-fact <topic> "<fact>" | topics | read-topic <id> | prune-notes --keep <n>|--older-than <days> [--json]\n  trace timeline [<sessionId>] [--limit <n>] | summary [<sessionId>] | add <sessionId> <event> [<json>] [--json]\n  catalog list [--json]\n  catalog validate [--json]\n  catalog capability <id> [--json]\n  project inspect [--json]\n  skill install <skill-dir> [--root <repo>] [--scope user|project] [--dry-run] [--json]\n                                                (default --scope user → ~/.copilot/skills; --scope project → .github/skills)\n  lint:skills [--root <repo>]\n  sync:dry-run [--root <repo>]\n  jira:dry-run [--root <repo>]\n  jira render <plan-file> [--root <repo>] [--json]\n  jira apply <ticket-key-or-plan-file> --comment|--update|--transition|--link [--dry-run] [--json]\n`;
+}
+
+function help(): string {
+  return legacyHelp()
+    .replace(
+      "  setup [--dry-run] [--scope user|project] [--plugin-root <dir>] [--force] [--json]",
+      "  setup [--root <dir>] [--dry-run] [--scope user|project] [--plugin-root <dir>] [--force] [--json]",
+    )
+    .replace(
+      "(default --scope user → ~/.copilot/skills|agents; --scope project → .github/. --force overrides locally-changed bundled files; always refreshes ~/.copilot/hooks/omp.json)",
+      "(default user → ~/.copilot; unknown effective /goal content remains protected even with --force; hooks refresh only after preflight passes)",
+    )
+    .replace(
+      '  goal set "<objective>" [--json]\n  goal read [--json]',
+      '  goal set|edit|replace "<objective>" --session-id <id> --operation-id <id> [--json]\n'
+        + '  goal status --session-id <id> [--json]\n'
+        + '  goal pause|clear --reason "<why>" --session-id <id> --operation-id <id> [--json]\n'
+        + '  goal complete --reason "<evidence>" --session-id <id> --operation-id <id> --expected-goal-generation <sha256> [--json]\n'
+        + '  goal extend --reason "<remaining work>" --session-id <id> --operation-id <id> --expected-goal-generation <sha256> [--json]\n'
+        + '  goal resume|repair --session-id <id> --operation-id <id> [--json]\n'
+        + '  project-goal set "<objective>" | read | clear [--json]',
+    )
+    .replace(
+      '  project-goal set "<objective>" | read | clear [--json]',
+      '  project-goal set "<objective>" | read | clear [--json]\n'
+        + '  ultragoal create|status|next|evidence|checkpoint|steer|gate run --session-id <id> [--json]',
+    )
+    .replace(
+      '  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--json]',
+      '  ultrawork start "<objective>" [--task-count <n>] [--summary <s>] [--session-id <id>] [--json]',
+    )
+    .replace(
+      '  ultraqa start "<goal>" [--max-cycles <n>] [--json]',
+      '  ultraqa start "<goal>" [--max-cycles <n>] [--session-id <id>] [--json]',
+    );
 }
 
 async function resolveExistingInputPath(value: string): Promise<string> {
@@ -192,6 +232,12 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   const json = hasFlag(argv, "--json");
 
   if (group === "help" || group === "--help" || group === "-h") {
+    return { ok: true, message: help() };
+  }
+  if (
+    (group === "setup" || group === "goal" || group === "ultragoal")
+    && (hasFlag(argv, "--help") || hasFlag(argv, "-h"))
+  ) {
     return { ok: true, message: help() };
   }
 
@@ -244,8 +290,15 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
     // current project's .github — personal install is the default surface.
     let homeMsg: string;
     try {
-      const { refreshUserInstall } = await import("./copilot/setup.js");
-      const { actions } = refreshUserInstall({ cwd: flagValue(argv, "--root") ?? process.cwd() });
+      const setup = await import("./copilot/setup.js");
+      const result = setup.refreshUserInstall({
+        cwd: flagValue(argv, "--root") ?? process.cwd(),
+      });
+      if (!result.ok) {
+        homeMsg = `\n${setup.formatUserInstallRefreshBlock(result.conflicts)}`;
+        return { ok: true, message: `omp CLI updated.\n${pluginMsg}${homeMsg}\nre-run \`omp\`.` };
+      }
+      const { actions } = result;
       const hook = actions.find((a) => a.target.endsWith("omp.json"));
       const hookPart =
         hook?.kind === "update"
@@ -449,6 +502,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   if (group === "ralph") {
     return await handleModeCommand("ralph", argv, json);
   }
+  if (group === "ultragoal") {
+    return await handleUltragoalCommand(argv, json);
+  }
   if (group === "ultrawork") {
     return await handleModeCommand("ultrawork", argv, json);
   }
@@ -486,22 +542,91 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
   }
 
   if (group === "goal") {
-    const { readRepoGoal, writeRepoGoal } = await import("./goal.js");
+    const { runGoalCommand } = await import("./commands/goal.js");
+    const cwd = flagValue(argv, "--root") ?? process.cwd();
+    const sessionId = flagValue(argv, "--session-id");
+    if (!sessionId?.trim()) {
+      const output = {
+        schemaVersion: 1,
+        ok: false,
+        error: {
+          code: "SESSION_ID_REQUIRED",
+          message: "--session-id is required",
+          retryable: false,
+        },
+      };
+      return json
+        ? { ok: false, exitCode: 1, output }
+        : { ok: false, exitCode: 1, message: "--session-id is required" };
+    }
+    const positional = positionalValue(value);
+    const output = await runGoalCommand({
+      root: cwd,
+      command: command ?? "status",
+      sessionId,
+      operationId: flagValue(argv, "--operation-id"),
+      expectedGoalGeneration: flagValue(argv, "--expected-goal-generation"),
+      objective: positional,
+      reason:
+        flagValue(argv, "--reason")
+        ?? (command === "pause" || command === "clear" ? positional : undefined),
+      turnId: flagValue(argv, "--turn-id"),
+      assistantText: flagValue(argv, "--assistant-text"),
+    });
+    if (json) return { ok: output.ok, exitCode: output.ok ? 0 : 1, output };
+    if (!output.ok) return { ok: false, exitCode: 1, message: output.error.message };
+    return { ok: true, message: JSON.stringify(output.result, null, 2) };
+  }
+
+  if (group === "project-goal") {
+    const { clearProjectGoal, readProjectGoal, writeProjectGoal } = await import("./project-goal.js");
     const { syncInstructionsMemory } = await import("./instructions-memory.js");
     const cwd = flagValue(argv, "--root") ?? process.cwd();
-    if (command === "set") {
-      if (!value || !value.trim() || value.startsWith("-")) {
-        return { ok: false, exitCode: 1, message: 'usage: omp goal set "<objective>"' };
+    const failure = (code: string, message: string): CliResult => {
+      const output = {
+        schemaVersion: 1,
+        ok: false,
+        error: { code, message, retryable: false },
+      };
+      return json
+        ? { ok: false, exitCode: 1, output }
+        : { ok: false, exitCode: 1, message };
+    };
+    try {
+      if (command === "set") {
+        if (!value || !value.trim() || value.startsWith("-")) {
+          return failure("PROJECT_GOAL_OBJECTIVE_REQUIRED", 'usage: omp project-goal set "<objective>"');
+        }
+        const goal = writeProjectGoal(cwd, value);
+        syncInstructionsMemory(cwd); // refresh the managed block Copilot reads
+        const output = { schemaVersion: 1, ok: true, result: { goal } };
+        return json ? { ok: true, output } : { ok: true, message: `project goal set: ${goal}` };
       }
-      const goal = writeRepoGoal(cwd, value);
-      syncInstructionsMemory(cwd); // refresh the managed block Copilot reads
-      return json ? { ok: true, output: { ok: true, goal } } : { ok: true, message: `repo goal set: ${goal}` };
+      if (command === "read" || command === undefined) {
+        const goal = readProjectGoal(cwd);
+        const output = { schemaVersion: 1, ok: true, result: { goal } };
+        return json ? { ok: true, output } : { ok: true, message: goal || "(no project goal set)" };
+      }
+      if (command === "clear") {
+        const cleared = clearProjectGoal(cwd);
+        syncInstructionsMemory(cwd);
+        const output = { schemaVersion: 1, ok: true, result: { cleared } };
+        return json
+          ? { ok: true, output }
+          : { ok: true, message: cleared ? "project goal cleared" : "project goal already empty" };
+      }
+    } catch (error) {
+      const action = command === "clear" ? "clear" : command === "read" ? "read" : "write";
+      return failure(
+        `PROJECT_GOAL_${action.toUpperCase()}_FAILED`,
+        error instanceof Error ? error.message : String(error),
+      );
     }
-    if (command === "read" || command === undefined) {
-      const goal = readRepoGoal(cwd);
-      return json ? { ok: true, output: { goal } } : { ok: true, message: goal || "(no repo goal set)" };
-    }
-    return { ok: false, exitCode: 1, message: 'Unknown goal subcommand. Try: goal set "<text>" | goal read' };
+    return {
+      ok: false,
+      exitCode: 1,
+      message: 'Unknown project-goal subcommand. Try: project-goal set "<text>" | read | clear',
+    };
   }
 
   if (group === "memory") {
@@ -1825,6 +1950,153 @@ async function handleGatewayCommand(argv: string[], json: boolean): Promise<CliR
     message:
       "Unknown gateway subcommand. Try: gateway serve | status | doctor | notify --text \"...\"",
   };
+}
+
+async function handleUltragoalCommand(argv: string[], json: boolean): Promise<CliResult> {
+  const [, command, value] = argv;
+  const positional = positionalValue(value);
+  const cwd = flagValue(argv, "--root") ?? process.cwd();
+  const sessionId = flagValue(argv, "--session-id") ?? "";
+  const operationId = flagValue(argv, "--operation-id") ?? "";
+  const runtime = await import("./ultragoal/runtime.js");
+
+  const envelope = (result: unknown): CliResult => {
+    const output = { schemaVersion: 1, ok: true, result };
+    return json
+      ? { ok: true, output }
+      : { ok: true, message: JSON.stringify(result, null, 2) };
+  };
+  const errorEnvelope = (code: string, message: string): CliResult => {
+    const output = {
+      schemaVersion: 1,
+      ok: false,
+      error: { code, message, retryable: code === "ULTRAGOAL_BUSY" },
+    };
+    return json
+      ? { ok: false, exitCode: 1, output }
+      : { ok: false, exitCode: 1, message: `${code}: ${message}` };
+  };
+  const parseJson = <T>(flag: string, fallback?: T): T | undefined => {
+    const raw = flagValue(argv, flag);
+    if (!raw) return fallback;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      throw new runtime.UltragoalError("INVALID_JSON", `${flag} must contain valid JSON`);
+    }
+  };
+
+  try {
+    if (!sessionId.trim()) {
+      throw new runtime.UltragoalError("SESSION_ID_REQUIRED", "--session-id is required");
+    }
+    if (command === "status" || command === undefined) {
+      return envelope(runtime.readUltragoal(cwd, sessionId));
+    }
+    if (command === "create") {
+      const { runGoalCommand } = await import("./commands/goal.js");
+      const outer = await runGoalCommand({ root: cwd, command: "status", sessionId });
+      if (!outer.ok || outer.result.status !== "active") {
+        return errorEnvelope(
+          "GOAL_REQUIRED",
+          "create an active session Goal before creating Ultragoal",
+        );
+      }
+      const stories = parseJson<StoryInput[]>("--stories-json");
+      const manifest = runtime.createUltragoal({
+        cwd,
+        sessionId,
+        operationId,
+        objective: positional ?? String(outer.result.objective ?? ""),
+        goalGeneration:
+          typeof outer.result.goalGeneration === "string"
+            ? outer.result.goalGeneration
+            : undefined,
+        stories,
+        planFile: flagValue(argv, "--plan-file"),
+      });
+      return envelope(manifest);
+    }
+    if (command === "next" || command === "start-next") {
+      return envelope(
+        runtime.startNextUltragoalStory({ cwd, sessionId, operationId }),
+      );
+    }
+    if (command === "evidence") {
+      return envelope(
+        runtime.attachUltragoalEvidence({
+          cwd,
+          sessionId,
+          operationId,
+          storyId: flagValue(argv, "--story-id") ?? "",
+          criterionId: flagValue(argv, "--criterion-id") ?? "",
+          summary: flagValue(argv, "--summary") ?? "",
+          file: flagValue(argv, "--file"),
+        }),
+      );
+    }
+    if (command === "checkpoint") {
+      return envelope(
+        runtime.checkpointUltragoalStory({
+          cwd,
+          sessionId,
+          operationId,
+          storyId: flagValue(argv, "--story-id") ?? positional ?? "",
+        }),
+      );
+    }
+    if (command === "steer") {
+      const stories = parseJson<StoryInput[]>("--stories-json");
+      const pendingOrder = (flagValue(argv, "--pending-order") ?? "")
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      return envelope(
+        runtime.steerUltragoal({
+          cwd,
+          sessionId,
+          operationId,
+          kind: (flagValue(argv, "--kind") ?? "") as SteeringKind,
+          evidence: flagValue(argv, "--evidence") ?? "",
+          rationale: flagValue(argv, "--rationale") ?? "",
+          targetStoryId: flagValue(argv, "--target-story-id"),
+          stories,
+          pendingOrder: pendingOrder.length ? pendingOrder : undefined,
+          title: flagValue(argv, "--title"),
+          objective: flagValue(argv, "--objective"),
+          criteria: parseJson<string[]>("--criteria-json"),
+        }),
+      );
+    }
+    if (command === "gate" && value === "run") {
+      const gates = await import("./ultragoal/gates.js");
+      const timeoutRaw = flagValue(argv, "--timeout-ms");
+      const timeoutMs = timeoutRaw ? Number(timeoutRaw) : undefined;
+      if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+        throw new runtime.UltragoalError("INVALID_TIMEOUT", "--timeout-ms must be positive");
+      }
+      return envelope(
+        await gates.runUltragoalGate({
+          cwd,
+          sessionId,
+          operationId,
+          timeoutMs,
+          copilotBin: flagValue(argv, "--copilot-bin"),
+          pluginRoot: flagValue(argv, "--plugin-root"),
+        }),
+      );
+    }
+    return errorEnvelope(
+      "UNKNOWN_ULTRAGOAL_COMMAND",
+      "Try: create | status | next | evidence | checkpoint | steer | gate run",
+    );
+  } catch (error) {
+    if (error instanceof runtime.UltragoalError) {
+      return errorEnvelope(error.code, error.message.replace(`${error.code}: `, ""));
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return errorEnvelope("ULTRAGOAL_INTERNAL_ERROR", message);
+  }
 }
 
 const TEAM_SPEC_RE = /^(\d+):([\w-]+)$/;

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ompRoot } from "./omp-root.js";
-import { readRepoGoal } from "./goal.js";
+import { readProjectGoal } from "./project-goal.js";
 // Import store only (not the handoff barrel) so instruction sync does not pull git/trace.
 import { listHandoffPointers } from "./handoff/store.js";
 import { sanitizeForInstructions } from "./handoff/redact.js";
@@ -27,12 +27,12 @@ function instructionsPath(cwd: string): string {
 }
 
 function renderBlock(cwd: string): string {
-  const goal = readRepoGoal(cwd);
+  const goal = readProjectGoal(cwd);
   const total = noteIndex(cwd).length;
   const topics = listTopics(cwd);
   const config = readMemoryConfig(cwd);
   const lines: string[] = [START, "## oh-my-copilot project context"];
-  if (goal) lines.push("", `**Repo goal:** ${goal}`);
+  if (goal) lines.push("", `**Project goal:** ${goal}`);
   // Must-follow directives — same injection budget as the SessionStart hook, so
   // headless `copilot -p` sessions (no hooks) get the same rules. Sanitized at
   // render as well as on write, so legacy marker-bearing rules can't wedge the

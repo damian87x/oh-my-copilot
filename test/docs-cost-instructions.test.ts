@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { writeRepoGoal } from "../src/goal.js";
+import { writeProjectGoal } from "../src/project-goal.js";
 import { syncInstructionsMemory } from "../src/instructions-memory.js";
 import { runSetup } from "../src/copilot/setup.js";
 
@@ -15,6 +15,10 @@ function tempRoot(prefix: string): string {
   return dir;
 }
 
+function tempHome(): string {
+  return tempRoot("omc-cost-home-");
+}
+
 function tempPlugin(): string {
   const dir = tempRoot("omc-cost-plugin-");
   mkdirSync(path.join(dir, ".github", "skills"), { recursive: true });
@@ -25,7 +29,7 @@ function tempPlugin(): string {
 describe("cost/token instruction contracts", () => {
   it("keeps setup template and committed Copilot instructions aligned on cost semantics", () => {
     const project = tempRoot("omc-cost-project-");
-    runSetup({ cwd: project, pluginRoot: tempPlugin() });
+    runSetup({ cwd: project, pluginRoot: tempPlugin(), copilotHome: tempHome() });
 
     const generated = readFileSync(path.join(project, ".github", "copilot-instructions.md"), "utf8");
     const committed = readRepoFile(".github/copilot-instructions.md");
@@ -61,14 +65,14 @@ describe("cost/token instruction contracts", () => {
         "",
       ].join("\n"),
     );
-    writeRepoGoal(project, "Ship docs guard");
+    writeProjectGoal(project, "Ship docs guard");
 
     expect(syncInstructionsMemory(project).wrote).toBe(true);
 
     const text = readFileSync(path.join(project, ".github", "copilot-instructions.md"), "utf8");
     expect(text).toContain("## Cost/token discipline");
     expect(text).toContain("not provider billing");
-    expect(text).toContain("**Repo goal:** Ship docs guard");
+    expect(text).toContain("**Project goal:** Ship docs guard");
     expect(text).not.toContain("old managed content");
   });
 
