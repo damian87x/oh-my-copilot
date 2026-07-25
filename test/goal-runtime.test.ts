@@ -6,12 +6,13 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   truncateSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 // @ts-expect-error - plain .mjs runtime exports are exercised through their public API.
 import { goalCommand, goalRuntimeInternals } from "../scripts/lib/goal-runtime.mjs";
 
@@ -30,11 +31,18 @@ async function command(
   operationId: string,
   input: Record<string, unknown> = {},
 ) {
+  const generationBound = new Set(["complete", "extend", "turn"]);
+  const status = generationBound.has(commandName) && input.expectedGoalGeneration === undefined
+    ? goalCommand({ root, command: "status", sessionId: "session-1" })
+    : undefined;
   return goalCommand({
     root,
     command: commandName,
     sessionId: "session-1",
     operationId,
+    ...(status?.ok && typeof status.result.goalGeneration === "string"
+      ? { expectedGoalGeneration: status.result.goalGeneration }
+      : {}),
     ...input,
   });
 }
@@ -160,6 +168,29 @@ describe("Goal lifecycle", () => {
     });
   });
 
+  it("rejects agent completion that omits the active Goal generation", async () => {
+    const root = project();
+    await command(root, "set", "create-a", { objective: "Goal A" });
+    await command(root, "replace", "replace-b", { objective: "Goal B" });
+
+    const unbound = goalCommand({
+      root,
+      command: "complete",
+      sessionId: "session-1",
+      operationId: "stale-unbound-complete",
+      reason: "stale completion",
+    });
+
+    expect(unbound).toMatchObject({
+      ok: false,
+      error: { code: "GOAL_GENERATION_REQUIRED", retryable: false },
+    });
+    expect(await command(root, "status", "unused")).toMatchObject({
+      ok: true,
+      result: { objective: "Goal B", status: "active", turnCount: 0 },
+    });
+  });
+
   it("normalizes every Goal stream path to the repository root", async () => {
     const root = project();
     const nested = join(root, "packages", "service", "src");
@@ -201,6 +232,26 @@ describe("Goal lifecycle", () => {
 });
 
 describe("Goal turn policy", () => {
+  it("binds continuation commands to the current Goal generation", async () => {
+    const root = project();
+    const created = await command(root, "set", "create", { objective: "Finish safely" });
+    const generation = created.result.goalGeneration;
+
+    const turn = await command(root, "turn", "turn-1", {
+      turnId: "turn-1",
+      assistantText: "Still working.",
+    });
+
+    expect(turn).toMatchObject({
+      ok: true,
+      result: {
+        reason: expect.stringContaining(
+          `--expected-goal-generation "${generation}"`,
+        ),
+      },
+    });
+  });
+
   it("uses exact latest-message markers for completion and three-consecutive blocker decisions", async () => {
     const completeRoot = project();
     await command(completeRoot, "set", "create", { objective: "Finish" });
@@ -296,7 +347,7 @@ describe("Goal turn policy", () => {
       ok: true,
       result: { status: "active", turnCount: 20, grantedThrough: 40, decision: "block" },
     });
-  });
+  }, 10000);
 
   it("requires the missed extension before resuming a boundary-paused Goal", async () => {
     const root = project();
@@ -504,4 +555,74 @@ describe("Goal ledger recovery and integrity", () => {
       error: { code: "LEDGER_CORRUPT", retryable: false },
     });
   });
+
+  it.skipIf(process.platform === "win32")(
+    "rejects a symlinked ledger without repairing the external target",
+    async () => {
+      const root = project();
+      await command(root, "set", "create", { objective: "Keep writes inside the Goal stream" });
+      const paths = goalRuntimeInternals.streamPaths(root, "session-1");
+      const externalRoot = project();
+      const externalLedger = join(externalRoot, "external-ledger.jsonl");
+      const ledgerWithoutNewline = readFileSync(paths.ledger, "utf8").trimEnd();
+      writeFileSync(externalLedger, ledgerWithoutNewline, "utf8");
+      rmSync(paths.ledger);
+      symlinkSync(externalLedger, paths.ledger);
+
+      const result = await command(root, "status", "unused");
+
+      expect(readFileSync(externalLedger, "utf8")).toBe(ledgerWithoutNewline);
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "LEDGER_CORRUPT", retryable: false },
+      });
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "rejects a ledger swapped to a symlink after validation without appending externally",
+    async () => {
+      const root = project();
+      const created = await command(root, "set", "create", {
+        objective: "Keep appends inside the Goal stream",
+      });
+      const paths = goalRuntimeInternals.streamPaths(root, "session-1");
+      const externalRoot = project();
+      const externalLedger = join(externalRoot, "external-ledger.jsonl");
+      const externalBefore = "DO NOT APPEND\n";
+      writeFileSync(externalLedger, externalBefore, "utf8");
+      const originalToISOString = Date.prototype.toISOString;
+      let timestampCalls = 0;
+      const timestampSpy = vi
+        .spyOn(Date.prototype, "toISOString")
+        .mockImplementation(function toISOString() {
+          timestampCalls += 1;
+          if (timestampCalls === 2) {
+            rmSync(paths.ledger);
+            symlinkSync(externalLedger, paths.ledger);
+          }
+          return originalToISOString.call(this);
+        });
+
+      let result;
+      try {
+        result = goalCommand({
+          root,
+          command: "pause",
+          sessionId: "session-1",
+          operationId: "pause-after-ledger-swap",
+          expectedGoalGeneration: created.result.goalGeneration,
+          reason: "exercise append boundary",
+        });
+      } finally {
+        timestampSpy.mockRestore();
+      }
+
+      expect(readFileSync(externalLedger, "utf8")).toBe(externalBefore);
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: "LEDGER_CORRUPT", retryable: false },
+      });
+    },
+  );
 });

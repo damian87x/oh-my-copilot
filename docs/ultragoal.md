@@ -70,14 +70,16 @@ omp goal set "docs smoke" --session-id "$SID" --operation-id "$OID" --json
 # Optional: create needs stories-json or a default single-story plan from the objective
 # omp ultragoal create "docs smoke story" --session-id "$SID" --operation-id "${OID}-ug" --json
 omp ultragoal status --session-id "$SID" --json
-omp goal complete --reason "docs smoke done" --session-id "$SID" --operation-id "${OID}-done" --json
+GENERATION="$(omp goal status --session-id "$SID" --json | jq -r .result.goalGeneration)"
+omp goal complete --reason "docs smoke done" --session-id "$SID" --operation-id "${OID}-done" --expected-goal-generation "$GENERATION" --json
 ```
 
 ## Existing `/goal` installs
 
 `omp setup` recognizes historical repository-goal skill hashes and migrates
 them to the session Goal plus `/project-goal` without touching `.omp/goal.md`.
-It refuses all setup mutations when the effective `/goal` or an instruction
-source contains unknown legacy routing. `--force` does not bypass that
-conflict. Successful user and project installs write a version-2 validation
-manifest (`omp-bundle-manifest.json`) with bundle and catalog hashes.
+An unknown effective `/goal` is preserved, and legacy routing in instruction
+sources is reported without modifying those sources; unrelated safe setup
+files still install. `--force` does not overwrite an unknown `/goal`.
+Successful user and project installs write a version-2 validation manifest
+(`omp-bundle-manifest.json`) with bundle and catalog hashes.

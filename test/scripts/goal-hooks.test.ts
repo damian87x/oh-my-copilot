@@ -46,7 +46,10 @@ describe("Goal lifecycle hook context", () => {
     const root = project();
     mkdirSync(join(root, ".omp"), { recursive: true });
     writeFileSync(join(root, ".omp", "goal.md"), "# Repo Goal\n\nShip the product\n", "utf8");
-    createGoal(root, "session-1");
+    const goal = createGoal(root, "session-1");
+    if (!goal.ok || typeof goal.result.goalGeneration !== "string") {
+      throw new Error("Goal fixture did not expose its generation");
+    }
 
     const output = await handleSessionStart(
       JSON.stringify({ cwd: root, sessionId: "session-1" }),
@@ -58,6 +61,9 @@ describe("Goal lifecycle hook context", () => {
     expect(context).toContain("[GOAL ACTIVE: turn 0/20]");
     expect(context).toContain("Finish the session objective");
     expect(context).toContain("omp goal complete");
+    expect(context).toContain(
+      `--expected-goal-generation "${goal.result.goalGeneration}"`,
+    );
     expect(context).toContain("OMP_GOAL_COMPLETE");
     expect(context).not.toContain("omp goal extend");
     expect(context).not.toContain("[REPO GOAL]");
@@ -119,13 +125,17 @@ describe("Goal lifecycle hook context", () => {
 
   it("gives the agent the explicit extension command before turn 20", async () => {
     const root = project();
-    createGoal(root, "goal-session");
+    const goal = createGoal(root, "goal-session");
+    if (!goal.ok || typeof goal.result.goalGeneration !== "string") {
+      throw new Error("Goal fixture did not expose its generation");
+    }
     for (let turn = 1; turn <= 19; turn += 1) {
       goalCommand({
         root,
         command: "turn",
         sessionId: "goal-session",
         operationId: `turn-${turn}`,
+        expectedGoalGeneration: goal.result.goalGeneration,
         turnId: `turn-${turn}`,
         assistantText: "Still working.",
       });
@@ -138,16 +148,23 @@ describe("Goal lifecycle hook context", () => {
     expect(output.additionalContext).toContain("[GOAL ACTIVE: turn 19/20]");
     expect(output.additionalContext).toContain("omp goal extend");
     expect(output.additionalContext).toContain('goal-extend-20');
+    expect(output.additionalContext).toContain(
+      `--expected-goal-generation "${goal.result.goalGeneration}"`,
+    );
   });
 
   it("does not inject terminal Goal context into every later prompt", async () => {
     const root = project();
-    createGoal(root, "goal-session");
+    const goal = createGoal(root, "goal-session");
+    if (!goal.ok || typeof goal.result.goalGeneration !== "string") {
+      throw new Error("Goal fixture did not expose its generation");
+    }
     goalCommand({
       root,
       command: "complete",
       sessionId: "goal-session",
       operationId: "complete-goal",
+      expectedGoalGeneration: goal.result.goalGeneration,
       reason: "fresh verification passed",
     });
 

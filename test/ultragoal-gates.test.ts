@@ -17,6 +17,7 @@ import {
   createDefaultGateSpawn,
   parseGateFooter,
   runUltragoalGate,
+  type GateRole,
   type GateSpawn,
 } from "../src/ultragoal/gates.js";
 // @ts-expect-error - the hook runtime is intentionally plain ESM.
@@ -69,6 +70,50 @@ function completedPlan(): string {
     storyId: "G001",
     criterionId: "C001",
     summary: "focused and full tests passed",
+    file: "verification.txt",
+  });
+  checkpointUltragoalStory({
+    cwd: root,
+    sessionId: "session-1",
+    operationId: "checkpoint",
+    storyId: "G001",
+  });
+  return root;
+}
+
+function completedUnboundPlan(prefix = "omp-ultragoal-gate-unbound-"): string {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  fixtures.push(root);
+  writeFileSync(join(root, "package.json"), "{}\n", "utf8");
+  goalCommand({
+    root,
+    command: "set",
+    sessionId: "session-1",
+    operationId: "goal-a",
+    objective: "Original Goal",
+  });
+  createUltragoal({
+    cwd: root,
+    sessionId: "session-1",
+    operationId: "create-unbound",
+    objective: "Original Goal",
+    stories: [
+      {
+        title: "Ship",
+        objective: "Implement and verify.",
+        criteria: ["verification evidence exists"],
+      },
+    ],
+  });
+  startNextUltragoalStory({ cwd: root, sessionId: "session-1", operationId: "start" });
+  writeFileSync(join(root, "verification.txt"), "focused tests passed\n", "utf8");
+  attachUltragoalEvidence({
+    cwd: root,
+    sessionId: "session-1",
+    operationId: "evidence",
+    storyId: "G001",
+    criterionId: "C001",
+    summary: "focused tests passed",
     file: "verification.txt",
   });
   checkpointUltragoalStory({
@@ -374,6 +419,126 @@ describe("Ultragoal three-role gate", () => {
     });
   });
 
+  it("does not let an unbound passed gate complete a replacement Goal", async () => {
+    const root = completedUnboundPlan();
+    goalCommand({
+      root,
+      command: "replace",
+      sessionId: "session-1",
+      operationId: "goal-b",
+      objective: "Replacement Goal",
+    });
+
+    await expect(
+      runUltragoalGate(
+        {
+          cwd: root,
+          sessionId: "session-1",
+          operationId: "gate-unbound-stale",
+        },
+        { spawn: spawnWith({}) },
+      ),
+    ).rejects.toThrow(/GOAL_COMPLETION_FAILED/);
+    expect(
+      goalCommand({ root, command: "status", sessionId: "session-1" }),
+    ).toMatchObject({
+      ok: true,
+      result: { status: "active", objective: "Replacement Goal" },
+    });
+    const plan = readUltragoal(root, "session-1");
+    expect(plan.status).toBe("awaiting_gate");
+    expect(plan.lastGate).toBeUndefined();
+  });
+
+  it("rejects an unbound passed gate even when the outer Goal is already complete", async () => {
+    const root = completedUnboundPlan("omp-ultragoal-gate-unbound-complete-");
+    const replaced = goalCommand({
+      root,
+      command: "replace",
+      sessionId: "session-1",
+      operationId: "goal-b",
+      objective: "Replacement Goal",
+    });
+    if (!replaced.ok || typeof replaced.result.goalGeneration !== "string") {
+      throw new Error("Goal fixture did not expose the replacement generation");
+    }
+    goalCommand({
+      root,
+      command: "turn",
+      sessionId: "session-1",
+      operationId: "complete-goal-b",
+      turnId: "complete-goal-b",
+      expectedGoalGeneration: replaced.result.goalGeneration,
+      assistantText: "OMP_GOAL_COMPLETE",
+    });
+
+    await expect(
+      runUltragoalGate(
+        {
+          cwd: root,
+          sessionId: "session-1",
+          operationId: "gate-unbound-complete",
+        },
+        { spawn: spawnWith({}) },
+      ),
+    ).rejects.toThrow(/GOAL_COMPLETION_FAILED/);
+    expect(
+      goalCommand({ root, command: "status", sessionId: "session-1" }),
+    ).toMatchObject({
+      ok: true,
+      result: { status: "complete", objective: "Replacement Goal" },
+    });
+  });
+
+  it("does not complete the outer Goal before a passed gate is durably applied", async () => {
+    const root = completedPlan();
+    let steered = false;
+
+    await expect(
+      runUltragoalGate(
+        {
+          cwd: root,
+          sessionId: "session-1",
+          operationId: "gate-apply-race",
+        },
+        {
+          spawn: async (request) => {
+            if (!steered) {
+              steered = true;
+              steerUltragoal({
+                cwd: root,
+                sessionId: "session-1",
+                operationId: "gate-apply-race-steering",
+                kind: "add",
+                evidence: "operator added work while the gate was running",
+                rationale: "make applyUltragoalGate reject the stale passed gate",
+                stories: [
+                  {
+                    title: "Late work",
+                    objective: "Complete the added work before gate pass.",
+                    criteria: ["late work has evidence"],
+                  },
+                ],
+              });
+            }
+            return spawnWith({})(request);
+          },
+        },
+      ),
+    ).rejects.toThrow(/GATE_NOT_READY/);
+
+    expect(steered).toBe(true);
+    const plan = readUltragoal(root, "session-1");
+    expect(plan.status).toBe("active");
+    expect(plan.lastGate).toBeUndefined();
+    expect(
+      goalCommand({ root, command: "status", sessionId: "session-1" }),
+    ).toMatchObject({
+      ok: true,
+      result: { status: "active" },
+    });
+  });
+
   it("turns BLOCK and INCONCLUSIVE outcomes into deterministic pending resolver stories", async () => {
     const root = completedPlan();
     const before = readUltragoal(root, "session-1");
@@ -478,6 +643,73 @@ describe("Ultragoal three-role gate", () => {
     expect(readUltragoal(root, "session-1").stories).toHaveLength(
       afterFirst.stories.length,
     );
+  });
+
+  it("keeps an overlapping losing gate from corrupting a winning gate replay", async () => {
+    const root = completedPlan();
+    const pendingLoserResponses = new Map<GateRole, () => void>();
+    const loserReady = runUltragoalGate(
+      {
+        cwd: root,
+        sessionId: "session-1",
+        operationId: "gate-loses-after-overlap",
+      },
+      {
+        spawn: async ({ role, planRevision }) => {
+          await new Promise<void>((resolve) => {
+            pendingLoserResponses.set(role, resolve);
+          });
+          return {
+            stdout: [
+              `${role} losing gate output`,
+              `OMP_GATE_RESULT ${JSON.stringify({
+                role,
+                verdict: "PASS",
+                planRevision,
+                summary: `${role} losing pass`,
+              })}`,
+            ].join("\n"),
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+            overflowed: false,
+          };
+        },
+      },
+    );
+    await vi.waitFor(() => expect(pendingLoserResponses.size).toBe(3));
+
+    const winner = await runUltragoalGate(
+      {
+        cwd: root,
+        sessionId: "session-1",
+        operationId: "gate-wins-overlap",
+      },
+      { spawn: spawnWith({}) },
+    );
+    expect(winner.status).toBe("passed");
+    for (const role of winner.roles) {
+      expect(role.outputPath).not.toContain("gate-wins-overlap");
+      expect(role.outputPath).not.toContain("gate-loses-after-overlap");
+    }
+
+    for (const release of pendingLoserResponses.values()) release();
+    await expect(loserReady).rejects.toThrow(/GATE_NOT_READY/);
+
+    await expect(
+      runUltragoalGate(
+        {
+          cwd: root,
+          sessionId: "session-1",
+          operationId: "gate-wins-overlap",
+        },
+        {
+          spawn: async () => {
+            throw new Error("winning gate replay must not respawn");
+          },
+        },
+      ),
+    ).resolves.toEqual(winner);
   });
 
   it("rejects replay when a persisted role output no longer matches its hash", async () => {

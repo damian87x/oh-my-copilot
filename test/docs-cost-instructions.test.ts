@@ -15,6 +15,10 @@ function tempRoot(prefix: string): string {
   return dir;
 }
 
+function tempHome(): string {
+  return tempRoot("omc-cost-home-");
+}
+
 function tempPlugin(): string {
   const dir = tempRoot("omc-cost-plugin-");
   mkdirSync(path.join(dir, ".github", "skills"), { recursive: true });
@@ -25,7 +29,7 @@ function tempPlugin(): string {
 describe("cost/token instruction contracts", () => {
   it("keeps setup template and committed Copilot instructions aligned on cost semantics", () => {
     const project = tempRoot("omc-cost-project-");
-    runSetup({ cwd: project, pluginRoot: tempPlugin() });
+    runSetup({ cwd: project, pluginRoot: tempPlugin(), copilotHome: tempHome() });
 
     const generated = readFileSync(path.join(project, ".github", "copilot-instructions.md"), "utf8");
     const committed = readRepoFile(".github/copilot-instructions.md");

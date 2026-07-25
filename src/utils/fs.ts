@@ -240,6 +240,78 @@ export function writeAllSync(fd: number, content: string | Buffer): void {
   }
 }
 
+export function ensureTrustedParentDirectory(
+  filePath: string,
+  trustedRoot: string,
+): void {
+  const absoluteRoot = path.resolve(trustedRoot);
+  const absoluteDirectory = path.resolve(dirname(filePath));
+  const relativeDirectory = path.relative(absoluteRoot, absoluteDirectory);
+  if (
+    relativeDirectory === ".." ||
+    relativeDirectory.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativeDirectory)
+  ) {
+    throw new Error("trusted parent directory could not be prepared safely: outside-root");
+  }
+
+  let rootStat: ReturnType<typeof lstatSync>;
+  let realRoot: string;
+  try {
+    rootStat = lstatSync(absoluteRoot);
+    if (rootStat.isSymbolicLink())
+      throw new Error("trusted parent directory could not be prepared safely: symlink-ancestor");
+    if (!rootStat.isDirectory())
+      throw new Error("trusted parent directory could not be prepared safely: unavailable");
+    realRoot = realpathSync(absoluteRoot);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("trusted parent directory"))
+      throw error;
+    throw new Error(
+      "trusted parent directory could not be prepared safely: unavailable",
+      { cause: error },
+    );
+  }
+
+  if (relativeDirectory === "") return;
+
+  let current = absoluteRoot;
+  for (const segment of relativeDirectory.split(path.sep)) {
+    current = path.join(current, segment);
+    let stat: ReturnType<typeof lstatSync>;
+    try {
+      stat = lstatSync(current);
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT")
+        throw new Error(
+          "trusted parent directory could not be prepared safely: unavailable",
+          { cause: error },
+        );
+      mkdirSync(current);
+      try {
+        stat = lstatSync(current);
+      } catch (recheckError) {
+        throw new Error(
+          "trusted parent directory could not be prepared safely: unavailable",
+          { cause: recheckError },
+        );
+      }
+    }
+    if (stat.isSymbolicLink())
+      throw new Error("trusted parent directory could not be prepared safely: symlink-ancestor");
+    if (!stat.isDirectory())
+      throw new Error("trusted parent directory could not be prepared safely: unavailable");
+    let realCurrent: string;
+    try {
+      realCurrent = realpathSync(current);
+    } catch {
+      throw new Error("trusted parent directory could not be prepared safely: unavailable");
+    }
+    if (!isInside(realRoot, realCurrent))
+      throw new Error("trusted parent directory could not be prepared safely: outside-root");
+  }
+}
+
 function sameFile(
   left: ReturnType<typeof fstatSync>,
   right: ReturnType<typeof fstatSync>,

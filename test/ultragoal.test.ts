@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyUltragoalGate,
   attachUltragoalEvidence,
@@ -259,6 +259,71 @@ describe("sequential Ultragoal", () => {
 
     expect(() => readUltragoal(root, "session-1")).toThrow(/LEDGER_CORRUPT/);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "rejects a symlinked ledger without repairing the external target",
+    () => {
+      const root = project();
+      createPlan(root);
+      const paths = ultragoalPaths(root, "session-1");
+      const externalRoot = project();
+      const externalLedger = join(externalRoot, "external-ledger.jsonl");
+      const ledgerWithoutNewline = readFileSync(paths.ledger, "utf8").trimEnd();
+      writeFileSync(externalLedger, ledgerWithoutNewline, "utf8");
+      rmSync(paths.ledger);
+      symlinkSync(externalLedger, paths.ledger);
+
+      let thrown: unknown;
+      try {
+        readUltragoal(root, "session-1");
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(readFileSync(externalLedger, "utf8")).toBe(ledgerWithoutNewline);
+      expect(thrown).toMatchObject({ code: "LEDGER_CORRUPT" });
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "rejects a ledger path replacement after validation without writing the external target",
+    () => {
+      const root = project();
+      createPlan(root);
+      const paths = ultragoalPaths(root, "session-1");
+      const externalRoot = project();
+      const externalLedger = join(externalRoot, "external-ledger.jsonl");
+      const originalLedger = readFileSync(paths.ledger, "utf8");
+      writeFileSync(externalLedger, originalLedger, "utf8");
+
+      let replaced = false;
+      const originalToISOString = Date.prototype.toISOString;
+      const timestampSpy = vi.spyOn(Date.prototype, "toISOString")
+        .mockImplementation(function toISOString() {
+          if (!replaced && new Error().stack?.includes("commitMutation")) {
+            replaced = true;
+            rmSync(paths.ledger, { force: true });
+            symlinkSync(externalLedger, paths.ledger);
+          }
+          return originalToISOString.call(this);
+        });
+
+      try {
+        expect(() =>
+          startNextUltragoalStory({
+            cwd: root,
+            sessionId: "session-1",
+            operationId: "start-ledger-race",
+          }),
+        ).toThrow(/LEDGER_CORRUPT/);
+      } finally {
+        timestampSpy.mockRestore();
+      }
+
+      expect(replaced).toBe(true);
+      expect(readFileSync(externalLedger, "utf8")).toBe(originalLedger);
+    },
+  );
 
   it("binds the latest ledger entry to the post-mutation manifest state", () => {
     const root = project();
@@ -646,6 +711,65 @@ describe("sequential Ultragoal", () => {
     expect(kept.planId).toBe(first.planId);
     expect(kept.goalGeneration).toBe(oldGeneration);
     expect(kept.objective).toBe("Keep me on failed supersede");
+  });
+
+  it("restores the old source snapshot when a superseding commit fails", () => {
+    const root = project();
+    const oldGeneration = "e".repeat(64);
+    const newGeneration = "f".repeat(64);
+    const first = createUltragoal({
+      cwd: root,
+      sessionId: "session-1",
+      operationId: "plan-before-commit-failure",
+      objective: "Preserve the original source snapshot",
+      goalGeneration: oldGeneration,
+      stories: [
+        {
+          title: "Original story",
+          objective: "Remain readable after rollback.",
+          criteria: ["old source is restored"],
+        },
+      ],
+    });
+    const paths = ultragoalPaths(root, "session-1");
+    const originalBrief = readFileSync(paths.brief, "utf8");
+    const originalToISOString = Date.prototype.toISOString;
+    let timestampCalls = 0;
+    const timestampSpy = vi
+      .spyOn(Date.prototype, "toISOString")
+      .mockImplementation(function toISOString() {
+        timestampCalls += 1;
+        if (timestampCalls === 2) throw new Error("injected supersede commit failure");
+        return originalToISOString.call(this);
+      });
+
+    try {
+      expect(() =>
+        createUltragoal({
+          cwd: root,
+          sessionId: "session-1",
+          operationId: "plan-failing-during-commit",
+          objective: "Replacement that must roll back atomically",
+          goalGeneration: newGeneration,
+          stories: [
+            {
+              title: "Replacement story",
+              objective: "Must not survive the injected failure.",
+              criteria: ["new source is discarded"],
+            },
+          ],
+        }),
+      ).toThrow(/injected supersede commit failure/);
+    } finally {
+      timestampSpy.mockRestore();
+    }
+
+    expect(readFileSync(paths.brief, "utf8")).toBe(originalBrief);
+    expect(readUltragoal(root, "session-1")).toMatchObject({
+      planId: first.planId,
+      goalGeneration: oldGeneration,
+      objective: "Preserve the original source snapshot",
+    });
   });
 
 });

@@ -1,21 +1,20 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  appendFileSync,
   closeSync,
   constants,
   existsSync,
   fstatSync,
+  ftruncateSync,
   fsyncSync,
   linkSync,
-  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readdirSync,
   renameSync,
   rmSync,
-  truncateSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { ompRoot } from "../omp-root.js";
@@ -832,56 +831,101 @@ function validateLedgerEntry(
   return entry;
 }
 
-function appendLedgerRecord(path: string, record: string): void {
-  ensureDir(path);
-  const descriptor = openSync(path, "a", 0o600);
+function appendLedgerRecord(paths: UltragoalPaths, record: string): void {
+  ensureDir(paths.ledger);
+  const opened = openRegularFile(
+    paths.ledger,
+    constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT,
+    {
+      trustedRoot: paths.root,
+      rejectHardlinks: true,
+    },
+  );
+  if (!opened.ok) {
+    throw new UltragoalError(
+      "LEDGER_CORRUPT",
+      `cannot safely append ledger: ${opened.reason}`,
+    );
+  }
+  const buffer = Buffer.from(record, "utf8");
+  let offset = 0;
   try {
-    appendFileSync(descriptor, record, "utf8");
-    fsyncSync(descriptor);
+    while (offset < buffer.length) {
+      const written = writeSync(
+        opened.fd,
+        buffer,
+        offset,
+        buffer.length - offset,
+      );
+      if (written <= 0) {
+        throw new UltragoalError("LEDGER_CORRUPT", "ledger append made no progress");
+      }
+      offset += written;
+    }
+    fsyncSync(opened.fd);
   } finally {
-    closeSync(descriptor);
+    closeSync(opened.fd);
   }
 }
 
 function readLedgerEntries(paths: UltragoalPaths): LedgerEntry[] {
-  if (!existsSync(paths.ledger)) return [];
-  const buffer = readFileSync(paths.ledger);
-  if (buffer.length > MAX_LEDGER_BYTES) {
-    throw new UltragoalError("LEDGER_CORRUPT", "ledger exceeds its size bound");
+  const opened = openRegularFile(paths.ledger, constants.O_RDWR, {
+    trustedRoot: paths.root,
+    rejectHardlinks: true,
+  });
+  if (!opened.ok) {
+    if (opened.reason === "missing") return [];
+    throw new UltragoalError(
+      "LEDGER_CORRUPT",
+      `cannot safely open ledger: ${opened.reason}`,
+    );
   }
-  let text = buffer.toString("utf8");
-  if (text && !text.endsWith("\n")) {
-    const lastNewline = text.lastIndexOf("\n");
-    const tail = text.slice(lastNewline + 1);
-    try {
-      const parsed = JSON.parse(tail);
-      if (canonicalJson(parsed) !== tail) throw new Error("non-canonical");
-      appendLedgerRecord(paths.ledger, "\n");
-      text += "\n";
-    } catch {
-      const completeLength = lastNewline + 1;
-      truncateSync(paths.ledger, completeLength);
-      text = text.slice(0, completeLength);
+  try {
+    const buffer = readFileSync(opened.fd);
+    if (buffer.length > MAX_LEDGER_BYTES) {
+      throw new UltragoalError("LEDGER_CORRUPT", "ledger exceeds its size bound");
     }
+    let text = buffer.toString("utf8");
+    if (text && !text.endsWith("\n")) {
+      const lastNewline = text.lastIndexOf("\n");
+      const tail = text.slice(lastNewline + 1);
+      try {
+        const parsed = JSON.parse(tail);
+        if (canonicalJson(parsed) !== tail) throw new Error("non-canonical");
+        writeSync(opened.fd, "\n", buffer.length, "utf8");
+        fsyncSync(opened.fd);
+        text += "\n";
+      } catch {
+        const completeLength = lastNewline + 1;
+        ftruncateSync(
+          opened.fd,
+          Buffer.byteLength(text.slice(0, completeLength), "utf8"),
+        );
+        fsyncSync(opened.fd);
+        text = text.slice(0, completeLength);
+      }
+    }
+    const entries: LedgerEntry[] = [];
+    let previousHash: string | null = null;
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        throw new UltragoalError("LEDGER_CORRUPT", "ledger contains invalid JSON");
+      }
+      if (canonicalJson(parsed) !== line) {
+        throw new UltragoalError("LEDGER_CORRUPT", "ledger record is not canonical JSON");
+      }
+      const entry = validateLedgerEntry(parsed, previousHash, entries.length + 1);
+      entries.push(entry);
+      previousHash = entry.entryHash;
+    }
+    return entries;
+  } finally {
+    closeSync(opened.fd);
   }
-  const entries: LedgerEntry[] = [];
-  let previousHash: string | null = null;
-  for (const line of text.split("\n")) {
-    if (!line) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      throw new UltragoalError("LEDGER_CORRUPT", "ledger contains invalid JSON");
-    }
-    if (canonicalJson(parsed) !== line) {
-      throw new UltragoalError("LEDGER_CORRUPT", "ledger record is not canonical JSON");
-    }
-    const entry = validateLedgerEntry(parsed, previousHash, entries.length + 1);
-    entries.push(entry);
-    previousHash = entry.entryHash;
-  }
-  return entries;
 }
 
 function validateLedgerAgainstManifest(
@@ -978,7 +1022,7 @@ function recoverPending(paths: UltragoalPaths): void {
     throw new UltragoalError("PENDING_CORRUPT", "pending manifest does not match its ledger entry");
   }
   if (!alreadyRecorded) {
-    appendLedgerRecord(paths.ledger, `${canonicalJson(pending.ledgerEntry)}\n`);
+    appendLedgerRecord(paths, `${canonicalJson(pending.ledgerEntry)}\n`);
   }
   writeJson(paths.manifest, manifest);
   rmSync(paths.pending, { force: true });
@@ -1084,7 +1128,7 @@ function commitMutation(
     ledgerEntry,
   };
   writeJson(paths.pending, pending);
-  appendLedgerRecord(paths.ledger, `${canonicalJson(ledgerEntry)}\n`);
+  appendLedgerRecord(paths, `${canonicalJson(ledgerEntry)}\n`);
   writeJson(paths.manifest, manifest);
   rmSync(paths.pending, { force: true });
   return manifest;
@@ -1270,13 +1314,16 @@ export function createUltragoal(input: CreateUltragoalInput): UltragoalManifest 
     const stashLedger = `${paths.ledger}.supersede-stash`;
     const stashManifest = `${paths.manifest}.supersede-stash`;
     const stashPending = `${paths.pending}.supersede-stash`;
+    const stashBrief = `${paths.brief}.supersede-stash`;
     if (superseding) {
       rmSync(stashLedger, { force: true });
       rmSync(stashManifest, { force: true });
       rmSync(stashPending, { force: true });
+      rmSync(stashBrief, { force: true });
       if (existsSync(paths.ledger)) renameSync(paths.ledger, stashLedger);
       if (existsSync(paths.manifest)) renameSync(paths.manifest, stashManifest);
       if (existsSync(paths.pending)) renameSync(paths.pending, stashPending);
+      if (existsSync(paths.brief)) renameSync(paths.brief, stashBrief);
     }
 
     try {
@@ -1317,6 +1364,7 @@ export function createUltragoal(input: CreateUltragoalInput): UltragoalManifest 
         rmSync(stashLedger, { force: true });
         rmSync(stashManifest, { force: true });
         rmSync(stashPending, { force: true });
+        rmSync(stashBrief, { force: true });
       }
       return committed;
     } catch (error) {
@@ -1324,9 +1372,11 @@ export function createUltragoal(input: CreateUltragoalInput): UltragoalManifest 
         rmSync(paths.ledger, { force: true });
         rmSync(paths.manifest, { force: true });
         rmSync(paths.pending, { force: true });
+        rmSync(paths.brief, { force: true });
         if (existsSync(stashLedger)) renameSync(stashLedger, paths.ledger);
         if (existsSync(stashManifest)) renameSync(stashManifest, paths.manifest);
         if (existsSync(stashPending)) renameSync(stashPending, paths.pending);
+        if (existsSync(stashBrief)) renameSync(stashBrief, paths.brief);
       }
       throw error;
     }

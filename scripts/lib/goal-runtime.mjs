@@ -1,9 +1,9 @@
 import {
-  appendFileSync,
   closeSync,
   constants,
   existsSync,
   fstatSync,
+  ftruncateSync,
   fsyncSync,
   linkSync,
   lstatSync,
@@ -13,8 +13,8 @@ import {
   readdirSync,
   renameSync,
   rmSync,
-  truncateSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
@@ -47,6 +47,7 @@ const REDUCER_VERSION = 1;
 const INITIAL_TURN_GRANT = 20;
 const HARD_TURN_LIMIT = 100;
 const EXTENSION_TURNS = new Set([20, 40, 60, 80]);
+const GENERATION_BOUND_COMMANDS = new Set(["complete", "extend", "turn"]);
 const BLOCKER_KEY = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const LOCK_STALE_AFTER_MS = 5 * 60 * 1000;
@@ -465,60 +466,89 @@ function validateTransaction(transaction, paths, state, lineNumber) {
 function parseLedger(paths, sessionId) {
   let state = initialState(sessionId, paths.streamId);
   const operations = new Map();
-  if (!existsSync(paths.ledger)) return { state, operations };
-
-  let raw = readFileSync(paths.ledger, "utf8");
-  if (!raw) return { state, operations };
-
-  let completeRecordWithoutNewline = false;
-  if (!raw.endsWith("\n")) {
-    const lastNewline = raw.lastIndexOf("\n");
-    const tail = raw.slice(lastNewline + 1);
-    try {
-      parseCanonicalJson(tail, "LEDGER_CORRUPT", "Invalid final ledger record");
-      completeRecordWithoutNewline = true;
-    } catch {
-      const completeLength = lastNewline + 1;
-      truncateSync(paths.ledger, completeLength);
-      raw = raw.slice(0, completeLength);
-    }
-  }
-
-  const lines = raw.split("\n");
-  if (lines.at(-1) === "") lines.pop();
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!line) {
-      throw new GoalRuntimeError("LEDGER_CORRUPT", `Empty ledger record at line ${index + 1}`);
-    }
-    const transaction = parseCanonicalJson(
-      line,
+  let descriptor;
+  try {
+    descriptor = openSync(paths.ledger, constants.O_RDWR | NOFOLLOW);
+  } catch (error) {
+    if (error?.code === "ENOENT") return { state, operations };
+    throw new GoalRuntimeError(
       "LEDGER_CORRUPT",
-      `Invalid ledger JSON at line ${index + 1}`,
+      "Goal ledger is not a safe regular file",
     );
-    validateTransaction(transaction, paths, state, index + 1);
-    const generationEvent = transaction.events.find(
-      (event) => event.type === "goal_created" || event.type === "goal_replaced",
-    );
-    const operationGeneration = generationEvent
-      ? generationEvent.goalGeneration ?? transaction.eventHash
-      : state.goalGeneration;
-    const operationKey = `${operationGeneration ?? "none"}\0${transaction.operationId}`;
-    if (operations.has(operationKey)) {
+  }
+  try {
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile() || stat.nlink !== 1) {
       throw new GoalRuntimeError(
         "LEDGER_CORRUPT",
-        `Duplicate operation at line ${index + 1}`,
+        "Goal ledger is not a safe regular file",
       );
     }
-    state = applyEvents(state, transaction);
-    operations.set(operationKey, {
-      fingerprint: transaction.operationFingerprint,
-      result: transaction.result,
-      eventHash: transaction.eventHash,
-    });
+    let raw = readFileSync(descriptor, "utf8");
+    if (!raw) return { state, operations };
+
+    let completeRecordWithoutNewline = false;
+    if (!raw.endsWith("\n")) {
+      const lastNewline = raw.lastIndexOf("\n");
+      const tail = raw.slice(lastNewline + 1);
+      try {
+        parseCanonicalJson(tail, "LEDGER_CORRUPT", "Invalid final ledger record");
+        completeRecordWithoutNewline = true;
+      } catch {
+        const completeLength = lastNewline + 1;
+        ftruncateSync(
+          descriptor,
+          Buffer.byteLength(raw.slice(0, completeLength), "utf8"),
+        );
+        fsyncSync(descriptor);
+        raw = raw.slice(0, completeLength);
+      }
+    }
+
+    const lines = raw.split("\n");
+    if (lines.at(-1) === "") lines.pop();
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!line) {
+        throw new GoalRuntimeError(
+          "LEDGER_CORRUPT",
+          `Empty ledger record at line ${index + 1}`,
+        );
+      }
+      const transaction = parseCanonicalJson(
+        line,
+        "LEDGER_CORRUPT",
+        `Invalid ledger JSON at line ${index + 1}`,
+      );
+      validateTransaction(transaction, paths, state, index + 1);
+      const generationEvent = transaction.events.find(
+        (event) => event.type === "goal_created" || event.type === "goal_replaced",
+      );
+      const operationGeneration = generationEvent
+        ? generationEvent.goalGeneration ?? transaction.eventHash
+        : state.goalGeneration;
+      const operationKey = `${operationGeneration ?? "none"}\0${transaction.operationId}`;
+      if (operations.has(operationKey)) {
+        throw new GoalRuntimeError(
+          "LEDGER_CORRUPT",
+          `Duplicate operation at line ${index + 1}`,
+        );
+      }
+      state = applyEvents(state, transaction);
+      operations.set(operationKey, {
+        fingerprint: transaction.operationFingerprint,
+        result: transaction.result,
+        eventHash: transaction.eventHash,
+      });
+    }
+    if (completeRecordWithoutNewline) {
+      writeSync(descriptor, "\n", Buffer.byteLength(raw, "utf8"), "utf8");
+      fsyncSync(descriptor);
+    }
+    return { state, operations };
+  } finally {
+    closeSync(descriptor);
   }
-  if (completeRecordWithoutNewline) appendFileSync(paths.ledger, "\n", "utf8");
-  return { state, operations };
 }
 
 function readPending(paths) {
@@ -537,12 +567,56 @@ function readPending(paths) {
 
 function appendLedgerRecord(path, transaction) {
   mkdirSync(dirname(path), { recursive: true });
-  const descriptor = openSync(path, "a", 0o600);
+  let descriptor;
   try {
-    appendFileSync(descriptor, `${canonicalJson(transaction)}\n`, "utf8");
+    descriptor = openSync(
+      path,
+      constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | NOFOLLOW,
+      0o600,
+    );
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile() || stat.nlink !== 1) {
+      throw new GoalRuntimeError(
+        "LEDGER_CORRUPT",
+        "Goal ledger is not a safe regular file",
+      );
+    }
+    if (NOFOLLOW === 0) {
+      const pathStat = lstatSync(path);
+      if (
+        pathStat.isSymbolicLink()
+        || pathStat.dev !== stat.dev
+        || pathStat.ino !== stat.ino
+      ) {
+        throw new GoalRuntimeError(
+          "LEDGER_CORRUPT",
+          "Goal ledger is not a safe regular file",
+        );
+      }
+    }
+    const record = Buffer.from(`${canonicalJson(transaction)}\n`, "utf8");
+    let offset = 0;
+    while (offset < record.length) {
+      const written = writeSync(
+        descriptor,
+        record,
+        offset,
+        record.length - offset,
+      );
+      if (written <= 0) {
+        throw new GoalRuntimeError("LEDGER_CORRUPT", "Goal ledger append made no progress");
+      }
+      offset += written;
+    }
     fsyncSync(descriptor);
+  } catch (error) {
+    if (error instanceof GoalRuntimeError) throw error;
+    throw new GoalRuntimeError(
+      "LEDGER_CORRUPT",
+      "Goal ledger is not a safe regular file",
+    );
   } finally {
-    closeSync(descriptor);
+    if (descriptor !== undefined) closeSync(descriptor);
   }
 }
 
@@ -633,6 +707,9 @@ function publicState(state) {
 
 export function formatGoalContext(state) {
   if (!state || state.status === "empty") return "";
+  const generationArg = state.goalGeneration
+    ? ` --expected-goal-generation "${state.goalGeneration}"`
+    : "";
   const heading = `[GOAL ${String(state.status).toUpperCase()}: turn ${state.turnCount}/${state.grantedThrough}]`;
   const lines = [
     heading,
@@ -643,7 +720,7 @@ export function formatGoalContext(state) {
     const nextTurn = state.turnCount + 1;
     lines.push(
       "Continue autonomously until the objective is genuinely complete.",
-      `Completion after fresh verification: run \`omp goal complete --reason "<evidence>" --session-id "${state.sessionId}" --operation-id "goal-complete-${nextTurn}" --json\`.`,
+      `Completion after fresh verification: run \`omp goal complete --reason "<evidence>" --session-id "${state.sessionId}" --operation-id "goal-complete-${nextTurn}"${generationArg} --json\`.`,
       "Also output OMP_GOAL_COMPLETE on its own line for transcript-capable runtimes.",
       'Stable blocker: output OMP_GOAL_BLOCKED {"key":"stable-slug"} on its own line; the same key must persist for 3 counted turns.',
     );
@@ -652,7 +729,7 @@ export function formatGoalContext(state) {
       && nextTurn === state.grantedThrough
     ) {
       lines.push(
-        `Before finishing turn ${state.grantedThrough}, continue only after running \`omp goal extend --reason "<specific remaining work>" --session-id "${state.sessionId}" --operation-id "goal-extend-${state.grantedThrough}" --json\`.`,
+        `Before finishing turn ${state.grantedThrough}, continue only after running \`omp goal extend --reason "<specific remaining work>" --session-id "${state.sessionId}" --operation-id "goal-extend-${state.grantedThrough}"${generationArg} --json\`.`,
         'Also output OMP_GOAL_EXTEND {"reason":"specific remaining work"} on its own line for transcript-capable runtimes.',
       );
     }
@@ -776,14 +853,17 @@ function evaluateTurn(state, input) {
   let reason;
   if (decision === "block") {
     const nextTurn = turnCount + 1;
+    const generationArg = state.goalGeneration
+      ? ` --expected-goal-generation "${state.goalGeneration}"`
+      : "";
     reason =
       `[GOAL TURN ${turnCount}/${grantedThrough}] Continue "${state.objective}". `
-      + `After fresh verification, complete with \`omp goal complete --reason "<evidence>" --session-id "${state.sessionId}" --operation-id "goal-complete-${nextTurn}" --json\`. `
+      + `After fresh verification, complete with \`omp goal complete --reason "<evidence>" --session-id "${state.sessionId}" --operation-id "goal-complete-${nextTurn}"${generationArg} --json\`. `
       + 'If genuinely blocked, output OMP_GOAL_BLOCKED {"key":"stable-slug"} on its own line.';
     if (EXTENSION_TURNS.has(grantedThrough) && nextTurn === grantedThrough) {
       reason +=
         ` Before finishing turn ${grantedThrough}, continue only after running `
-        + `\`omp goal extend --reason "<specific remaining work>" --session-id "${state.sessionId}" --operation-id "goal-extend-${grantedThrough}" --json\`.`;
+        + `\`omp goal extend --reason "<specific remaining work>" --session-id "${state.sessionId}" --operation-id "goal-extend-${grantedThrough}"${generationArg} --json\`.`;
     }
   }
   const event = {
@@ -836,6 +916,16 @@ export function goalCommand(input) {
       "OPERATION_ID_REQUIRED",
       "operationId",
     );
+    if (
+      state.goalGeneration
+      && GENERATION_BOUND_COMMANDS.has(command)
+      && input.expectedGoalGeneration === undefined
+    ) {
+      throw new GoalRuntimeError(
+        "GOAL_GENERATION_REQUIRED",
+        `${command} requires the active Goal generation`,
+      );
+    }
     if (input.expectedGoalGeneration !== undefined) {
       const expectedGoalGeneration = requireText(
         input.expectedGoalGeneration,

@@ -71,6 +71,21 @@ describe("maybePromptUpdate", () => {
         pluginRan += 1;
         return "updated";
       },
+      refreshUserInstall: () => ({
+        ok: true,
+        actions: [
+          { source: "(template)", target: "/tmp/hooks/omp.json", kind: "create" },
+          { source: "/tmp/src", target: "/tmp/skills/hello/SKILL.md", kind: "copy" },
+        ],
+        conflicts: [],
+        validation: {
+          bundle: { status: "valid", sha256: "", fileCount: 0 },
+          catalog: { status: "absent", skillNames: [] },
+          goalDiscovery: [],
+          instructionSources: [],
+        },
+        paths: {} as never,
+      }),
     });
     expect(ran).toBe(1);
     expect(pluginRan).toBe(1);

@@ -573,6 +573,25 @@ describe("runSetup", () => {
     expect(existsSync(path.join(home, "skills", "project-goal", "SKILL.md"))).toBe(false);
   });
 
+  it("reports a blocking conflict for a symlinked hooks directory without writing outside the user scope", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const outside = tempHome();
+    symlinkSync(outside, path.join(home, "hooks"), "dir");
+
+    const result = runSetup({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(false);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({
+        code: "TARGET_SYMLINK",
+        path: path.join(home, "hooks", "omp.json"),
+      }),
+    );
+    expect(existsSync(path.join(outside, "omp.json"))).toBe(false);
+  });
+
   it("reports legacy /goal routing without blocking unrelated user installation", () => {
     const project = tempProject();
     const plugin = tempGoalPlugin();
@@ -769,6 +788,25 @@ describe("installUserHooks", () => {
     expect(existsSync(path.join(home, "skills"))).toBe(false);
     expect(actions.some((a) => a.target.endsWith("omp.json"))).toBe(true);
   });
+
+  it("rejects a symlinked hooks directory without writing outside the user scope", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const outside = tempHome();
+    symlinkSync(outside, path.join(home, "hooks"), "dir");
+
+    const result = installUserHooks({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(false);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({
+        code: "TARGET_SYMLINK",
+        path: path.join(home, "hooks", "omp.json"),
+      }),
+    );
+    expect(existsSync(path.join(outside, "omp.json"))).toBe(false);
+  });
 });
 
 describe("installUserBundle / refreshUserInstall (used by omp update + auto-update)", () => {
@@ -798,6 +836,25 @@ describe("installUserBundle / refreshUserInstall (used by omp update + auto-upda
     expect(existsSync(path.join(project, ".github", "agents"))).toBe(false);
     expect(existsSync(path.join(project, ".github", "copilot-instructions.md"))).toBe(false);
     expect(actions.some((a) => a.target.endsWith("omp.json"))).toBe(true);
+  });
+
+  it("reports a blocking conflict for a symlinked hooks directory without writing outside the user scope", () => {
+    const project = tempProject();
+    const plugin = tempPlugin();
+    const home = tempHome();
+    const outside = tempHome();
+    symlinkSync(outside, path.join(home, "hooks"), "dir");
+
+    const result = refreshUserInstall({ cwd: project, pluginRoot: plugin, copilotHome: home });
+
+    expect(result.ok).toBe(false);
+    expect(result.conflicts).toContainEqual(
+      expect.objectContaining({
+        code: "TARGET_SYMLINK",
+        path: path.join(home, "hooks", "omp.json"),
+      }),
+    );
+    expect(existsSync(path.join(outside, "omp.json"))).toBe(false);
   });
 
   it("updates an unmodified bundled copy when the bundle changes (managed-file migration)", () => {

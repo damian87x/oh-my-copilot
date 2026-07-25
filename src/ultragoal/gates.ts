@@ -601,6 +601,11 @@ function gateArtifactName(planRevision: number, operationId: string): string {
   return `revision-${planRevision}-${readable}-${digest}.json`;
 }
 
+function gateOperationPathSegment(operationId: string): string {
+  const digest = createHash("sha256").update(operationId, "utf8").digest("hex");
+  return `operation-${digest}`;
+}
+
 function pathInside(directory: string, path: string): boolean {
   const rel = relative(directory, path);
   return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
@@ -694,10 +699,15 @@ async function completeOuterGoal(
   planRevision: number,
   goalGeneration?: string,
 ): Promise<void> {
+  if (goalGeneration === undefined) {
+    throw new UltragoalError(
+      "GOAL_COMPLETION_FAILED",
+      "Ultragoal plan is not bound to an outer Goal generation",
+    );
+  }
   const status = await runGoalCommand({ root, command: "status", sessionId });
   if (
     status.ok
-    && goalGeneration !== undefined
     && status.result.goalGeneration !== goalGeneration
   ) {
     throw new UltragoalError(
@@ -739,6 +749,32 @@ async function completeOuterGoal(
         : !current.ok
           ? `${current.error.code}: ${current.error.message}`
           : `outer Goal remained ${String(current.result.status)}`,
+    );
+  }
+}
+
+async function preflightOuterGoalGeneration(
+  root: string,
+  sessionId: string,
+  goalGeneration?: string,
+): Promise<void> {
+  if (goalGeneration === undefined) {
+    throw new UltragoalError(
+      "GOAL_COMPLETION_FAILED",
+      "Ultragoal plan is not bound to an outer Goal generation",
+    );
+  }
+  const status = await runGoalCommand({ root, command: "status", sessionId });
+  if (!status.ok) {
+    throw new UltragoalError(
+      "GOAL_COMPLETION_FAILED",
+      `${status.error.code}: ${status.error.message}`,
+    );
+  }
+  if (status.result.goalGeneration !== goalGeneration) {
+    throw new UltragoalError(
+      "GOAL_COMPLETION_FAILED",
+      "outer Goal generation no longer matches the Ultragoal plan",
     );
   }
 }
@@ -805,12 +841,14 @@ export async function runUltragoalGate(
   const worktree = worktreePacket(paths.root);
   const evidence = evidencePacket(paths.root, manifest);
   mkdirSync(paths.gateDirectory, { recursive: true });
+  const operationDirectory = join(paths.gateDirectory, gateOperationPathSegment(operationId));
+  mkdirSync(operationDirectory, { recursive: true });
 
   const raw = await Promise.all(
     GATE_ROLES.map(async (role) => {
       const prompt = buildGatePrompt(role, manifest, evidence, worktree);
       const promptFile = join(
-        paths.gateDirectory,
+        operationDirectory,
         `revision-${manifest.revision}-${role}-prompt.txt`,
       );
       atomicWrite(promptFile, prompt);
@@ -825,7 +863,7 @@ export async function runUltragoalGate(
         pluginRoot,
       });
       const outputFile = join(
-        paths.gateDirectory,
+        operationDirectory,
         `revision-${manifest.revision}-${role}.txt`,
       );
       const persistedOutput = [
@@ -856,6 +894,9 @@ export async function runUltragoalGate(
     createdAt,
     artifactPath: relative(paths.root, artifactFile),
   };
+  if (result.status === "passed") {
+    await preflightOuterGoalGeneration(paths.root, input.sessionId, manifest.goalGeneration);
+  }
   atomicWrite(artifactFile, `${JSON.stringify(result, null, 2)}\n`);
   applyUltragoalGate({ ...input, gate: result });
   if (result.status === "passed") {

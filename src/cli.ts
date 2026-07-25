@@ -168,8 +168,8 @@ function help(): string {
       '  goal set|edit|replace "<objective>" --session-id <id> --operation-id <id> [--json]\n'
         + '  goal status --session-id <id> [--json]\n'
         + '  goal pause|clear --reason "<why>" --session-id <id> --operation-id <id> [--json]\n'
-        + '  goal complete --reason "<evidence>" --session-id <id> --operation-id <id> [--json]\n'
-        + '  goal extend --reason "<remaining work>" --session-id <id> --operation-id <id> [--json]\n'
+        + '  goal complete --reason "<evidence>" --session-id <id> --operation-id <id> --expected-goal-generation <sha256> [--json]\n'
+        + '  goal extend --reason "<remaining work>" --session-id <id> --operation-id <id> --expected-goal-generation <sha256> [--json]\n'
         + '  goal resume|repair --session-id <id> --operation-id <id> [--json]\n'
         + '  project-goal set "<objective>" | read | clear [--json]',
     )
@@ -565,6 +565,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<CliResult> {
       command: command ?? "status",
       sessionId,
       operationId: flagValue(argv, "--operation-id"),
+      expectedGoalGeneration: flagValue(argv, "--expected-goal-generation"),
       objective: positional,
       reason:
         flagValue(argv, "--reason")

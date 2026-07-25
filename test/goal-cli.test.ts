@@ -97,7 +97,7 @@ describe("session Goal CLI", () => {
 
   it("exposes explicit agent completion", async () => {
     const root = project();
-    await runCli([
+    const created = await runCli([
       "goal",
       "set",
       "Finish",
@@ -121,6 +121,8 @@ describe("session Goal CLI", () => {
       "session-1",
       "--operation-id",
       "complete-1",
+      "--expected-goal-generation",
+      String(created.output?.result?.goalGeneration),
       "--json",
     ]);
 
@@ -132,6 +134,68 @@ describe("session Goal CLI", () => {
           status: "complete",
           terminalReason: "agent-complete:verification passed",
         },
+      },
+    });
+  });
+
+  it("rejects stale public CLI completion bound to an older Goal generation", async () => {
+    const root = project();
+    const created = await runCli([
+      "goal",
+      "set",
+      "Goal A",
+      "--root",
+      root,
+      "--session-id",
+      "session-1",
+      "--operation-id",
+      "create-a",
+      "--json",
+    ]);
+    const goalGeneration = created.output?.result?.goalGeneration;
+    expect(goalGeneration).toEqual(expect.stringMatching(/^[a-f0-9]{64}$/));
+
+    await runCli([
+      "goal",
+      "replace",
+      "Goal B",
+      "--root",
+      root,
+      "--session-id",
+      "session-1",
+      "--operation-id",
+      "replace-b",
+      "--json",
+    ]);
+    const staleComplete = await runCli([
+      "goal",
+      "complete",
+      "--reason",
+      "stale completion",
+      "--expected-goal-generation",
+      String(goalGeneration),
+      "--root",
+      root,
+      "--session-id",
+      "session-1",
+      "--operation-id",
+      "complete-a",
+      "--json",
+    ]);
+    const status = await runCli(["goal", "status", "--root", root, "--session-id", "session-1", "--json"]);
+
+    expect(staleComplete).toMatchObject({
+      ok: false,
+      output: {
+        ok: false,
+        error: { code: "GOAL_GENERATION_MISMATCH", retryable: false },
+      },
+    });
+    expect(status).toMatchObject({
+      ok: true,
+      output: {
+        ok: true,
+        result: { objective: "Goal B", status: "active", turnCount: 0 },
       },
     });
   });

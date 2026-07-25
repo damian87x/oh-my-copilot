@@ -20,6 +20,7 @@ import {
   atomicWriteTrustedFile,
   atomicWrite,
   ensureDir,
+  ensureTrustedParentDirectory,
   openRegularFile,
   readJSON,
 } from "../../src/utils/fs.js";
@@ -130,6 +131,34 @@ describe("ensureDir", () => {
     const path = join(testRoot, "file.txt");
     ensureDir(path);
     expect(existsSync(testRoot)).toBe(true);
+  });
+});
+
+describe.skipIf(process.platform === "win32")("ensureTrustedParentDirectory", () => {
+  it("creates missing parent directories under the trusted root", () => {
+    mkdirSync(testRoot, { recursive: true });
+    const target = join(testRoot, "nested", "deep", "state.json");
+
+    ensureTrustedParentDirectory(target, testRoot);
+
+    expect(existsSync(join(testRoot, "nested", "deep"))).toBe(true);
+  });
+
+  it("rejects a symlink ancestor without creating external directories", () => {
+    const trustedRoot = join(testRoot, "trusted");
+    const outside = join(testRoot, "outside");
+    mkdirSync(trustedRoot, { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    symlinkSync(outside, join(trustedRoot, "linked"), "dir");
+
+    expect(() =>
+      ensureTrustedParentDirectory(
+        join(trustedRoot, "linked", "nested", "state.json"),
+        trustedRoot,
+      ),
+    ).toThrow(/symlink-ancestor/);
+    expect(existsSync(join(outside, "nested"))).toBe(false);
+    expect(existsSync(join(outside, "nested", "state.json"))).toBe(false);
   });
 });
 

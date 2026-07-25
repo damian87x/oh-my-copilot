@@ -8,13 +8,11 @@ import {
   openSync,
   readFileSync,
   readdirSync,
-  renameSync,
-  writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, relative } from "node:path";
 import { resolveCopilotPaths, type CopilotPaths, type ResolveCopilotPathsOptions } from "./paths.js";
-import { atomicWrite } from "../utils/fs.js";
+import { atomicWrite, atomicWriteTrustedFile, ensureTrustedParentDirectory } from "../utils/fs.js";
 import { loadCatalogBundle, validateCatalogBundle } from "../catalog.js";
 
 export interface SetupOptions extends ResolveCopilotPathsOptions {
@@ -220,23 +218,69 @@ function recordInstalled(manifest: BundleManifest, target: string, source: strin
   manifest.files[key] = hash;
 }
 
-function saveBundleManifest(manifest: BundleManifest, dryRun: boolean): void {
+function saveBundleManifest(
+  manifest: BundleManifest,
+  dryRun: boolean,
+  conflicts: SetupConflict[],
+): void {
   if (dryRun) return;
-  mkdirSync(dirname(manifest.path), { recursive: true });
-  atomicWrite(
-    manifest.path,
-    `${JSON.stringify(
-      {
-        version: 2,
-        scope: manifest.scope,
-        root: manifest.root,
-        files: manifest.files,
-        validation: manifest.validation,
-      },
-      null,
-      2,
-    )}\n`,
-  );
+  const content = `${JSON.stringify(
+    {
+      version: 2,
+      scope: manifest.scope,
+      root: manifest.root,
+      files: manifest.files,
+      validation: manifest.validation,
+    },
+    null,
+    2,
+  )}\n`;
+  writeTrustedSetupFile(manifest.path, () => content, manifest.root, conflicts);
+}
+
+class SetupWriteSafetyConflict extends Error {
+  readonly name = "SetupWriteSafetyConflict";
+}
+
+function writeSafetyConflict(target: string, error: unknown): SetupConflict {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/\bsymlink\b/.test(message)) {
+    return {
+      code: "TARGET_SYMLINK",
+      path: target,
+      message: "setup will not write through a symbolic-link target",
+    };
+  }
+  if (/\bhardlink\b/.test(message)) {
+    return {
+      code: "TARGET_HARDLINK",
+      path: target,
+      message: "setup will not overwrite a multiply-linked target file",
+    };
+  }
+  return {
+    code: "TARGET_ENTRY_INVALID",
+    path: target,
+    message,
+  };
+}
+
+function writeTrustedSetupFile(
+  target: string,
+  content: () => string | Buffer,
+  trustedRoot: string,
+  conflicts: SetupConflict[],
+): void {
+  try {
+    ensureTrustedParentDirectory(target, trustedRoot);
+    atomicWriteTrustedFile(target, content(), {
+      rejectHardlinks: true,
+      trustedRoot,
+    });
+  } catch (error) {
+    conflicts.push(writeSafetyConflict(target, error));
+    throw new SetupWriteSafetyConflict();
+  }
 }
 
 function copyDirRecursive(
@@ -248,12 +292,12 @@ function copyDirRecursive(
   manifest?: BundleManifest,
   trustedOverwriteTargets: ReadonlySet<string> = new Set(),
   protectedTargets: ReadonlySet<string> = new Set(),
+  conflicts: SetupConflict[] = [],
 ): void {
   if (!existsSync(source)) {
     actions.push({ source, target, kind: "skip-source-missing" });
     return;
   }
-  if (!dryRun && !existsSync(target)) mkdirSync(target, { recursive: true });
   for (const entry of readdirSync(source, { withFileTypes: true })) {
     const sPath = join(source, entry.name);
     const tPath = join(target, entry.name);
@@ -267,6 +311,7 @@ function copyDirRecursive(
         manifest,
         trustedOverwriteTargets,
         protectedTargets,
+        conflicts,
       );
     } else if (entry.isFile()) {
       if (existsSync(tPath)) {
@@ -292,16 +337,24 @@ function copyDirRecursive(
           }
         }
         if (!dryRun) {
-          mkdirSync(dirname(tPath), { recursive: true });
-          atomicWrite(tPath, readFileSync(sPath));
+          writeTrustedSetupFile(
+            tPath,
+            () => readFileSync(sPath),
+            manifest?.root ?? target,
+            conflicts,
+          );
         }
         actions.push({ source: sPath, target: tPath, kind: "update" });
         if (manifest && !dryRun) recordInstalled(manifest, tPath, sPath);
         continue;
       }
       if (!dryRun) {
-        mkdirSync(dirname(tPath), { recursive: true });
-        atomicWrite(tPath, readFileSync(sPath));
+        writeTrustedSetupFile(
+          tPath,
+          () => readFileSync(sPath),
+          manifest?.root ?? target,
+          conflicts,
+        );
       }
       actions.push({ source: sPath, target: tPath, kind: "copy" });
       if (manifest && !dryRun) recordInstalled(manifest, tPath, sPath);
@@ -349,11 +402,16 @@ function pinPluginRoot(bash: string, pluginRoot: string): string {
   return `export COPILOT_PLUGIN_ROOT='${esc}' OMP_PLUGIN_ROOT='${esc}'; ${bash}`;
 }
 
-function installHooks(paths: CopilotPaths, dryRun: boolean, actions: SetupAction[]): void {
+function installHooks(
+  paths: CopilotPaths,
+  dryRun: boolean,
+  actions: SetupAction[],
+  conflicts: SetupConflict[] = [],
+): boolean {
   const source = paths.hooksManifest;
   if (!existsSync(source)) {
     actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-missing" });
-    return;
+    return true;
   }
   let manifest: { version?: number; hooks?: Record<string, unknown> };
   try {
@@ -361,12 +419,12 @@ function installHooks(paths: CopilotPaths, dryRun: boolean, actions: SetupAction
   } catch {
     // Present but unparseable — surface it rather than masking as "missing".
     actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-invalid" });
-    return;
+    return true;
   }
   const hooks = manifest.hooks;
   if (!hooks || typeof hooks !== "object") {
     actions.push({ source, target: HOOK_FILE_NAME, kind: "skip-source-invalid" });
-    return;
+    return true;
   }
   // Rewrite every command's bash to pin the absolute plugin root.
   for (const handlers of Object.values(hooks)) {
@@ -384,12 +442,20 @@ function installHooks(paths: CopilotPaths, dryRun: boolean, actions: SetupAction
   // new events propagate (unlike copied skills, which we never clobber).
   const kind: SetupActionKind = existsSync(target) ? "update" : "create";
   if (!dryRun) {
-    mkdirSync(dirname(target), { recursive: true });
-    const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
-    writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-    renameSync(tmp, target);
+    try {
+      writeTrustedSetupFile(
+        target,
+        () => `${JSON.stringify(manifest, null, 2)}\n`,
+        paths.userScope,
+        conflicts,
+      );
+    } catch (error) {
+      if (!(error instanceof SetupWriteSafetyConflict)) throw error;
+      return false;
+    }
   }
   actions.push({ source, target, kind });
+  return true;
 }
 
 /** Absolute path of the user-level hook file omp installs/refreshes. Lets callers
@@ -432,11 +498,19 @@ export function userHooksNeedRefresh(options: SetupOptions = {}): boolean {
 /** Install just the user-level hooks (the piece copilot won't load from the
  *  plugin dir). Used by bare launch self-repair when only hooks are stale.
  *  Idempotent. */
-export function installUserHooks(options: SetupOptions = {}): { actions: SetupAction[]; paths: CopilotPaths } {
+export function installUserHooks(
+  options: SetupOptions = {},
+): {
+  ok: boolean;
+  actions: SetupAction[];
+  conflicts: SetupConflict[];
+  paths: CopilotPaths;
+} {
   const paths = resolveCopilotPaths(options);
   const actions: SetupAction[] = [];
-  installHooks(paths, Boolean(options.dryRun), actions);
-  return { actions, paths };
+  const conflicts: SetupConflict[] = [];
+  installHooks(paths, Boolean(options.dryRun), actions, conflicts);
+  return { ok: !hasBlockingConflict(conflicts), actions, conflicts, paths };
 }
 
 /** Copy bundled skills/agents into the user home (`~/.copilot/skills|agents`).
@@ -456,9 +530,14 @@ export function installUserBundle(
   const force = Boolean(options.force);
   const actions: SetupAction[] = [];
   const preparation = prepareBundleInstall(paths, "user");
-  const blocked = hasBlockingConflict(preparation.conflicts);
+  let blocked = hasBlockingConflict(preparation.conflicts);
   if (!blocked) {
-    copyBundledSkillsAndAgents(paths, "user", actions, dryRun, force, preparation);
+    try {
+      copyBundledSkillsAndAgents(paths, "user", actions, dryRun, force, preparation);
+    } catch (error) {
+      if (!(error instanceof SetupWriteSafetyConflict)) throw error;
+    }
+    blocked = hasBlockingConflict(preparation.conflicts);
   }
   return {
     ok: !blocked,
@@ -485,10 +564,18 @@ export function refreshUserInstall(
   const force = Boolean(options.force);
   const actions: SetupAction[] = [];
   const preparation = prepareBundleInstall(paths, "user");
-  const blocked = hasBlockingConflict(preparation.conflicts);
+  let blocked = hasBlockingConflict(preparation.conflicts);
   if (!blocked) {
-    installHooks(paths, dryRun, actions);
-    copyBundledSkillsAndAgents(paths, "user", actions, dryRun, force, preparation);
+    try {
+      copyBundledSkillsAndAgents(paths, "user", actions, dryRun, force, preparation);
+    } catch (error) {
+      if (!(error instanceof SetupWriteSafetyConflict)) throw error;
+    }
+    blocked = hasBlockingConflict(preparation.conflicts);
+    if (!blocked) {
+      installHooks(paths, dryRun, actions, preparation.conflicts);
+      blocked = hasBlockingConflict(preparation.conflicts);
+    }
   }
   return {
     ok: !blocked,
@@ -919,6 +1006,7 @@ function copyBundledSkillsAndAgents(
       manifest,
       preparation.trustedOverwriteTargets,
       preparation.protectedTargets,
+      preparation.conflicts,
     );
   }
   const bundleAgents = join(paths.pluginRoot, ".github", "agents");
@@ -932,9 +1020,10 @@ function copyBundledSkillsAndAgents(
       manifest,
       preparation.trustedOverwriteTargets,
       preparation.protectedTargets,
+      preparation.conflicts,
     );
   }
-  saveBundleManifest(manifest, dryRun);
+  saveBundleManifest(manifest, dryRun, preparation.conflicts);
 }
 
 export function runSetup(options: SetupOptions = {}): SetupResult {
@@ -945,21 +1034,29 @@ export function runSetup(options: SetupOptions = {}): SetupResult {
   const scope = options.scope ?? "user";
   const actions: SetupAction[] = [];
   const preparation = prepareBundleInstall(paths, scope);
-  const blocked = hasBlockingConflict(preparation.conflicts);
+  let blocked = hasBlockingConflict(preparation.conflicts);
 
   if (!blocked) {
-    copyBundledSkillsAndAgents(
-      paths,
-      scope,
-      actions,
-      dryRun,
-      force,
-      preparation,
-    );
+    try {
+      copyBundledSkillsAndAgents(
+        paths,
+        scope,
+        actions,
+        dryRun,
+        force,
+        preparation,
+      );
+    } catch (error) {
+      if (!(error instanceof SetupWriteSafetyConflict)) throw error;
+    }
+    blocked = hasBlockingConflict(preparation.conflicts);
 
-    ensureFile(paths.copilotInstructions, COPILOT_INSTRUCTIONS_TEMPLATE, actions, dryRun);
-    ensureDir(paths.stateDir, actions, dryRun);
-    installHooks(paths, dryRun, actions);
+    if (!blocked) {
+      ensureFile(paths.copilotInstructions, COPILOT_INSTRUCTIONS_TEMPLATE, actions, dryRun);
+      ensureDir(paths.stateDir, actions, dryRun);
+      installHooks(paths, dryRun, actions, preparation.conflicts);
+      blocked = hasBlockingConflict(preparation.conflicts);
+    }
   }
 
   return {

@@ -377,8 +377,8 @@ omp schedule remove <id>                    # uninstall the OS entry + delete th
 omp goal set|edit|replace "<objective>" --session-id <id> --operation-id <id> [--json]
 omp goal status --session-id <id> [--json]
 omp goal pause|clear --reason "<why>" --session-id <id> --operation-id <id> [--json]
-omp goal complete --reason "<evidence>" --session-id <id> --operation-id <id> [--json]
-omp goal extend --reason "<remaining work>" --session-id <id> --operation-id <id> [--json]
+omp goal complete --reason "<evidence>" --session-id <id> --operation-id <id> --expected-goal-generation <sha256> [--json]
+omp goal extend --reason "<remaining work>" --session-id <id> --operation-id <id> --expected-goal-generation <sha256> [--json]
 omp goal resume|repair --session-id <id> --operation-id <id> [--json]
 omp project-goal set "<objective>" | read | clear [--json]
 omp ultragoal create|status|next|evidence|checkpoint|steer|gate run --session-id <id> [--json]
@@ -551,7 +551,8 @@ SID="smoke-$(date +%s)"
 OID="op-$(date +%s)-$RANDOM"
 omp goal set "smoke objective" --session-id "$SID" --operation-id "$OID" --json
 omp goal status --session-id "$SID" --json
-omp goal complete --reason "smoke done" --session-id "$SID" --operation-id "${OID}-done" --json
+GENERATION="$(omp goal status --session-id "$SID" --json | jq -r .result.goalGeneration)"
+omp goal complete --reason "smoke done" --session-id "$SID" --operation-id "${OID}-done" --expected-goal-generation "$GENERATION" --json
 
 # 4) Project goal (repo-scoped, no session id)
 omp project-goal set "make releases boring" --json
