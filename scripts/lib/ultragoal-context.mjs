@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ompRoot } from "./omp-root.mjs";
+
+const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
 function manifestPath(directory, sessionId) {
   const key = createHash("sha256").update(sessionId, "utf8").digest("hex");
@@ -11,10 +13,13 @@ function manifestPath(directory, sessionId) {
 export function readUltragoalManifest(directory, sessionId) {
   if (!sessionId || sessionId === "unknown") return undefined;
   const path = manifestPath(directory, sessionId);
-  if (!existsSync(path)) return undefined;
+  let fd;
   try {
-    if (lstatSync(path).isSymbolicLink()) return undefined;
-    const manifest = JSON.parse(readFileSync(path, "utf8"));
+    // One open + fstat + read — no exists/lstat then path re-read (CodeQL TOCTOU).
+    fd = openSync(path, constants.O_RDONLY | NOFOLLOW);
+    const st = fstatSync(fd);
+    if (!st.isFile()) return undefined;
+    const manifest = JSON.parse(readFileSync(fd, "utf8"));
     if (
       manifest?.schemaVersion !== 1
       || manifest.sessionId !== sessionId
@@ -25,6 +30,14 @@ export function readUltragoalManifest(directory, sessionId) {
     return manifest;
   } catch {
     return undefined;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 

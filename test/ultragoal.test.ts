@@ -194,7 +194,9 @@ describe("sequential Ultragoal", () => {
       sessionId: "session-1",
       operationId: "start",
     });
-    const outside = join(tmpdir(), `outside-${Date.now()}.txt`);
+    // Sibling of the project root (not os.tmpdir) so CodeQL does not flag an
+    // insecure temporary-file create while still staying outside the trusted root.
+    const outside = join(root, "..", `omp-outside-${Date.now()}.txt`);
     writeFileSync(outside, "outside\n", "utf8");
     fixtures.push(outside);
 

@@ -1,7 +1,11 @@
 import {
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -759,25 +763,50 @@ function scanInstructionSources(paths: CopilotPaths): InstructionSource[] {
     ...userInstructions.map((path) => ({ scope: "user" as const, path })),
   );
 
-  return candidates
-    .filter((candidate) => existsSync(candidate.path))
-    .sort((left, right) => left.path.localeCompare(right.path))
-    .map((candidate) => {
-      try {
-        const stat = lstatSync(candidate.path);
-        if (!stat.isFile()) return { ...candidate, status: "unreadable" as const };
-        const content = readFileSync(candidate.path, "utf8");
-        const legacyGoal =
-          /\bomp\s+goal\s+(?:set|read)\b/i.test(content)
-          && !/\bomp\s+goal\b[^\n]*--session-id\b/i.test(content);
-        return {
-          ...candidate,
-          status: legacyGoal ? "legacy-goal" as const : "current" as const,
-        };
-      } catch {
-        return { ...candidate, status: "unreadable" as const };
+  const inspected: Array<{
+    scope: "project" | "user";
+    path: string;
+    status: "current" | "legacy-goal" | "unreadable";
+  }> = [];
+  for (const candidate of candidates.sort((left, right) =>
+    left.path.localeCompare(right.path))) {
+    let fd: number | undefined;
+    try {
+      // Descriptor-bound read — no exists/lstat then path re-read (CodeQL TOCTOU).
+      fd = openSync(
+        candidate.path,
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      );
+      const stat = fstatSync(fd);
+      if (!stat.isFile()) {
+        inspected.push({ ...candidate, status: "unreadable" });
+        continue;
       }
-    });
+      const content = readFileSync(fd, "utf8");
+      const legacyGoal =
+        /\bomp\s+goal\s+(?:set|read)\b/i.test(content)
+        && !/\bomp\s+goal\b[^\n]*--session-id\b/i.test(content);
+      inspected.push({
+        ...candidate,
+        status: legacyGoal ? "legacy-goal" : "current",
+      });
+    } catch (error) {
+      // Missing paths are skipped (same as the old existsSync filter). Other
+      // open failures stay visible as unreadable.
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code === "ENOENT") continue;
+      inspected.push({ ...candidate, status: "unreadable" });
+    } finally {
+      if (fd !== undefined) {
+        try {
+          closeSync(fd);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+  return inspected;
 }
 
 function prepareBundleInstall(

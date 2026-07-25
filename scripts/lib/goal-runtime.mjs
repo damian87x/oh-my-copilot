@@ -1,6 +1,7 @@
 import {
   appendFileSync,
   closeSync,
+  constants,
   existsSync,
   fstatSync,
   fsyncSync,
@@ -18,6 +19,28 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { ompRoot } from "./omp-root.mjs";
+
+// Pin path reads to one descriptor (dev+ino) so CodeQL TOCTOU alerts stay closed.
+const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
+
+function readPinnedFile(path) {
+  let fd;
+  try {
+    fd = openSync(path, constants.O_RDONLY | NOFOLLOW);
+    const st = fstatSync(fd);
+    if (!st.isFile()) return undefined;
+    return { fd, st, content: readFileSync(fd, "utf8") };
+  } catch {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // ignore
+      }
+    }
+    return undefined;
+  }
+}
 
 const SCHEMA_VERSION = 1;
 const REDUCER_VERSION = 1;
@@ -142,10 +165,10 @@ function pidAlive(pid) {
 }
 
 function staleLock(path) {
+  const pinned = readPinnedFile(path);
+  if (!pinned) return undefined;
   try {
-    const stat = lstatSync(path);
-    if (!stat.isFile()) return undefined;
-    const content = readFileSync(path, "utf8");
+    const { st: stat, content } = pinned;
     let stale = false;
     try {
       const parsed = JSON.parse(content);
@@ -157,8 +180,8 @@ function staleLock(path) {
       stale = Date.now() - stat.mtimeMs > LOCK_STALE_AFTER_MS;
     }
     return stale ? { dev: stat.dev, ino: stat.ino, content } : undefined;
-  } catch {
-    return undefined;
+  } finally {
+    closeSync(pinned.fd);
   }
 }
 
@@ -194,27 +217,31 @@ function claimObservedStaleLock(path, observed) {
     return false;
   }
   try {
-    const claimed = lstatSync(claim);
-    if (
-      !claimed.isFile()
-      || claimed.dev !== observed.dev
-      || claimed.ino !== observed.ino
-      || readFileSync(claim, "utf8") !== observed.content
-    ) {
-      return false;
-    }
+    const claimed = readPinnedFile(claim);
+    if (!claimed) return false;
     try {
-      const current = lstatSync(path);
       if (
-        current.isFile()
-        && current.dev === claimed.dev
-        && current.ino === claimed.ino
-        && readFileSync(path, "utf8") === observed.content
+        claimed.st.dev !== observed.dev
+        || claimed.st.ino !== observed.ino
+        || claimed.content !== observed.content
       ) {
-        rmSync(path, { force: true });
+        return false;
       }
-    } catch {
-      // Another recovery or the original owner already removed the stale path.
+      const current = readPinnedFile(path);
+      if (!current) return true;
+      try {
+        if (
+          current.st.dev === claimed.st.dev
+          && current.st.ino === claimed.st.ino
+          && current.content === observed.content
+        ) {
+          rmSync(path, { force: true });
+        }
+      } finally {
+        closeSync(current.fd);
+      }
+    } finally {
+      closeSync(claimed.fd);
     }
     return true;
   } finally {
@@ -225,14 +252,20 @@ function claimObservedStaleLock(path, observed) {
 function ownsCanonicalLock(path, descriptor, token) {
   try {
     const opened = fstatSync(descriptor);
-    const current = lstatSync(path);
-    const metadata = JSON.parse(readFileSync(path, "utf8"));
-    return (
-      current.isFile()
-      && current.dev === opened.dev
-      && current.ino === opened.ino
-      && metadata.token === token
-    );
+    // Re-read path through a fresh descriptor and require the same inode as the
+    // held lock fd (no path-string re-read after a separate lstat).
+    const pinned = readPinnedFile(path);
+    if (!pinned) return false;
+    try {
+      const metadata = JSON.parse(pinned.content);
+      return (
+        pinned.st.dev === opened.dev
+        && pinned.st.ino === opened.ino
+        && metadata.token === token
+      );
+    } finally {
+      closeSync(pinned.fd);
+    }
   } catch {
     return false;
   }

@@ -175,6 +175,9 @@ export function openRegularFile(
   }
   let fd: number;
   try {
+    // openRegularFile opens a caller-supplied path with O_NOFOLLOW; it is not
+    // a secret temporary-file materialization helper (CodeQL js/insecure-temporary-file).
+    // codeql[js/insecure-temporary-file]
     fd = openSync(
       filePath,
       flags | NOFOLLOW_OPEN_FLAG | NONBLOCK_OPEN_FLAG,

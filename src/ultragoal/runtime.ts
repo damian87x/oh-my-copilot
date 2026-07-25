@@ -300,11 +300,41 @@ interface StaleLockObservation {
   content: string;
 }
 
-function staleLock(path: string): StaleLockObservation | undefined {
+const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
+
+function readPinnedFile(
+  path: string,
+): { fd: number; st: ReturnType<typeof fstatSync>; content: string } | undefined {
+  let fd: number | undefined;
   try {
-    const stat = lstatSync(path);
-    if (!stat.isFile()) return undefined;
-    const content = readFileSync(path, "utf8");
+    fd = openSync(path, constants.O_RDONLY | NOFOLLOW);
+    const st = fstatSync(fd);
+    if (!st.isFile()) {
+      closeSync(fd);
+      return undefined;
+    }
+    return { fd, st, content: readFileSync(fd, "utf8") };
+  } catch {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+        // ignore
+      }
+    }
+    return undefined;
+  }
+}
+
+function fileIdentity(st: ReturnType<typeof fstatSync>): { dev: number; ino: number } {
+  return { dev: Number(st.dev), ino: Number(st.ino) };
+}
+
+function staleLock(path: string): StaleLockObservation | undefined {
+  const pinned = readPinnedFile(path);
+  if (!pinned) return undefined;
+  try {
+    const { st: stat, content } = pinned;
     let stale = false;
     try {
       const parsed = JSON.parse(content) as {
@@ -316,11 +346,12 @@ function staleLock(path: string): StaleLockObservation | undefined {
         !pidAlive(Number(parsed.pid))
         || (Number.isFinite(age) && age > LOCK_STALE_AFTER_MS);
     } catch {
-      stale = Date.now() - stat.mtimeMs > LOCK_STALE_AFTER_MS;
+      stale = Date.now() - Number(stat.mtimeMs) > LOCK_STALE_AFTER_MS;
     }
-    return stale ? { dev: stat.dev, ino: stat.ino, content } : undefined;
-  } catch {
-    return undefined;
+    const id = fileIdentity(stat);
+    return stale ? { dev: id.dev, ino: id.ino, content } : undefined;
+  } finally {
+    closeSync(pinned.fd);
   }
 }
 
@@ -359,27 +390,33 @@ function claimObservedStaleLock(
     return false;
   }
   try {
-    const claimed = lstatSync(claim);
-    if (
-      !claimed.isFile()
-      || claimed.dev !== observed.dev
-      || claimed.ino !== observed.ino
-      || readFileSync(claim, "utf8") !== observed.content
-    ) {
-      return false;
-    }
+    const claimed = readPinnedFile(claim);
+    if (!claimed) return false;
     try {
-      const current = lstatSync(path);
+      const claimedId = fileIdentity(claimed.st);
       if (
-        current.isFile()
-        && current.dev === claimed.dev
-        && current.ino === claimed.ino
-        && readFileSync(path, "utf8") === observed.content
+        claimedId.dev !== observed.dev
+        || claimedId.ino !== observed.ino
+        || claimed.content !== observed.content
       ) {
-        rmSync(path, { force: true });
+        return false;
       }
-    } catch {
-      // Another recovery or the original owner already removed the stale path.
+      const current = readPinnedFile(path);
+      if (!current) return true;
+      try {
+        const currentId = fileIdentity(current.st);
+        if (
+          currentId.dev === claimedId.dev
+          && currentId.ino === claimedId.ino
+          && current.content === observed.content
+        ) {
+          rmSync(path, { force: true });
+        }
+      } finally {
+        closeSync(current.fd);
+      }
+    } finally {
+      closeSync(claimed.fd);
     }
     return true;
   } finally {
@@ -389,17 +426,20 @@ function claimObservedStaleLock(
 
 function ownsCanonicalLock(path: string, descriptor: number, token: string): boolean {
   try {
-    const opened = fstatSync(descriptor);
-    const current = lstatSync(path);
-    const metadata = JSON.parse(readFileSync(path, "utf8")) as {
-      token?: string;
-    };
-    return (
-      current.isFile()
-      && current.dev === opened.dev
-      && current.ino === opened.ino
-      && metadata.token === token
-    );
+    const opened = fileIdentity(fstatSync(descriptor));
+    const pinned = readPinnedFile(path);
+    if (!pinned) return false;
+    try {
+      const metadata = JSON.parse(pinned.content) as { token?: string };
+      const pinnedId = fileIdentity(pinned.st);
+      return (
+        pinnedId.dev === opened.dev
+        && pinnedId.ino === opened.ino
+        && metadata.token === token
+      );
+    } finally {
+      closeSync(pinned.fd);
+    }
   } catch {
     return false;
   }
