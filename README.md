@@ -138,6 +138,40 @@ flowchart TB
 
 > The learning loop is **opt-in** (`omp config set memory-mode on`) and runs on a cheap model (`gpt-5-mini` by default) — the expensive reasoning already happened in your main session. See [docs/memory-mode.md](docs/memory-mode.md).
 
+### Goal → Ultragoal lifecycle
+
+Session Goals are durable, per-session objectives. Ultragoal layers ordered stories, criterion evidence, and a three-role gate on top of an active Goal. Full command surface and migration notes live in [docs/ultragoal.md](docs/ultragoal.md).
+
+```mermaid
+flowchart TD
+  PG["Project Goal<br/><code>omp project-goal set</code><br/>repo-wide context"]
+  SG["Session Goal<br/><code>omp goal set|edit|replace</code><br/>--session-id · --operation-id"]
+  WIN["20-turn window<br/>agent decides at boundary"]
+  EXT["extend --reason<br/>next 20 turns · hard stop 100"]
+  DONE["complete --reason<br/>Goal finished"]
+  PAUSE["pause / clear / resume"]
+  UG["Ultragoal plan<br/><code>omp ultragoal create</code><br/>stories + criteria"]
+  STORY["next → evidence → checkpoint<br/>one story at a time"]
+  GATE["gate run<br/>verifier · code-reviewer · architect"]
+  PASS["3× PASS<br/>Ultragoal + outer Goal complete"]
+  BLOCK["BLOCK / INCONCLUSIVE<br/>resolver stories generated"]
+
+  PG -. injected into session context .-> SG
+  SG --> WIN
+  WIN -->|remaining work| EXT
+  EXT --> WIN
+  WIN -->|objective met| DONE
+  WIN --> PAUSE
+  SG --> UG
+  UG --> STORY
+  STORY --> GATE
+  GATE --> PASS
+  GATE --> BLOCK
+  BLOCK --> STORY
+```
+
+**How it works:** set an optional **Project Goal** for repo-wide context, then a **Session Goal** bound to a Copilot session id. Every 20 turns the agent must **extend** with a reason or **complete**; the hard cap is 100 turns. **Ultragoal** turns the active Goal into ordered stories; each criterion needs file- or note-hashed evidence before the restricted three-role gate. All three roles **PASS** → Goal completes; any **BLOCK**/**INCONCLUSIVE** → deterministic resolver stories, then re-gate.
+
 ---
 
 ## Features
@@ -157,13 +191,13 @@ flowchart TB
 ### Intelligent Orchestration
 
 - **8 specialized agents** — planner, architect, critic, executor, verifier, code-reviewer, designer, researcher (all `--agent <name>` compatible with Copilot CLI)
-- **31 in-session skills** auto-discovered from `.github/skills/`
+- **34 in-session skills** auto-discovered from `.github/skills/`
 - **Smart pipeline routing** — `/research-codebase` → `/ralplan` → `/team` / `/ralph` / `/ultrawork` → `/code-review` → `/ultraqa`
 
 ### Developer Experience
 
-- **Context & history as CLI subcommands** — `omp state` (key-value with TTL), `omp project-memory` (notes + directives), `omp trace` (per-session timeline + summary), `omp goal` / `omp memory sync` (managed repo context), `omp daily-log`, `omp handoff` (task continuation packets as Markdown under `.omp/handoffs/`)
-- **Lightweight Copilot context** — managed instructions keep only the repo goal plus on-demand memory commands; set `OMP_DISABLE_INSTRUCTIONS_MEMORY=1` to skip writing the managed block entirely
+- **Context & history as CLI subcommands** — `omp state` (key-value with TTL), `omp project-memory` (notes + directives), `omp trace` (per-session timeline + summary), `omp project-goal` / `omp memory sync` (managed repo context), `omp goal` (durable session objective with agent-owned `complete` and 20-turn `extend` decisions), `omp daily-log`, `omp handoff` (task continuation packets as Markdown under `.omp/handoffs/`)
+- **Lightweight Copilot context** — managed instructions keep only the project goal plus on-demand memory commands; set `OMP_DISABLE_INSTRUCTIONS_MEMORY=1` to skip writing the managed block entirely
 - **Estimated cost ledger** — `omp cost [--today] [--session <id>]` summarizes local prompt/tool token estimates recorded by hooks. These are best-effort estimates, not provider billing.
 - **File-state worker coordination** — outbox JSONL + byte cursor, atomic `O_EXCL` task locks, optimistic CAS on claim
 - **Idle nudge** — content-based pane idle detection that pokes stuck workers
@@ -203,7 +237,9 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/ponytail`             | Lazy senior-dev mode — simplest solution that works (YAGNI) | `/ponytail`                                         |
 | `/worktree`             | Git worktree-based parallel branch work                   | `/worktree`                                          |
 | `/schedule`             | Durable local cron job — re-runs a prompt on a schedule, survives reboot | `/schedule "check the PR every 15 min"`   |
-| `/goal`                 | Set/read the repo-level goal injected into the managed Copilot context | `/goal "ship v1.0 of the billing flow"` |
+| `/goal`                 | Run one durable objective for the current Copilot session | `/goal "ship v1.0 of the billing flow"` |
+| `/ultragoal`            | Execute ordered stories with criterion evidence and three-role gates | `/ultragoal "ship the migration"` |
+| `/project-goal`         | Set/read the repository-wide objective injected into project context | `/project-goal "make releases boring"` |
 | `/daily-log`            | Per-day goal + work log surfaced at the start of new sessions | `/daily-log "ratelimit refactor landed"`        |
 | `/handoff`              | Create or resume a task handoff for unfinished work (CLI-backed) | `/handoff "finish auth middleware"`      |
 | `/wayfinder`            | Multi-session decision map on GitHub Issues or Jira (confirm tracker + pin first) | `/wayfinder "ship multi-tenant billing"` |
@@ -311,16 +347,17 @@ omp version                                 # prints version; in a TTY, offers t
 omp update                                  # self-update CLI + refresh ~/.copilot skills/agents/hooks + Copilot plugin
 omp doctor [--deep]                         # verify install + copilot binary (--deep also probes the configured memory-review model)
 omp list                                    # show discovered skills and agents
-omp setup [--dry-run] [--scope user|project]  # default user → ~/.copilot; --scope project → .github/
+omp setup [--root DIR] [--plugin-root DIR] [--dry-run] [--scope user|project] [--force]
+                                              # default user → ~/.copilot; safe /goal migration fails closed on unknown content
 omp launch -- [copilot flags…]              # forward arbitrary args to copilot
 omp --madmax -p "edit src/foo.ts"           # bare-flag, maps to copilot --yolo
 omp suggest "fix flaky tests"               # recommend a slash-skill workflow
 omp team 3:executor "fix all type errors"   # spawn tmux workers
 omp team status <name>
 omp team shutdown <name>
-omp ralph start "<task>" [--max-iterations N]
-omp ultrawork start "<objective>" [--task-count N]
-omp ultraqa start "<goal>" [--max-cycles N]
+omp ralph start "<task>" [--max-iterations N] [--session-id ID]
+omp ultrawork start "<objective>" [--task-count N] [--session-id ID]
+omp ultraqa start "<goal>" [--max-cycles N] [--session-id ID]
 omp council "<question>" [--models a,b,c] [--context @file] [--json]   # multi-model council
 omp cost [--today] [--session <id>]            # summarize estimated hook-ledger tokens
 omp comms status | send | recv | ask        # drive a running copilot tmux session
@@ -337,7 +374,14 @@ omp schedule status <id>                    # last run + result summary
 omp schedule open <id> [--tmux]             # print this id's latest status + full output (--tmux: open an omp session)
 omp schedule run-now <id>                   # trigger one run immediately
 omp schedule remove <id>                    # uninstall the OS entry + delete the job
-omp goal set "<objective>" | read [--json]
+omp goal set|edit|replace "<objective>" --session-id <id> --operation-id <id> [--json]
+omp goal status --session-id <id> [--json]
+omp goal pause|clear --reason "<why>" --session-id <id> --operation-id <id> [--json]
+omp goal complete --reason "<evidence>" --session-id <id> --operation-id <id> [--json]
+omp goal extend --reason "<remaining work>" --session-id <id> --operation-id <id> [--json]
+omp goal resume|repair --session-id <id> --operation-id <id> [--json]
+omp project-goal set "<objective>" | read | clear [--json]
+omp ultragoal create|status|next|evidence|checkpoint|steer|gate run --session-id <id> [--json]
 omp config get [--json]                     # show memory-mode, review model, min-messages
 omp config set memory-mode on|off [--no-validate] [--model <slug>]   # enable/disable the end-of-session learning loop (writes global ~/.omp)
 omp config set memory-review-model <slug>   # which cheap model reviews sessions (default gpt-5-mini)
@@ -483,9 +527,41 @@ omp                                            # start a fresh Copilot session
 
 After `npm link`, the global `omp` command runs your local build. Re-run `npm run build` after code
 changes, then run plain `omp setup` from the target project to copy bundled skills from the linked
-checkout. Setup preserves locally changed skills unless you explicitly pass `--force`. Packaged users
+checkout. Setup preserves locally changed skills unless you explicitly pass `--force`; unknown
+effective `/goal` content and legacy goal-routing instructions remain protected even with force.
+Known historical repository-goal copies migrate to `/project-goal` without changing `.omp/goal.md`.
+Packaged users
 follow the same out-of-box shape from any project: install OMP, run `omp setup`, and start a fresh
 Copilot session. They do not need this repository checkout, a benchmark working directory, or Python.
+
+### Linked CLI smoke (Goal / Ultragoal)
+
+Copy-paste checks after `npm run build && npm link` (uses the global `omp` that points at this checkout):
+
+```bash
+# 1) Prove the linked binary is this worktree
+omp version --json | jq -r .packageRoot   # should equal this checkout
+
+# 2) Help prints before session validation
+omp goal --help
+omp ultragoal --help
+
+# 3) Session Goal set → status → complete (unique ids each run)
+SID="smoke-$(date +%s)"
+OID="op-$(date +%s)-$RANDOM"
+omp goal set "smoke objective" --session-id "$SID" --operation-id "$OID" --json
+omp goal status --session-id "$SID" --json
+omp goal complete --reason "smoke done" --session-id "$SID" --operation-id "${OID}-done" --json
+
+# 4) Project goal (repo-scoped, no session id)
+omp project-goal set "make releases boring" --json
+omp project-goal read --json
+omp project-goal clear --json
+```
+
+For Ultragoal create/next/evidence/checkpoint/gate and lock recovery proofs, see
+[docs/ultragoal.md](docs/ultragoal.md) and the verification plan under
+`docs/plans/verification-plan.md`. Full unit coverage: `npm test` (Goal runtime, Ultragoal gates, CLI, hooks).
 
 Start a fresh Copilot session after setup because skills are loaded at session start. Run either
 history smoke:

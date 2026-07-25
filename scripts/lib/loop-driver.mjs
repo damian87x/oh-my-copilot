@@ -10,14 +10,13 @@ export const LOOP_MODES = [
   { key: "ultrawork", sentinel: "ULTRAWORK_COMPLETE", counter: "iteration", max: "maxIterations", defMax: 20, unit: "ITERATION" },
 ];
 
-// Copilot transcripts are events.jsonl; only assistant.message content is the
-// model's own output. The hook's injected continuation prompt flows back inside
-// user.message events and must not be scanned for completion sentinels (#75).
-// Plain-text transcripts (no parseable events) pass through unchanged.
-export function extractAssistantText(tailText = "") {
+// Copilot transcripts are events.jsonl; only the latest complete
+// assistant.message is allowed to control a stop decision. Older completion
+// markers and injected user.message content must not leak into the current turn.
+export function extractLatestAssistantMessage(tailText = "") {
   let sawEvent = false;
-  const chunks = [];
-  for (const line of String(tailText).split("\n")) {
+  let latest;
+  for (const line of String(tailText).split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) continue;
     let event;
@@ -29,10 +28,33 @@ export function extractAssistantText(tailText = "") {
     if (!event || typeof event.type !== "string") continue;
     sawEvent = true;
     if (event.type === "assistant.message" && typeof event.data?.content === "string") {
-      chunks.push(event.data.content);
+      latest = {
+        content: event.data.content,
+        eventId: typeof event.id === "string" ? event.id : undefined,
+        messageId: typeof event.data.messageId === "string" ? event.data.messageId : undefined,
+        turnId: typeof event.data.turnId === "string" ? event.data.turnId : undefined,
+      };
     }
   }
-  return sawEvent ? chunks.join("\n") : String(tailText);
+  return sawEvent ? latest : undefined;
+}
+
+// Plain-text transcripts (no parseable events) pass through unchanged for
+// compatibility with Claude Code and the existing hook test surface.
+export function extractAssistantText(tailText = "") {
+  const latest = extractLatestAssistantMessage(tailText);
+  if (latest) return latest.content;
+  const hasEvent = String(tailText)
+    .split(/\r?\n/)
+    .some((line) => {
+      try {
+        const parsed = JSON.parse(line.trim());
+        return parsed && typeof parsed.type === "string";
+      } catch {
+        return false;
+      }
+    });
+  return hasEvent ? "" : String(tailText);
 }
 
 // The sentinel counts only on its own line: the injected continuation prompt

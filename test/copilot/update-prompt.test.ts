@@ -82,6 +82,34 @@ describe("maybePromptUpdate", () => {
     expect(outcome.updated).toBe(true);
   });
 
+  it("reports a blocked user-install refresh instead of claiming it is current", async () => {
+    const { io, prints } = fakeIO(["y"]);
+    const outcome = await maybePromptUpdate({
+      cwd: newProject(),
+      io,
+      interactive: true,
+      ...baseOpts,
+      runUpdate: async () => true,
+      updatePlugin: async () => "updated",
+      refreshUserInstall: () => ({
+        ok: false,
+        actions: [],
+        conflicts: [
+          {
+            code: "UNKNOWN_EFFECTIVE_GOAL",
+            path: "/tmp/.copilot/skills/goal/SKILL.md",
+            message: "existing /goal is not a known legacy or managed copy",
+          },
+        ],
+      }),
+    });
+
+    expect(prints.some((line) => line.includes("User install refresh blocked"))).toBe(true);
+    expect(prints.some((line) => line.includes("UNKNOWN_EFFECTIVE_GOAL"))).toBe(true);
+    expect(prints.some((line) => line.includes("up to date"))).toBe(false);
+    expect(outcome.updated).toBe(true);
+  });
+
   it("declines without updating and shows the getting-started hint", async () => {
     const { io, prints } = fakeIO(["n"]);
     let ran = 0;

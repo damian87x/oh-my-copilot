@@ -1,33 +1,61 @@
 ---
 name: goal
-description: Set or show the repo's durable objective — what we want to achieve in this repo — stored per project at .omp/goal.md. Use when the user says /goal, states the repo's north-star, or asks "what are we trying to achieve here".
+description: Use when the user invokes /goal, wants a durable objective for the current Copilot session, asks to resume an unfinished objective, or needs turn-based continuation with completion and blocker decisions.
 ---
 
 # Goal
 
-The repo's **durable objective** — the north-star for this project — stored per project at
-`.omp/goal.md`. It is distinct from a daily log's per-day goal: this is the long-lived "what
-we want to achieve in this repo", set rarely and updated only when the objective changes.
+Own one unfinished objective for the current Copilot session. The AgentStop
+hook persists turns and continuation decisions; do not manually increment them.
 
-It is read and written through the `omp` CLI (run these as shell commands):
+## Start or inspect
 
-- `omp goal set "<objective>"` — set/replace the repo objective (one concise line).
-- `omp goal read` — print the current repo objective.
+Read the session ID from `[OMP SESSION]` in SessionStart context.
 
-The command writes under the current project's `.omp/`, so every repo keeps its own goal
-automatically.
+- `/goal <objective>`:
+  `omp goal set "<objective>" --session-id "<session>" --operation-id "goal-set-<unique-id>" --json`
+- `/goal`:
+  `omp goal status --session-id "<session>" --json`
 
-## When to use
+Lifecycle commands are `edit`, `pause`, `resume`, `replace`, `clear`, and
+`repair`. Agent decisions use `complete` and `extend`. Mutations require a
+unique `--operation-id`; `pause`, `clear`, `complete`, and `extend` also require
+`--reason`.
 
-- **`/goal <text>`** — the user states the objective; run `omp goal set "<one concise line>"`.
-- **`/goal`** (no text) — run `omp goal read` and show the current objective. If none is set,
-  offer to set one.
-- The SessionStart hook surfaces the goal as a `[REPO GOAL] …` line, so it is already in
-  context at the start of each session — only run `omp goal read` when the user asks explicitly.
+## Continuation contract
 
-## Notes
+- Work autonomously while Goal is active.
+- After fresh verification, run
+  `omp goal complete --reason "<evidence>" --session-id "<session>" --operation-id "goal-complete-<turn>" --json`,
+  then emit `OMP_GOAL_COMPLETE` on its own line. The command is authoritative
+  on Copilot versions that flush the transcript after AgentStop.
+- Emit `OMP_GOAL_BLOCKED {"key":"stable-slug"}` on its own line only for a
+  genuine blocker. The same key must persist for three counted turns.
+- At turns 20, 40, 60, and 80, decide whether more work is justified. Continue
+  only after running
+  `omp goal extend --reason "<specific remaining work>" --session-id "<session>" --operation-id "goal-extend-<boundary>" --json`
+  during the boundary turn, then emit
+  `OMP_GOAL_EXTEND {"reason":"specific remaining work"}` on its own line.
+  Otherwise Goal pauses. Turn 100 always stops.
 
-- Keep it to a single north-star sentence; it is not a task list. Use the daily log
-  (`/daily-log`) for day-to-day progress toward this goal.
-- Update it when the objective genuinely shifts — not every session.
-- Do not put secrets in it; `.omp/goal.md` is a plain file readable by anyone with repo access.
+## Quick reference
+
+| Intent | Command |
+| --- | --- |
+| Change wording | `omp goal edit "<objective>" ...` |
+| Pause | `omp goal pause --reason "<why>" ...` |
+| Resume | `omp goal resume ...` |
+| Replace and reset turns | `omp goal replace "<objective>" ...` |
+| Complete with evidence | `omp goal complete --reason "<evidence>" ...` |
+| Extend at 20/40/60/80 | `omp goal extend --reason "<remaining work>" ...` |
+| Cancel | `omp goal clear --reason "<why>" ...` |
+| Repair snapshot/ledger | `omp goal repair ...` |
+
+Example: `/goal finish the auth regression and prove it live` creates the Goal,
+then continues until verification supports the completion marker.
+
+## Common mistakes
+
+- Repository north-star: use `/project-goal`.
+- Never invent a session ID; use `[OMP SESSION]`.
+- Never reuse an operation ID with different input.

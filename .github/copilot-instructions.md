@@ -50,13 +50,17 @@ Invoke `/self-evolve` **at most once per session.** After it reports back, do no
 
 The skill lives at `.github/skills/self-evolve/SKILL.md`. It is self-contained: it tells you which signals count as corrections, where to log them, and when a recurring pattern should become a draft skill.
 
-## Daily log & repo goal
+## Daily log & project goal
 
 Keep lightweight memory in `.omp/` so the next session has context. **Be sparse** — these are
 memory aids, not a transcript. Float kills their value.
 
-- **Repo goal** (`.omp/goal.md`, via `/goal`): set/update the one-line objective when it is
+- **Project goal** (`.omp/goal.md`, via `/project-goal`): set/update the one-line objective when it is
   established or genuinely shifts. Not every session.
+- **Session Goal** (via `/goal`): one durable unfinished objective for the current
+  Copilot session. AgentStop owns its turn counter; the agent records completion
+  and 20-turn extension decisions with idempotent `omp goal complete|extend`
+  commands before the stop hook.
 - **Daily log** (`.omp/memory/daily/<date>.md`, via `/daily-log`):
   - When a heavy mode (`/ralph`, `/ralplan`, `/omp-autopilot`, `/team`, `/ultrawork`,
     `/ultraqa`) starts, set today's goal from its objective: `omp daily-log set-goal "<text>"`.

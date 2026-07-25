@@ -126,6 +126,7 @@ export interface MaybePromptUpdateOptions {
   formatUpdateNotice?: (current: string, latest: string) => string;
   runUpdate?: () => Promise<boolean>;
   updatePlugin?: () => Promise<PluginUpdateStatus>;
+  refreshUserInstall?: typeof import("./setup.js").refreshUserInstall;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -177,11 +178,18 @@ export async function maybePromptUpdate(options: MaybePromptUpdateOptions): Prom
     // Same as `omp update`: refresh user-home hooks + skills + agents so the
     // personal install tracks the new CLI. Never scaffolds project .github.
     try {
-      const { refreshUserInstall } = await import("./setup.js");
-      const { actions } = refreshUserInstall({
+      const setup = await import("./setup.js");
+      const refreshUserInstall = options.refreshUserInstall ?? setup.refreshUserInstall;
+      const result = refreshUserInstall({
         cwd: options.cwd,
         importMetaUrl: options.importMetaUrl,
       });
+      if (!result.ok) {
+        options.io.print(`  ${setup.formatUserInstallRefreshBlock(result.conflicts)}`);
+        options.io.print(`Updated to v${update.latest} — re-run \`omp\`.`);
+        return { updated: true };
+      }
+      const { actions } = result;
       const hook = actions.find((a) => a.target.endsWith("omp.json"));
       if (hook?.kind === "create") options.io.print("  Hooks installed (~/.copilot/hooks/omp.json).");
       else if (hook?.kind === "update") options.io.print("  Hooks refreshed (~/.copilot/hooks/omp.json).");

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { syncInstructionsMemory } from "../src/instructions-memory.js";
-import { writeRepoGoal } from "../src/goal.js";
+import { writeProjectGoal } from "../src/project-goal.js";
 import { setMemoryConfigValue } from "../src/memory-review/config.js";
 import { addDirective, addNote, addTopicFact, setTopicDescription } from "../src/project-memory.js";
 
@@ -23,13 +23,13 @@ describe("instructions memory block", () => {
 
   it("renders a lightweight on-demand project context block", () => {
     const root = cwd();
-    writeRepoGoal(root, "Ship it");
+    writeProjectGoal(root, "Ship it");
     addDirective(root, "always run tests");
     expect(syncInstructionsMemory(root).wrote).toBe(true);
     const text = instr(root);
     expect(text).toContain("omp:memory:start");
     expect(text).toContain("## oh-my-copilot project context");
-    expect(text).toContain("**Repo goal:** Ship it");
+    expect(text).toContain("**Project goal:** Ship it");
     expect(text).toContain("Project memory is available on demand:");
     expect(text).toContain("`omp project-memory read`");
     expect(text).toContain("`omp project-memory read <id>`");
@@ -137,12 +137,12 @@ describe("instructions memory block", () => {
 
   it("replaces the block on re-sync without duplicating", () => {
     const root = cwd();
-    writeRepoGoal(root, "v1");
+    writeProjectGoal(root, "v1");
     syncInstructionsMemory(root);
-    writeRepoGoal(root, "v2");
+    writeProjectGoal(root, "v2");
     syncInstructionsMemory(root);
     const text = instr(root);
-    expect(text).toContain("**Repo goal:** v2");
+    expect(text).toContain("**Project goal:** v2");
     expect(text).not.toContain("v1");
     expect(text.match(/omp:memory:start/g)?.length).toBe(1);
   });
@@ -155,7 +155,7 @@ describe("instructions memory block", () => {
       path.join(root, ".github", "copilot-instructions.md"),
       "# Mine\n<!-- omp:memory:start -->\nimportant user notes\n",
     );
-    writeRepoGoal(root, "Ship");
+    writeProjectGoal(root, "Ship");
     expect(syncInstructionsMemory(root).wrote).toBe(false);
     expect(instr(root)).toContain("important user notes"); // untouched
   });
@@ -164,17 +164,17 @@ describe("instructions memory block", () => {
     const root = cwd();
     mkdirSync(path.join(root, ".github"), { recursive: true });
     writeFileSync(path.join(root, ".github", "copilot-instructions.md"), "# My project\n\nDo good work.\n");
-    writeRepoGoal(root, "Ship");
+    writeProjectGoal(root, "Ship");
     syncInstructionsMemory(root);
     const text = instr(root);
     expect(text).toContain("Do good work.");
-    expect(text).toContain("**Repo goal:** Ship");
+    expect(text).toContain("**Project goal:** Ship");
   });
 
   it("skips writing the managed block when instructions memory is disabled", () => {
     const root = cwd();
     process.env.OMP_DISABLE_INSTRUCTIONS_MEMORY = "1";
-    writeRepoGoal(root, "Ship");
+    writeProjectGoal(root, "Ship");
 
     const result = syncInstructionsMemory(root);
 
@@ -201,10 +201,10 @@ describe("instructions block sanitization hardening", () => {
     expect(text).toContain("- good rule");
     expect(text).toContain("evil  rule");
     // and a LATER sync still replaces the block (no fail-closed wedge)
-    writeRepoGoal(root, "v2");
+    writeProjectGoal(root, "v2");
     expect(syncInstructionsMemory(root).wrote).toBe(true);
     text = instr(root);
-    expect(text).toContain("**Repo goal:** v2");
+    expect(text).toContain("**Project goal:** v2");
     expect(text.match(/omp:memory:start/g)?.length).toBe(1);
   });
 

@@ -8,6 +8,8 @@ import { recordPrompt } from "./lib/daily-log.mjs";
 import { ompRoot } from "./lib/omp-root.mjs";
 import { parseHookInput } from "./lib/hook-input.mjs";
 import { appendCostRecord, countTokens } from "./lib/cost-ledger.mjs";
+import { formatGoalContext, goalCommand } from "./lib/goal-runtime.mjs";
+import { formatUltragoalContext, readUltragoalManifest } from "./lib/ultragoal-context.mjs";
 
 const HOOK_NAME = "UserPromptSubmit";
 
@@ -21,21 +23,62 @@ export function readModeState(directory, mode) {
   }
 }
 
-export function buildContinuationContext(directory) {
+export function buildContinuationContext(directory, sessionId) {
   const ralph = readModeState(directory, "ralph");
   const ultrawork = readModeState(directory, "ultrawork");
   const ultraqa = readModeState(directory, "ultraqa");
   const parts = [];
-  if (ralph?.active)
-    parts.push(
-      `[RALPH ACTIVE: iteration ${ralph.iteration}/${ralph.maxIterations}]\nPrompt: ${ralph.prompt}\nContinue the loop. Report concrete progress.`,
+  const goal = sessionId && sessionId !== "unknown"
+    ? goalCommand({ root: directory, command: "status", sessionId })
+    : undefined;
+  const goalState = goal?.ok ? goal.result : undefined;
+  const goalContext =
+    goalState?.status === "active" || goalState?.status === "paused"
+      ? formatGoalContext(goalState)
+      : "";
+  if (goalContext) parts.push(goalContext);
+  if (goalState?.status === "active") {
+    const ultragoal = readUltragoalManifest(directory, sessionId);
+    const ultragoalContext = formatUltragoalContext(
+      ultragoal?.goalGeneration === undefined
+        || ultragoal.goalGeneration === goalState.goalGeneration
+        ? ultragoal
+        : undefined,
     );
-  if (ultrawork?.active)
-    parts.push(`[ULTRAWORK ACTIVE]\nObjective: ${ultrawork.objective}\nSustain the objective. Batch parallel tasks.`);
-  if (ultraqa?.active)
-    parts.push(
-      `[ULTRAQA ACTIVE: cycle ${ultraqa.cycleCount}/${ultraqa.maxCycles}]\nGoal: ${ultraqa.goal}\nRun tests → verify → fix. Iterate.`,
-    );
+    if (ultragoalContext) parts.push(ultragoalContext);
+  }
+
+  if (goalState?.status === "active") {
+    // Strict nesting: inject only the highest-ranked active frame owned by the
+    // same session (ralph > ultraqa > ultrawork).
+    if (ralph?.active && ralph.sessionId === sessionId) {
+      parts.push(
+        `[RALPH ACTIVE: iteration ${ralph.iteration}/${ralph.maxIterations}]\nPrompt: ${ralph.prompt}\nContinue the loop. Report concrete progress.`,
+      );
+    } else if (ultraqa?.active && ultraqa.sessionId === sessionId) {
+      parts.push(
+        `[ULTRAQA ACTIVE: cycle ${ultraqa.cycleCount}/${ultraqa.maxCycles}]\nGoal: ${ultraqa.goal}\nRun tests → verify → fix. Iterate.`,
+      );
+    } else if (ultrawork?.active && ultrawork.sessionId === sessionId) {
+      parts.push(
+        `[ULTRAWORK ACTIVE]\nObjective: ${ultrawork.objective}\nSustain the objective. Batch parallel tasks.`,
+      );
+    }
+  } else if (!goalState || goalState.status === "empty") {
+    // Backward-compatible global mode behavior when no session Goal exists.
+    if (ralph?.active)
+      parts.push(
+        `[RALPH ACTIVE: iteration ${ralph.iteration}/${ralph.maxIterations}]\nPrompt: ${ralph.prompt}\nContinue the loop. Report concrete progress.`,
+      );
+    if (ultraqa?.active)
+      parts.push(
+        `[ULTRAQA ACTIVE: cycle ${ultraqa.cycleCount}/${ultraqa.maxCycles}]\nGoal: ${ultraqa.goal}\nRun tests → verify → fix. Iterate.`,
+      );
+    if (ultrawork?.active)
+      parts.push(
+        `[ULTRAWORK ACTIVE]\nObjective: ${ultrawork.objective}\nSustain the objective. Batch parallel tasks.`,
+      );
+  }
   const ponytail = readModeState(directory, "ponytail");
   if (ponytail?.active)
     parts.push(
@@ -81,7 +124,7 @@ export async function handlePromptSubmit(raw) {
     // best effort: counting must never block the prompt
   }
   const parts = [];
-  const cont = buildContinuationContext(directory);
+  const cont = buildContinuationContext(directory, sessionId);
   if (cont) parts.push(cont);
   const additionalContext = parts.join("\n\n---\n\n");
   return buildContinueHookOutput(HOOK_NAME, additionalContext);

@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 // @ts-expect-error — plain .mjs hook helper, no types
-import { decideLoop, extractAssistantText } from "../../scripts/lib/loop-driver.mjs";
+import {
+  decideLoop,
+  extractAssistantText,
+  extractLatestAssistantMessage,
+} from "../../scripts/lib/loop-driver.mjs";
 
 describe("decideLoop", () => {
   it("allows a normal stop when no loop is active", () => {
@@ -108,7 +112,7 @@ describe("decideLoop", () => {
 });
 
 describe("extractAssistantText", () => {
-  it("returns only assistant.message content from an events.jsonl tail", () => {
+  it("returns only the latest complete assistant.message from an events.jsonl tail", () => {
     const tail = [
       JSON.stringify({
         type: "user.message",
@@ -122,7 +126,25 @@ describe("extractAssistantText", () => {
       JSON.stringify({ type: "assistant.turn_end", data: {} }),
       JSON.stringify({ type: "assistant.message", data: { content: "all good\nRALPH_COMPLETE" } }),
     ].join("\n");
-    expect(extractAssistantText(tail)).toBe("step one done\nall good\nRALPH_COMPLETE");
+    expect(extractAssistantText(tail)).toBe("all good\nRALPH_COMPLETE");
+  });
+
+  it("returns stable identity metadata for durable hook replay", () => {
+    const tail = [
+      JSON.stringify({
+        type: "assistant.message",
+        id: "event-1",
+        data: { messageId: "message-1", turnId: "7", content: "latest" },
+      }),
+      '{"type":"assistant.message","data":{"content":"partial',
+    ].join("\r\n");
+
+    expect(extractLatestAssistantMessage(tail)).toEqual({
+      content: "latest",
+      eventId: "event-1",
+      messageId: "message-1",
+      turnId: "7",
+    });
   });
 
   it("passes plain-text transcripts through unchanged", () => {

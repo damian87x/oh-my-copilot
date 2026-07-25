@@ -6,7 +6,9 @@ import { isMain } from "./lib/is-main.mjs";
 import { buildContinueHookOutput, failOpen } from "./lib/hook-output.mjs";
 import { checkForUpdate, formatUpdateNotice } from "./lib/version-check.mjs";
 import { scanScheduleResults } from "./lib/schedule-results.mjs";
-import { readRepoGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
+import { readProjectGoal, readTodayGoal, recentEntryStats, startSession } from "./lib/daily-log.mjs";
+import { formatGoalContext, goalCommand } from "./lib/goal-runtime.mjs";
+import { formatUltragoalContext, readUltragoalManifest } from "./lib/ultragoal-context.mjs";
 import { readDirectives } from "./lib/project-memory.mjs";
 import { pendingDirectivesNudge } from "./lib/pending-directives.mjs";
 import { readDirectiveCaps } from "./lib/memory-config.mjs";
@@ -103,6 +105,7 @@ export async function handleSessionStart(raw) {
   appendFileSync(logFile, `${line}\n`);
 
   const parts = [];
+  if (sessionId && sessionId !== "unknown") parts.push(`[OMP SESSION] ${sessionId}`);
   const update = await checkForUpdate({ stateDir });
   if (update) parts.push(formatUpdateNotice(update.current, update.latest));
   const warnings = nestedStateWarnings(directory, root);
@@ -148,8 +151,19 @@ export async function handleSessionStart(raw) {
         "run `omp project-memory read` for the index, `omp project-memory read <id>` for a body.",
     );
   }
-  const repoGoal = readRepoGoal(directory);
-  if (repoGoal) parts.push(`[REPO GOAL] ${repoGoal}`);
+  const projectGoal = readProjectGoal(directory);
+  if (projectGoal) parts.push(`[PROJECT GOAL] ${projectGoal}`);
+  if (sessionId && sessionId !== "unknown") {
+    const goal = goalCommand({ root, command: "status", sessionId });
+    if (goal.ok) {
+      const context = formatGoalContext(goal.result);
+      if (context) parts.push(context);
+      const ultragoalContext = formatUltragoalContext(
+        readUltragoalManifest(root, sessionId),
+      );
+      if (ultragoalContext) parts.push(ultragoalContext);
+    }
+  }
   // Memory-review's gated directive queue is invisible without a nudge.
   const pendingNudge = pendingDirectivesNudge(directory);
   if (pendingNudge) parts.push(pendingNudge);

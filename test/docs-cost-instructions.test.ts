@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { writeRepoGoal } from "../src/goal.js";
+import { writeProjectGoal } from "../src/project-goal.js";
 import { syncInstructionsMemory } from "../src/instructions-memory.js";
 import { runSetup } from "../src/copilot/setup.js";
 
@@ -61,14 +61,14 @@ describe("cost/token instruction contracts", () => {
         "",
       ].join("\n"),
     );
-    writeRepoGoal(project, "Ship docs guard");
+    writeProjectGoal(project, "Ship docs guard");
 
     expect(syncInstructionsMemory(project).wrote).toBe(true);
 
     const text = readFileSync(path.join(project, ".github", "copilot-instructions.md"), "utf8");
     expect(text).toContain("## Cost/token discipline");
     expect(text).toContain("not provider billing");
-    expect(text).toContain("**Repo goal:** Ship docs guard");
+    expect(text).toContain("**Project goal:** Ship docs guard");
     expect(text).not.toContain("old managed content");
   });
 

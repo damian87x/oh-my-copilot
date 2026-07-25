@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readRepoGoal } from "../goal.js";
+import { readProjectGoal } from "../project-goal.js";
 import { readDailyLog } from "../daily-log.js";
 import { traceSummary, traceTimeline } from "../trace.js";
 import { sanitizeHandoffText } from "./redact.js";
@@ -32,7 +32,9 @@ export interface DeterministicDraft {
   sources: {
     git: boolean;
     trace: boolean;
+    /** @deprecated Use projectGoal. */
     goal: boolean;
+    projectGoal: boolean;
     daily: boolean;
   };
 }
@@ -118,7 +120,7 @@ function clampRef(ref: HandoffReference): HandoffReference {
  * Purely deterministic — never invokes a model.
  */
 export function buildDeterministicDraft(cwd: string, input: CreateHandoffInput = {}): DeterministicDraft {
-  const sources = { git: false, trace: false, goal: false, daily: false };
+  const sources = { git: false, trace: false, goal: false, projectGoal: false, daily: false };
 
   const files = input.files_touched?.length
     ? clampList(input.files_touched, HANDOFF_BOUNDS.maxFiles)
@@ -137,8 +139,11 @@ export function buildDeterministicDraft(cwd: string, input: CreateHandoffInput =
   const summary = traceSummary(cwd, timeline.sessionId);
   if (summary.total > 0) sources.trace = true;
 
-  const goal = readRepoGoal(cwd);
-  if (goal) sources.goal = true;
+  const goal = readProjectGoal(cwd);
+  if (goal) {
+    sources.goal = true;
+    sources.projectGoal = true;
+  }
 
   const daily = readDailyLog(cwd, 1);
   if (daily) sources.daily = true;
