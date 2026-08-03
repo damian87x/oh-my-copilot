@@ -73,7 +73,7 @@
     "vitest": "^4.1.9"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@slack/bolt": "^4.4.0",
     "node-notifier": "^10.0.1"
   }
