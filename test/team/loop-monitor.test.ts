@@ -875,6 +875,7 @@ describe("scanLoopTeamMonitorOnce", () => {
 
     const monitorPaths = resolveTeamMonitorPaths(cwd);
     const shutdownFile = resolveTeamPaths(cwd, "demo").shutdownFile;
+    let wroteShutdown = false;
     const writeShutdownAfterReservation = () => {
       const reserved = readdirSync(monitorPaths.targetsDir)
         .filter((name) => name.endsWith(".json"))
@@ -888,7 +889,8 @@ describe("scanLoopTeamMonitorOnce", () => {
               pane.lastAttempt.outcome === "reserved",
           );
         });
-      if (reserved && !existsSync(shutdownFile)) {
+      if (reserved && !wroteShutdown) {
+        wroteShutdown = true;
         writeFileSync(
           shutdownFile,
           '{"shutdownAt":"2026-07-30T19:00:30.011Z"}\n',

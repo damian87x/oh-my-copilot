@@ -10,7 +10,6 @@ import {
   paneHasActiveTask,
   paneLooksReady,
   sendToWorker,
-  tmuxExec,
   type TmuxResult,
 } from "../../src/team/tmux.js";
 
