@@ -1,5 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  readFileSync,
+} from "node:fs";
 import { join } from "node:path";
+import { openRegularFile } from "../utils/fs.js";
 import { makeTmux, type TmuxApi } from "./tmux.js";
 
 // Deterministic team report-back for the visual flow (oh-my-codex model): each
@@ -35,16 +40,67 @@ export interface CollectResult {
   allDone: boolean;
 }
 
+const LANE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const PANE_ID_RE = /^%\d+$/;
+
+function validLane(lane: unknown): lane is LaneSpec {
+  if (!lane || typeof lane !== "object") return false;
+  const value = lane as Record<string, unknown>;
+  return (
+    typeof value.id === "string" &&
+    LANE_ID_RE.test(value.id) &&
+    (value.name === undefined || typeof value.name === "string") &&
+    (
+      value.paneId === undefined ||
+      (typeof value.paneId === "string" && PANE_ID_RE.test(value.paneId))
+    )
+  );
+}
+
+function readTrustedRegularFile(
+  filePath: string,
+  trustedRoot: string,
+): string | undefined {
+  const opened = openRegularFile(filePath, constants.O_RDONLY, {
+    rejectHardlinks: true,
+    trustedRoot,
+  });
+  if (!opened.ok) return undefined;
+  try {
+    try {
+      return readFileSync(opened.fd, "utf8");
+    } catch {
+      return undefined;
+    }
+  } finally {
+    closeSync(opened.fd);
+  }
+}
+
 export function resultPath(dir: string, laneId: string): string {
+  if (!LANE_ID_RE.test(laneId)) {
+    throw new Error(`invalid lane id: ${JSON.stringify(laneId)}`);
+  }
   return join(dir, `${laneId}.result.md`);
 }
 
 export function readManifest(dir: string): LaneSpec[] {
   const p = join(dir, "manifest.json");
-  if (!existsSync(p)) return [];
   try {
-    const parsed = JSON.parse(readFileSync(p, "utf8"));
-    return Array.isArray(parsed) ? (parsed as LaneSpec[]) : [];
+    const raw = readTrustedRegularFile(p, dir);
+    if (raw === undefined) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || !parsed.every(validLane)) return [];
+    const ids = new Set<string>();
+    const panes = new Set<string>();
+    for (const lane of parsed) {
+      if (ids.has(lane.id) || (lane.paneId && panes.has(lane.paneId))) {
+        return [];
+      }
+      ids.add(lane.id);
+      if (lane.paneId) panes.add(lane.paneId);
+    }
+    return parsed;
   } catch {
     return [];
   }
@@ -61,15 +117,8 @@ export function collectDeliveries(
 
   const results: LaneResult[] = lanes.map((lane) => {
     const file = resultPath(dir, lane.id);
-    if (existsSync(file)) {
-      let output = "";
-      try {
-        output = readFileSync(file, "utf8");
-      } catch {
-        /* file vanished between checks — treat as still working */
-      }
-      if (output) return { id: lane.id, name: lane.name, status: "done", output };
-    }
+    const output = readTrustedRegularFile(file, dir) ?? "";
+    if (output) return { id: lane.id, name: lane.name, status: "done", output };
     if (lane.paneId && tmux?.paneDead(lane.paneId)) {
       return { id: lane.id, name: lane.name, status: "dead", output: "" };
     }

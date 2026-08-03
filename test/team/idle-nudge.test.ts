@@ -72,6 +72,62 @@ describe("NudgeTracker", () => {
     expect(summary[0]?.nudgeCount).toBe(2);
   });
 
+  it("rehydrates the reserved count so a restart cannot send a fourth nudge", async () => {
+    const { api, calls } = makeApi({ "%1": "$ " });
+    const config = { delayMs: 0, scanIntervalMs: 0, maxCount: 3 };
+    const tracker = new NudgeTracker(config);
+
+    await tracker.checkAndNudge(api, "s", ["%1"], undefined, 1_000);
+    await tracker.checkAndNudge(api, "s", ["%1"], undefined, 2_000);
+    await tracker.checkAndNudge(api, "s", ["%1"], undefined, 3_000);
+    const sendsBeforeRestart = calls.filter((call) => call[0] === "send-text").length;
+
+    const restarted = new NudgeTracker(config, tracker.snapshot());
+    const attempts = await restarted.checkAndNudge(api, "s", ["%1"], undefined, 4_000);
+
+    expect(attempts).toEqual([]);
+    expect(restarted.getSummary()).toEqual([
+      { paneId: "%1", nudgeCount: 3, lastNudgeAt: 3_000 },
+    ]);
+    expect(calls.filter((call) => call[0] === "send-text")).toHaveLength(sendsBeforeRestart);
+  });
+
+  it("reserves a nudge before transport and never rolls back a failed outcome", () => {
+    const { api } = makeApi({ "%1": "$ " });
+    const tracker = new NudgeTracker({ delayMs: 0, scanIntervalMs: 0, maxCount: 3 });
+
+    const due = tracker.observePanes(api, ["%1"], undefined, 1_000);
+    const reservation = tracker.reserveNudge("%1", "attempt-1", 1_000);
+
+    expect(due).toEqual([{ paneId: "%1", at: 1_000 }]);
+    expect(reservation).toMatchObject({
+      paneId: "%1",
+      attemptId: "attempt-1",
+      nudgeCount: 1,
+      at: 1_000,
+    });
+    expect(tracker.snapshot().panes[0]).toMatchObject({
+      paneId: "%1",
+      nudgeCount: 1,
+      lastAttempt: {
+        attemptId: "attempt-1",
+        reservedAt: 1_000,
+        outcome: "reserved",
+      },
+    });
+
+    tracker.recordNudgeOutcome("%1", "attempt-1", "failed", 1_001);
+
+    expect(tracker.snapshot().panes[0]).toMatchObject({
+      nudgeCount: 1,
+      lastAttempt: {
+        attemptId: "attempt-1",
+        outcome: "failed",
+        completedAt: 1_001,
+      },
+    });
+  });
+
   it("skips the leader pane", async () => {
     const { api } = makeApi({ "%1": "$ ", "%2": "$ " });
     const tracker = new NudgeTracker({ delayMs: 100, scanIntervalMs: 0 });

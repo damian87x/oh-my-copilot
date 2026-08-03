@@ -16,14 +16,23 @@ import {
 import { writeModeStateJson } from "../../src/mode-state/paths.js";
 import { resolveTeamPaths, resolveWorkerPaths } from "../../src/team/state-paths.js";
 import { apiClaimTask, apiTransitionTaskStatus } from "../../src/team/api.js";
-import type { TmuxApi, TmuxResult } from "../../src/team/tmux.js";
+import { adoptLoopTeamMonitorOwner, ensureLoopTeamMonitor } from "../../src/team/monitor-supervisor.js";
+import { scanLoopTeamMonitorOnce } from "../../src/team/loop-monitor.js";
+import type { TmuxApi, TmuxPaneContext, TmuxResult } from "../../src/team/tmux.js";
 import type { TeamConfig } from "../../src/team/types.js";
 
 function tempCwd(): string {
   return mkdtempSync(path.join(tmpdir(), "omc-runtime-"));
 }
 
-function mockTmux(): { api: TmuxApi; calls: string[][]; deadPanes: Set<string> } {
+function mockTmux(
+  currentPath = process.cwd(),
+  paneContext?: (target: string) => TmuxPaneContext | undefined,
+): {
+  api: TmuxApi;
+  calls: string[][];
+  deadPanes: Set<string>;
+} {
   const calls: string[][] = [];
   const deadPanes = new Set<string>();
   let paneCounter = 0;
@@ -66,6 +75,25 @@ function mockTmux(): { api: TmuxApi; calls: string[][]; deadPanes: Set<string> }
     sessionExists() {
       return false;
     },
+    listSessions() {
+      return [];
+    },
+    paneContext(target) {
+      if (paneContext) return paneContext(target);
+      return {
+        socketPath: "/tmp/omc-runtime.sock",
+        serverPid: 9001,
+        serverStartedAt: 1785430000,
+        sessionId: "$1",
+        sessionCreatedAt: 1785430001,
+        windowId: "@1",
+        paneId: target,
+        currentPath,
+        dead: deadPanes.has(target),
+        launchId: "",
+        laneId: "",
+      };
+    },
   };
   return { api, calls, deadPanes };
 }
@@ -84,7 +112,7 @@ describe("resolveWorkerBin", () => {
 describe("startTeam", () => {
   it("creates one task + one pane per worker and writes inbox/config", async () => {
     const cwd = tempCwd();
-    const { api, calls } = mockTmux();
+    const { api, calls } = mockTmux(cwd);
     const result = await startTeam({
       cwd,
       name: "demo",
@@ -101,6 +129,14 @@ describe("startTeam", () => {
     expect(existsSync(paths.configFile)).toBe(true);
     const persisted = JSON.parse(readFileSync(paths.configFile, "utf8")) as TeamConfig;
     expect(persisted.workers).toHaveLength(2);
+    expect(persisted.tmuxIdentity).toEqual({
+      socketPath: "/tmp/omc-runtime.sock",
+      serverPid: 9001,
+      serverStartedAt: 1785430000,
+      sessionId: "$1",
+      sessionCreatedAt: 1785430001,
+      windowId: "@1",
+    });
 
     const worker1 = resolveWorkerPaths(paths, "worker-1");
     expect(existsSync(worker1.inboxFile)).toBe(true);
@@ -138,6 +174,26 @@ describe("startTeam", () => {
     // Cleanup must have killed the session — assert kill-session was called.
     const killed = calls.find((c) => c[0] === "kill-session");
     expect(killed).toBeTruthy();
+  });
+
+  it("keeps the team available when tmux identity inspection is unavailable", async () => {
+    const cwd = tempCwd();
+    const { api, calls } = mockTmux(cwd, () => undefined);
+
+    const result = await startTeam({
+      cwd,
+      name: "identity-unavailable",
+      role: "claude",
+      workerCount: 1,
+      task: "keep working",
+      tmux: api,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.config.tmuxIdentity).toBeUndefined();
+    expect(
+      calls.some((call) => call[0] === "kill-session"),
+    ).toBe(false);
   });
 });
 
@@ -357,4 +413,61 @@ describe("pollSnapshot", () => {
     const snap = pollSnapshot(paths, config, api);
     expect(snap.workers[0]?.paneDead).toBe(true);
   });
+
+  it("treats a recycled tmux server as stale instead of sending to the same pane id", async () => {
+    const cwd = tempCwd();
+    let context: TmuxPaneContext = {
+      socketPath: "/tmp/team-a.sock",
+      serverPid: 7001,
+      serverStartedAt: 1785439051,
+      sessionId: "session-a",
+      sessionCreatedAt: 1785439000,
+      windowId: "@1",
+      paneId: "%1",
+      currentPath: cwd,
+      dead: false,
+      launchId: "",
+      laneId: "",
+    };
+    const { api } = mockTmux(cwd, (target) => ({ ...context, paneId: target }));
+    await startTeam({ cwd, name: "demo", role: "claude", workerCount: 1, task: "x", tmux: api });
+    writeModeStateJson(cwd, "ralph", { active: true });
+
+    context = {
+      ...context,
+      socketPath: "/tmp/team-b.sock",
+      serverPid: 7002,
+      serverStartedAt: 1785439999,
+      sessionId: "session-b",
+      sessionCreatedAt: 1785439988,
+      windowId: "@2",
+    };
+
+    ensureLoopTeamMonitor(cwd, {
+      spawn: () => ({ on: () => undefined, unref: () => undefined }),
+      cliPath: "/pkg/dist/src/cli.js",
+      now: () => Date.parse("2026-07-30T19:00:00.000Z"),
+      token: () => "owner-token",
+    });
+    adoptLoopTeamMonitorOwner(cwd, "owner-token", {
+      now: () => Date.parse("2026-07-30T19:00:00.000Z") + 1,
+      pid: 7003,
+      buildId: "test-build",
+    });
+
+    const sends: string[] = [];
+    const result = await scanLoopTeamMonitorOnce(cwd, "owner-token", {
+      tmux: api,
+      attemptId: () => "attempt-1",
+      send: async (_tmux: TmuxApi, targetPane: string) => {
+        sends.push(targetPane);
+        return true;
+      },
+      now: () => Date.parse("2026-07-30T19:00:00.000Z") + 10,
+    });
+
+    expect(result.targetsScanned).toBe(0);
+    expect(sends).toEqual([]);
+  });
+
 });

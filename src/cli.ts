@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { findCapability, loadCatalogBundle, validateCatalogBundle } from "./catalog.js";
 import { findRegisteredCommand, registeredCommandHelpLines } from "./commands/registry.js";
@@ -2116,6 +2116,7 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
     const { startTeam } = await import("./team/runtime.js");
     try {
       const result = await startTeam({ cwd, name, role, workerCount, task: value });
+      await ensureLoopTeamMonitorFailOpen(cwd);
       return json
         ? { ok: true, output: result }
         : {
@@ -2161,6 +2162,104 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
     }
     const result = collectDeliveries(dir, lanes);
     return json ? { ok: true, output: result } : { ok: true, message: formatCollect(result) };
+  }
+
+  if (command === "register-visual") {
+    const teamName = flagValue(argv, "--name");
+    const launchId = flagValue(argv, "--launch-id");
+    const deliveryDir = flagValue(argv, "--dir");
+    const manifestPath = flagValue(argv, "--manifest");
+    const socketPath = flagValue(argv, "--socket");
+    const serverPidRaw = flagValue(argv, "--server-pid");
+    const serverStartedAtRaw = flagValue(argv, "--server-start-time");
+    const sessionId = flagValue(argv, "--session-id");
+    const sessionCreatedAtRaw = flagValue(argv, "--session-created");
+    const windowId = flagValue(argv, "--window-id");
+    if (
+      !teamName ||
+      !launchId ||
+      !deliveryDir ||
+      !manifestPath ||
+      !socketPath ||
+      !serverPidRaw ||
+      !serverStartedAtRaw ||
+      !sessionId ||
+      !sessionCreatedAtRaw ||
+      !windowId
+    ) {
+      return {
+        ok: false,
+        exitCode: 1,
+        message: "team register-visual requires complete launch and tmux identity metadata",
+      };
+    }
+    let serverPid: number;
+    let serverStartedAt: number;
+    let sessionCreatedAt: number;
+    try {
+      serverPid = parsePositiveIntFlag(serverPidRaw, "--server-pid")!;
+      serverStartedAt = parsePositiveIntFlag(
+        serverStartedAtRaw,
+        "--server-start-time",
+      )!;
+      sessionCreatedAt = parsePositiveIntFlag(
+        sessionCreatedAtRaw,
+        "--session-created",
+      )!;
+    } catch (error) {
+      return {
+        ok: false,
+        exitCode: 1,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+    const { registerVisualTeam } = await import("./team/visual-registration.js");
+    const result = registerVisualTeam({
+      cwd,
+      teamName,
+      launchId,
+      deliveryDir,
+      manifestPath,
+      socketPath,
+      serverPid,
+      serverStartedAt,
+      sessionId,
+      sessionCreatedAt,
+      windowId,
+    });
+    return json
+      ? { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result }
+      : {
+          ok: result.ok,
+          exitCode: result.ok ? 0 : 1,
+          message: result.ok
+            ? `visual team ${teamName} registered generation=${result.registration.generation}`
+            : `visual team registration failed: ${result.error}`,
+        };
+  }
+
+  if (command === "monitor-loop") {
+    const root = flagValue(argv, "--root");
+    const token = flagValue(argv, "--token");
+    if (!root || !isAbsolute(root) || !token) {
+      return {
+        ok: false,
+        exitCode: 1,
+        message: "team monitor-loop requires --root <absolute-dir> and --token <owner-token>",
+      };
+    }
+    const { getVersionInfo } = await import("./copilot/version.js");
+    const version = getVersionInfo({ importMetaUrl: import.meta.url });
+    const buildId = `${version.package}:${version.node}:${version.platform}`;
+    const { runLoopTeamMonitor } = await import("./team/monitor-supervisor.js");
+    const result = await runLoopTeamMonitor(ompRoot(root), token, { buildId });
+    return json
+      ? { ok: result.ok, exitCode: result.ok ? 0 : 1, output: result }
+      : {
+          ok: result.ok,
+          exitCode: result.ok ? 0 : 1,
+          message: `team loop monitor ${result.reason} scans=${result.scans}`,
+        };
   }
 
   if (command === "monitor-panes") {
@@ -2263,6 +2362,15 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
 
 type LoopMode = "ralph" | "ultrawork" | "ultraqa";
 
+async function ensureLoopTeamMonitorFailOpen(cwd: string): Promise<void> {
+  try {
+    const { ensureLoopTeamMonitor } = await import("./team/monitor-supervisor.js");
+    ensureLoopTeamMonitor(cwd);
+  } catch {
+    // Monitoring is supplementary; loop/team startup must remain fail-open.
+  }
+}
+
 async function handleModeCommand(mode: LoopMode, argv: string[], json: boolean): Promise<CliResult> {
   const [, command, value] = argv;
   const cwd = flagValue(argv, "--root") ?? process.cwd();
@@ -2278,6 +2386,7 @@ async function handleModeCommand(mode: LoopMode, argv: string[], json: boolean):
         sessionId,
         maxIterations: max ? Number(max) : undefined,
       });
+      await ensureLoopTeamMonitorFailOpen(cwd);
       return json ? { ok: true, output: state } : { ok: true, message: `ralph started iter=0/${state.maxIterations}` };
     }
     if (command === "status") {
@@ -2320,6 +2429,7 @@ async function handleModeCommand(mode: LoopMode, argv: string[], json: boolean):
         taskSummary: summary,
         sessionId,
       });
+      await ensureLoopTeamMonitorFailOpen(cwd);
       return json ? { ok: true, output: state } : { ok: true, message: `ultrawork started: ${state.objective}` };
     }
     if (command === "status") {
@@ -2344,6 +2454,7 @@ async function handleModeCommand(mode: LoopMode, argv: string[], json: boolean):
         maxCycles: max ? Number(max) : undefined,
         sessionId,
       });
+      await ensureLoopTeamMonitorFailOpen(cwd);
       return json ? { ok: true, output: state } : { ok: true, message: `ultraqa started cycle=0/${state.maxCycles}` };
     }
     if (command === "status") {

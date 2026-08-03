@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { makeTmux, paneHasActiveTask, paneLooksReady, sendToWorker, type TmuxResult } from "../../src/team/tmux.js";
+import {
+  makeTmux,
+  makeTmuxForSocket,
+  paneHasActiveTask,
+  paneLooksReady,
+  sendToWorker,
+  type TmuxResult,
+} from "../../src/team/tmux.js";
 
 function ok(stdout = ""): TmuxResult {
   return { stdout, stderr: "", status: 0 };
@@ -85,6 +92,40 @@ describe("makeTmux", () => {
     expect(calls[1]).toEqual([
       "split-window", "-h", "-t", "%4", "-d", "-P", "-F", "#{pane_id}", "-c", "/tmp",
       "-e", "COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1",
+    ]);
+  });
+
+  it("binds commands to one socket and reads the full pane identity", () => {
+    const calls: string[][] = [];
+    const api = makeTmuxForSocket(
+      "/tmp/team.sock",
+      (args) => {
+        calls.push(args);
+        return ok(
+          "/tmp/team.sock|66728|1785439051|$4|1785439000|@8|%7|/work/project|0|launch-1|lane-a",
+        );
+      },
+      {},
+    );
+
+    expect(api.paneContext?.("%7")).toEqual({
+      socketPath: "/tmp/team.sock",
+      serverPid: 66728,
+      serverStartedAt: 1785439051,
+      sessionId: "$4",
+      sessionCreatedAt: 1785439000,
+      windowId: "@8",
+      paneId: "%7",
+      currentPath: "/work/project",
+      dead: false,
+      launchId: "launch-1",
+      laneId: "lane-a",
+    });
+    expect(calls[0]?.slice(0, 4)).toEqual([
+      "-S",
+      "/tmp/team.sock",
+      "display-message",
+      "-t",
     ]);
   });
 });

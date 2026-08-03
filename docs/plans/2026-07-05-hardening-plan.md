@@ -176,7 +176,7 @@ The loop-invariants slice is one PR series touching the loop subsystem exactly o
 
 **E3 — Windows story.** Document the bash-only limitation (hooks.json entries; POSIX `export` in src/copilot/setup.ts:155-157) in README plus an `omp doctor` warning on win32; port powershell variants only on demand. Acceptance: **`omp doctor` emits the Windows-limitation warning under a mocked/stubbed win32 platform (unit test), and the README section exists** (doc-presence assertion). Verify: `npm test`.
 
-**E4 — Dead code and duplication.** Delete `monitorTeam`/idle-nudge (team/runtime.ts:222-279, ~120 lines, zero callers — note it removes team's only, currently unreachable, mode-state consumer); retire duplicated `slack doctor` (cli.ts:1355-1378) by delegating to `slackDoctor` with a legacy-shape adapter, fixing the malformed-token false-`ok`; unify on project.ts `parseFrontmatter` (delete src/lint.ts:15-25). Verify: `npm test && npm run lint && npm run build`.
+**E4 — Dead code and duplication.** The proposed `monitorTeam`/idle-nudge deletion is **superseded by issue #110's product decision**: retain the compatibility API and shared idle-nudge policy now used by automatic loop-gated monitoring. The remaining E4 work is unchanged: retire duplicated `slack doctor` (cli.ts:1355-1378) by delegating to `slackDoctor` with a legacy-shape adapter, fixing the malformed-token false-`ok`; unify on project.ts `parseFrontmatter` (delete src/lint.ts:15-25). Verify: `npm test && npm run lint && npm run build`.
 
 **E5 — Residual hardening batch (small, independent):**
 - CRON_RE newline rejection + field validation (schedule/commands.ts:22, crontab injection surface at installers/crontab.ts:18); test: `--cron "* * * * *\n@reboot x"` rejected.
@@ -226,7 +226,7 @@ Fully independent: B1, B2, B3, A4, A5, A7, C3, C4, E2, E3, and every E5 item. Co
 
 ## 3. Out of Scope (deliberate)
 
-- **Wiring up `monitorTeam`/idle-nudge as a feature** — dead code with zero callers; deleting (E4) is the maintenance move, resurrection is a product decision.
+- **Loop-gated team idle prompting** — no longer out of scope. Issue #110 made the explicit product decision to activate it for both visual and runtime teams; E4 must not delete the shared policy or its compatibility surface.
 - **Full Windows port of the hook layer** — no evidence of demand; E3 documents + doctor-warns (with a tested acceptance criterion); a powershell port is a separate effort if demand materializes.
 - **sessionStart version-check network fetch (dispositioned: declined as a change).** The registry fetch (scripts/lib/version-check.mjs:40) has a 2s abort and 6h cache, keeping cold-start within the 5s hook budget; accepted as-is. E2's pruning must respect the same budget and adds no further network I/O.
 - **tools/release.sh tests** — maintainer-only, low blast radius.
@@ -251,7 +251,7 @@ Fully independent: B1, B2, B3, A4, A5, A7, C3, C4, E2, E3, and every E5 item. Co
 
 **Consequences.** Positive: loop budgets become trustworthy (single writer, per-run-nonced dedup, N-yields-N cap, one root); the two remote/supply-chain exposures close immediately; catalog drift becomes structurally impossible before the catalog is ever regenerated. Negative/accepted: iteration semantics visibly change in one release across all three loop modes (ralph, ultrawork, ultraqa — one release note), with ultrawork/ultraqa status visibility trailing one release behind their behavior change (A7); pre-existing subdirectory-created `.omp` state is orphaned (warned, not migrated), including durable schedule jobs that keep executing while invisible to management until removed; empty-allowlist Slack setups break until the operator sets an explicit list or `*`; the idempotency guard's guarantee is deliberately narrow — concurrent double-fires cannot double-count, sequential double-fires are accepted residual exposure behind the exactly-once commitment; a rare double-count is accepted over any risk of a frozen budget (guard fails open toward counting).
 
-**Follow-ups.** V1's matrix (with Copilot CLI version stamp) decides whether plugin.json's `"hooks"` entry can be removed — if an only-plugin population exists, `omp setup` becomes auto-triggered or required first. V2's finding (same version stamp) resolves A6's injection location in Phase 2. Both spike matrices must be re-validated when the Copilot CLI materially changes, since the measurements rot with the host. E2's retention sweep backstops the marker namespace introduced by A3. Windows support and `monitorTeam` resurrection remain explicit product decisions outside this plan.
+**Follow-ups.** V1's matrix (with Copilot CLI version stamp) decides whether plugin.json's `"hooks"` entry can be removed — if an only-plugin population exists, `omp setup` becomes auto-triggered or required first. V2's finding (same version stamp) resolves A6's injection location in Phase 2. Both spike matrices must be re-validated when the Copilot CLI materially changes, since the measurements rot with the host. E2's retention sweep backstops the marker namespace introduced by A3. Windows support remains outside this plan; issue #110 separately resolved the team idle-prompting product decision.
 
 ---
 
