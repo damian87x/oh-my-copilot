@@ -537,6 +537,80 @@ describe("scanLoopTeamMonitorOnce", () => {
     });
   });
 
+  it("removes a stale target lock and acquires it on the next scan", async () => {
+    const cwd = tempProject();
+    writeRuntimeTeam(cwd);
+    writeModeStateJson(cwd, "ralph", { active: true });
+    const startedAt = Date.parse("2026-07-30T19:00:00.000Z");
+    ensureLoopTeamMonitor(cwd, {
+      spawn: () => ({ on: () => undefined, unref: () => undefined }),
+      cliPath: "/pkg/dist/src/cli.js",
+      now: () => startedAt,
+      token: () => "owner-token",
+    });
+    adoptLoopTeamMonitorOwner(cwd, "owner-token", {
+      now: () => startedAt + 1,
+      pid: 7001,
+      buildId: "test-build",
+    });
+
+    const paths = resolveTeamMonitorPaths(cwd);
+    const tmux = readyTmux(cwd);
+    await scanLoopTeamMonitorOnce(cwd, "owner-token", {
+      tmux,
+      now: () => startedAt + 10,
+    });
+    const targetName = readdirSync(paths.targetsDir).find((name) =>
+      name.endsWith(".json"),
+    )!;
+    const lockFile = path.join(
+      paths.targetsDir,
+      `${targetName.slice(0, -".json".length)}.lock`,
+    );
+    writeFileSync(
+      lockFile,
+      `${JSON.stringify({
+        token: "stale-target-lock",
+        acquiredAt: new Date(startedAt).toISOString(),
+        pid: 9999,
+      })}\n`,
+      "utf8",
+    );
+
+    const sends: string[] = [];
+    const blocked = await scanLoopTeamMonitorOnce(cwd, "owner-token", {
+      tmux,
+      now: () => startedAt + 30_011,
+      attemptId: () => "attempt-after-stale-lock",
+      send: async (_api, paneId) => {
+        sends.push(paneId);
+        return true;
+      },
+    });
+
+    expect(blocked.attempts).toEqual([]);
+    expect(blocked.diagnostics.join("\n")).toMatch(/target lock busy/i);
+    expect(existsSync(lockFile)).toBe(false);
+
+    const acquired = await scanLoopTeamMonitorOnce(cwd, "owner-token", {
+      tmux,
+      now: () => startedAt + 35_012,
+      attemptId: () => "attempt-after-stale-lock",
+      send: async (_api, paneId) => {
+        sends.push(paneId);
+        return true;
+      },
+    });
+
+    expect(acquired.attempts).toEqual([
+      expect.objectContaining({
+        attemptId: "attempt-after-stale-lock",
+        outcome: "sent",
+      }),
+    ]);
+    expect(sends).toEqual(["%2"]);
+  });
+
   it("keeps a healthy target when another runtime config is corrupt", async () => {
     const cwd = tempProject();
     writeRuntimeTeam(cwd);

@@ -1,14 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  closeSync,
+  fstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+function snapshotFile(file: string): { content: string; mtimeNs: bigint } {
+  const fd = openSync(file, "r");
+  try {
+    return {
+      content: readFileSync(fd, "utf8"),
+      mtimeNs: fstatSync(fd, { bigint: true }).mtimeNs,
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
 
 const monitorMocks = vi.hoisted(() => ({
   ensureLoopTeamMonitor: vi.fn(),
@@ -147,6 +161,9 @@ describe("loop command monitor activation", () => {
   });
 
   it("passes strict visual registration metadata through the hidden command", async () => {
+    const deliveryDir = path.join(cwd, "team-visual-demo");
+    const manifestPath = path.join(deliveryDir, "manifest.json");
+    const socketPath = path.join(cwd, "team.sock");
     const result = await runCli([
       "team",
       "register-visual",
@@ -157,11 +174,11 @@ describe("loop command monitor activation", () => {
       "--launch-id",
       "launch-1",
       "--dir",
-      "/tmp/team-visual-demo",
+      deliveryDir,
       "--manifest",
-      "/tmp/team-visual-demo/manifest.json",
+      manifestPath,
       "--socket",
-      "/tmp/team.sock",
+      socketPath,
       "--server-pid",
       "66728",
       "--server-start-time",
@@ -180,9 +197,9 @@ describe("loop command monitor activation", () => {
       cwd,
       teamName: "visual-demo",
       launchId: "launch-1",
-      deliveryDir: "/tmp/team-visual-demo",
-      manifestPath: "/tmp/team-visual-demo/manifest.json",
-      socketPath: "/tmp/team.sock",
+      deliveryDir,
+      manifestPath,
+      socketPath,
       serverPid: 66728,
       serverStartedAt: 1785439051,
       sessionId: "$4",
@@ -198,10 +215,7 @@ describe("loop command monitor activation", () => {
     const sentinel = path.join(monitorDir, "status.json");
     mkdirSync(monitorDir, { recursive: true });
     writeFileSync(sentinel, '{"sentinel":true}\n', "utf8");
-    const before = {
-      content: readFileSync(sentinel, "utf8"),
-      mtimeNs: statSync(sentinel, { bigint: true }).mtimeNs,
-    };
+    const before = snapshotFile(sentinel);
 
     const result = await runCli([
       "team",
@@ -217,8 +231,7 @@ describe("loop command monitor activation", () => {
       name: "demo",
     });
     expect(monitorMocks.ensureLoopTeamMonitor).not.toHaveBeenCalled();
-    expect(readFileSync(sentinel, "utf8")).toBe(before.content);
-    expect(statSync(sentinel, { bigint: true }).mtimeNs).toBe(before.mtimeNs);
+    expect(snapshotFile(sentinel)).toEqual(before);
   });
 
   it("keeps team collect and its delivery files read-only", async () => {
@@ -233,8 +246,7 @@ describe("loop command monitor activation", () => {
     writeFileSync(resultFile, "complete\n", "utf8");
     const before = [manifest, resultFile].map((file) => ({
       file,
-      content: readFileSync(file, "utf8"),
-      mtimeNs: statSync(file, { bigint: true }).mtimeNs,
+      ...snapshotFile(file),
     }));
     try {
       const result = await runCli([
@@ -250,10 +262,10 @@ describe("loop command monitor activation", () => {
       expect(result.ok).toBe(true);
       expect(monitorMocks.ensureLoopTeamMonitor).not.toHaveBeenCalled();
       for (const snapshot of before) {
-        expect(readFileSync(snapshot.file, "utf8")).toBe(snapshot.content);
-        expect(statSync(snapshot.file, { bigint: true }).mtimeNs).toBe(
-          snapshot.mtimeNs,
-        );
+        expect(snapshotFile(snapshot.file)).toEqual({
+          content: snapshot.content,
+          mtimeNs: snapshot.mtimeNs,
+        });
       }
     } finally {
       rmSync(deliveryDir, { recursive: true, force: true });

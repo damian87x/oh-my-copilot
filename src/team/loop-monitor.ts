@@ -505,11 +505,10 @@ function acquireTargetLock(path: string, now: number): TargetLockHandle | undefi
     fd = openSync(path, "wx");
   } catch {
     releaseStaleTargetLock(path, now);
-    try {
-      fd = openSync(path, "wx");
-    } catch {
-      return undefined;
-    }
+    // Never reopen in the same scan after inspecting/removing a stale lock.
+    // A later scan can acquire the now-empty path with O_EXCL without a
+    // check-then-use window.
+    return undefined;
   }
   try {
     writeSync(fd, `${JSON.stringify(lock)}\n`);

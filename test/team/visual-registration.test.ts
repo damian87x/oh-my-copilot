@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
+  closeSync,
   existsSync,
+  fstatSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -166,14 +169,19 @@ function snapshotDeliveryDirectory(dir: string): unknown {
       .sort()
       .map((name) => {
         const file = path.join(dir, name);
-        const stat = statSync(file, { bigint: true });
-        const content = readFileSync(file);
-        return {
-          name,
-          mtimeNs: stat.mtimeNs.toString(),
-          size: stat.size.toString(),
-          sha256: createHash("sha256").update(content).digest("hex"),
-        };
+        const fd = openSync(file, "r");
+        try {
+          const stat = fstatSync(fd, { bigint: true });
+          const content = readFileSync(fd);
+          return {
+            name,
+            mtimeNs: stat.mtimeNs.toString(),
+            size: stat.size.toString(),
+            sha256: createHash("sha256").update(content).digest("hex"),
+          };
+        } finally {
+          closeSync(fd);
+        }
       }),
   };
 }
