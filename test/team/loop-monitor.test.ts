@@ -873,18 +873,33 @@ describe("scanLoopTeamMonitorOnce", () => {
       buildId: "test-build",
     });
 
-    const tmux = readyTmux(cwd);
-    const basePaneContext = tmux.paneContext!;
-    let contextReads = 0;
-    tmux.paneContext = (paneId) => {
-      contextReads += 1;
-      if (contextReads === 5) {
+    const monitorPaths = resolveTeamMonitorPaths(cwd);
+    const shutdownFile = resolveTeamPaths(cwd, "demo").shutdownFile;
+    const writeShutdownAfterReservation = () => {
+      const reserved = readdirSync(monitorPaths.targetsDir)
+        .filter((name) => name.endsWith(".json"))
+        .some((name) => {
+          const state = JSON.parse(
+            readFileSync(path.join(monitorPaths.targetsDir, name), "utf8"),
+          );
+          return state.tracker?.panes?.some(
+            (pane: { lastAttempt?: { attemptId?: string; outcome?: string } }) =>
+              pane.lastAttempt?.attemptId === "attempt-1" &&
+              pane.lastAttempt.outcome === "reserved",
+          );
+        });
+      if (reserved && !existsSync(shutdownFile)) {
         writeFileSync(
-          resolveTeamPaths(cwd, "demo").shutdownFile,
+          shutdownFile,
           '{"shutdownAt":"2026-07-30T19:00:30.011Z"}\n',
           "utf8",
         );
       }
+    };
+    const tmux = readyTmux(cwd);
+    const basePaneContext = tmux.paneContext!;
+    tmux.paneContext = (paneId) => {
+      writeShutdownAfterReservation();
       return basePaneContext(paneId);
     };
     const sends: string[] = [];
@@ -965,6 +980,108 @@ describe("scanLoopTeamMonitorOnce", () => {
 });
 
 describe("runLoopTeamMonitor aggregate loop gate", () => {
+  it("preserves terminal signal status when a scan resolves after SIGTERM", async () => {
+    const cwd = tempProject();
+    writeRuntimeTeam(cwd);
+    writeModeStateJson(cwd, "ralph", { active: true });
+    const now = Date.parse("2026-07-30T19:00:00.000Z");
+    ensureLoopTeamMonitor(cwd, {
+      spawn: () => ({ on: () => undefined, unref: () => undefined }),
+      cliPath: "/pkg/dist/src/cli.js",
+      now: () => now,
+      token: () => "owner-token",
+    });
+
+    const sigtermListeners = process.listenerCount("SIGTERM");
+    const sigintListeners = process.listenerCount("SIGINT");
+    let resolveScan: (
+      value: Awaited<ReturnType<typeof scanLoopTeamMonitorOnce>>,
+    ) => void = () => undefined;
+    let scanResolved = false;
+    const pendingScan = new Promise<Awaited<ReturnType<typeof scanLoopTeamMonitorOnce>>>(
+      (resolve) => {
+        resolveScan = (value) => {
+          scanResolved = true;
+          resolve(value);
+        };
+      },
+    );
+    let markScanStarted: () => void = () => undefined;
+    const scanStarted = new Promise<void>((resolve) => {
+      markScanStarted = resolve;
+    });
+
+    const monitor = runLoopTeamMonitor(cwd, "owner-token", {
+      buildId: "test-build",
+      now: () => now + 1,
+      pid: 7001,
+      scan: async () => {
+        markScanStarted();
+        return pendingScan;
+      },
+      sleep: async () => {
+        throw new Error("must not sleep after signal termination");
+      },
+    });
+
+    await scanStarted;
+    process.emit("SIGTERM", "SIGTERM");
+    resolveScan({ targetsScanned: 1, attempts: [], diagnostics: [] });
+    const result = await monitor;
+
+    const paths = resolveTeamMonitorPaths(cwd);
+    const status = JSON.parse(readFileSync(paths.statusFile, "utf8"));
+    expect(scanResolved).toBe(true);
+    expect(result).toEqual({ ok: false, reason: "owner-lost", scans: 1 });
+    expect(existsSync(paths.ownerFile)).toBe(false);
+    expect(status).toMatchObject({
+      token: "owner-token",
+      terminal: true,
+      reason: "owner-lost",
+      diagnostics: ["received SIGTERM"],
+    });
+    expect(process.listenerCount("SIGTERM")).toBe(sigtermListeners);
+    expect(process.listenerCount("SIGINT")).toBe(sigintListeners);
+  });
+
+  it("keeps monitoring after one empty scan when a loop remains active", async () => {
+    const cwd = tempProject();
+    writeRuntimeTeam(cwd);
+    writeModeStateJson(cwd, "ralph", { active: true });
+    const now = Date.parse("2026-07-30T19:00:00.000Z");
+    ensureLoopTeamMonitor(cwd, {
+      spawn: () => ({ on: () => undefined, unref: () => undefined }),
+      cliPath: "/pkg/dist/src/cli.js",
+      now: () => now,
+      token: () => "owner-token",
+    });
+
+    let scans = 0;
+    let sleeps = 0;
+    const result = await runLoopTeamMonitor(cwd, "owner-token", {
+      buildId: "test-build",
+      now: () => now + scans,
+      pid: 7001,
+      maxScans: 2,
+      scan: async () => {
+        scans += 1;
+        return {
+          targetsScanned: scans === 1 ? 0 : 1,
+          attempts: [],
+          diagnostics: [],
+        };
+      },
+      sleep: async () => {
+        sleeps += 1;
+      },
+    });
+
+    expect(result).toEqual({ ok: true, reason: "max-scans", scans: 2 });
+    expect(scans).toBe(2);
+    expect(sleeps).toBe(1);
+    expect(existsSync(resolveTeamMonitorPaths(cwd).ownerFile)).toBe(false);
+  });
+
   it("stays alive when one loop clears and exits after the final loop becomes inactive", async () => {
     const cwd = tempProject();
     writeRuntimeTeam(cwd);
@@ -998,7 +1115,7 @@ describe("runLoopTeamMonitor aggregate loop gate", () => {
     expect(existsSync(resolveTeamMonitorPaths(cwd).ownerFile)).toBe(false);
   });
 
-  it("terminates and releases ownership when the final runtime team is shut down", async () => {
+  it("terminates and releases ownership after two empty scans when the final runtime team is shut down", async () => {
     const cwd = tempProject();
     writeRuntimeTeam(cwd);
     writeModeStateJson(cwd, "ralph", { active: true });
@@ -1015,25 +1132,31 @@ describe("runLoopTeamMonitor aggregate loop gate", () => {
       "utf8",
     );
 
+    let scans = 0;
+    let sleeps = 0;
     const result = await runLoopTeamMonitor(cwd, "owner-token", {
       buildId: "test-build",
-      now: () => now + 2,
+      now: () => now + 2 + scans,
       pid: 7001,
-      scan: () =>
-        scanLoopTeamMonitorOnce(cwd, "owner-token", {
+      scan: async () => {
+        scans += 1;
+        return scanLoopTeamMonitorOnce(cwd, "owner-token", {
           tmux: readyTmux(cwd),
-          now: () => now + 2,
-        }),
+          now: () => now + 2 + scans,
+        });
+      },
       sleep: async () => {
-        throw new Error("must not sleep without a live target");
+        sleeps += 1;
       },
     });
 
     expect(result).toEqual({
       ok: true,
       reason: "no-live-targets",
-      scans: 1,
+      scans: 2,
     });
+    expect(scans).toBe(2);
+    expect(sleeps).toBe(1);
     expect(existsSync(resolveTeamMonitorPaths(cwd).ownerFile)).toBe(false);
   });
 });

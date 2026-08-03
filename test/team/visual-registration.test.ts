@@ -519,30 +519,36 @@ describe("registerVisualTeam", () => {
       "utf8",
     );
     const sends: string[] = [];
+    let scans = 0;
+    let sleeps = 0;
 
     const result = await runLoopTeamMonitor(cwd, "visual-owner", {
       buildId: "test-build",
-      now: () => startedAt + 2,
+      now: () => startedAt + 2 + scans,
       pid: 7001,
-      scan: () =>
-        scanLoopTeamMonitorOnce(cwd, "visual-owner", {
+      scan: async () => {
+        scans += 1;
+        return scanLoopTeamMonitorOnce(cwd, "visual-owner", {
           tmuxForSocket: () => tmux,
-          now: () => startedAt + 2,
+          now: () => startedAt + 2 + scans,
           send: async (_api, paneId) => {
             sends.push(paneId);
             return true;
           },
-        }),
+        });
+      },
       sleep: async () => {
-        throw new Error("must not sleep without a live visual target");
+        sleeps += 1;
       },
     });
 
     expect(result).toEqual({
       ok: true,
       reason: "no-live-targets",
-      scans: 1,
+      scans: 2,
     });
+    expect(scans).toBe(2);
+    expect(sleeps).toBe(1);
     expect(sends).toEqual([]);
     expect(existsSync(resolveTeamMonitorPaths(cwd).ownerFile)).toBe(false);
   });

@@ -140,6 +140,11 @@ describe("loop command monitor activation", () => {
   });
 
   it("runs the hidden monitor child with an absolute root, token, and build identity", async () => {
+    const pkg = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8")) as {
+      version: string;
+    };
+    const expectedBuildId = `${pkg.version}:${process.version}:${process.platform}-${process.arch}`;
+
     const result = await runCli([
       "team",
       "monitor-loop",
@@ -154,7 +159,7 @@ describe("loop command monitor activation", () => {
     expect(monitorMocks.runLoopTeamMonitor).toHaveBeenCalledWith(
       cwd,
       "owner-token",
-      expect.objectContaining({ buildId: expect.stringMatching(/^0\.31\.0:/) }),
+      expect.objectContaining({ buildId: expectedBuildId }),
     );
     const help = await runCli(["help"]);
     expect(help.message).not.toContain("monitor-loop");

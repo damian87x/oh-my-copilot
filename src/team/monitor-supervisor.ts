@@ -38,6 +38,7 @@ export const TEAM_MONITOR_TIMING = {
   pendingGraceMs: 15_000,
   runningStaleMs: 20_000,
   targetLockStaleMs: 15_000,
+  noLiveTargetConsecutiveScanThreshold: 2,
   terminalStateGraceMs: 24 * 60 * 60 * 1_000,
   retainedEvents: 100,
 } as const;
@@ -306,10 +307,13 @@ export async function runLoopTeamMonitor(
     deps.sleep ??
     ((ms: number) => new Promise<void>((resolveSleep) => setTimeout(resolveSleep, ms)));
   let scans = 0;
+  let emptyTargetScans = 0;
   let reason: RunLoopTeamMonitorResult["reason"];
   let diagnostics: string[] = [];
+  let signalHandled = false;
   const handleSignal = (signal: NodeJS.Signals) => {
     if (!ownsLoopTeamMonitor(root, token)) return;
+    signalHandled = true;
     writeMonitorStatus(
       root,
       token,
@@ -355,6 +359,10 @@ export async function runLoopTeamMonitor(
         });
       const result = await scan();
       scans++;
+      if (signalHandled || !ownsLoopTeamMonitor(root, token)) {
+        reason = "owner-lost";
+        break;
+      }
       diagnostics = result.diagnostics;
       writeMonitorStatus(
         root,
@@ -373,15 +381,18 @@ export async function runLoopTeamMonitor(
         );
       }
 
-      if (!ownsLoopTeamMonitor(root, token)) {
-        reason = "owner-lost";
-        break;
-      }
       if (!isLoopModeActive(root)) {
         reason = "no-active-loop";
         break;
       }
       if (result.targetsScanned === 0) {
+        emptyTargetScans += 1;
+      } else {
+        emptyTargetScans = 0;
+      }
+      if (
+        emptyTargetScans >= TEAM_MONITOR_TIMING.noLiveTargetConsecutiveScanThreshold
+      ) {
         reason = "no-live-targets";
         break;
       }

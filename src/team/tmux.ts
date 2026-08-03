@@ -10,6 +10,8 @@ export interface TmuxResult {
 
 export type TmuxRunner = (args: string[]) => TmuxResult;
 
+const TMUX_EXEC_TIMEOUT_MS = 3000;
+
 export interface TmuxPaneContext {
   socketPath: string;
   serverPid: number;
@@ -25,10 +27,15 @@ export interface TmuxPaneContext {
 }
 
 export function tmuxExec(args: string[]): TmuxResult {
-  const r = spawnSync("tmux", args, { encoding: "utf8" });
+  const r = spawnSync("tmux", args, {
+    encoding: "utf8",
+    killSignal: "SIGKILL",
+    timeout: TMUX_EXEC_TIMEOUT_MS,
+  });
+  const stderr = [r.stderr ?? "", r.error?.message ?? ""].filter(Boolean).join("\n");
   return {
     stdout: r.stdout ?? "",
-    stderr: r.stderr ?? "",
+    stderr,
     status: r.status ?? 1,
   };
 }
