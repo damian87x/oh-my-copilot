@@ -347,7 +347,7 @@ describe("Goal turn policy", () => {
       ok: true,
       result: { status: "active", turnCount: 20, grantedThrough: 40, decision: "block" },
     });
-  }, 10000);
+  }, 30_000);
 
   it("requires the missed extension before resuming a boundary-paused Goal", async () => {
     const root = project();

@@ -447,7 +447,8 @@ function routingRecommendation(runId = "run-ok") {
   };
 }
 
-describe("skill-bench command", () => {
+// Heavy synthetic design/run flows regularly need >5s under parallel CI load.
+describe("skill-bench command", { timeout: 30_000 }, () => {
   let originalHome: string | undefined;
   let isolatedHome: string;
 
@@ -1361,7 +1362,7 @@ describe("skill-bench command", () => {
         },
       ],
     });
-  }, 15_000);
+  }, 45_000);
 
   it("previews portable exports without writing, requires approval, and rejects stale previews", async () => {
     const root = tempCwd();

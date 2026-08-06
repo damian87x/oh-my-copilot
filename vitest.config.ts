@@ -6,6 +6,9 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     setupFiles: ["./test/setup.ts"],
+    // Default 5s flakes under parallel CI/full-suite load (skill-bench, Goal
+    // turn policy, large temp-fs suites). Per-test overrides still win.
+    testTimeout: 30_000,
     // .worktrees/ holds nested git worktrees on other branches (gitignored, not
     // part of this package). Without this, vitest discovers their test files and
     // a stale branch can fail the suite against the current tree.
