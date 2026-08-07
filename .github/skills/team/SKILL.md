@@ -19,6 +19,12 @@ Two modes available:
 | **Split** | `team-launch.sh` | Current window | **Default**. Visual demo, watching agents work |
 | **Runtime** | `omp team N:copilot "task"` | Separate tmux session | Explicit background jobs, task tracking, nudging, messaging |
 
+When a Ralph, Ultrawork, or UltraQA loop is active, both modes automatically
+keep idle workers moving: a pane idle for at least 30 seconds receives the
+standard continuation prompt, with a hard maximum of three prompts for that
+pane launch. With no loop active, there is no automatic idle prompting.
+`team status` and `team collect` remain read-only.
+
 ## When to use
 
 - Work has **independent lanes** (no shared files, no ordering constraints)
@@ -45,6 +51,11 @@ Write a temporary file at `/tmp/team-lanes-<timestamp>.json`:
 ]
 ```
 
+Lane IDs and the `--session` value must use only letters, digits, dots,
+underscores, or hyphens; start each lane ID with a letter or digit. Use a fresh
+session name because the launcher creates a new private delivery directory and
+refuses to reuse an existing one.
+
 ### Step 2 — Launch
 
 Resolve the launcher (installed plugin if present, else a dev checkout) and run
@@ -53,6 +64,12 @@ each lane's prompt, then returns (~20–30s) — it does NOT block on the long
 completion-monitor loop. Run it in the **foreground** (no `&`/`nohup`): a
 backgrounded launcher gets killed by your shell-tool cleanup before it sends the
 prompts, leaving the agents idle.
+
+For development or smoke tests, `OMP_TEAM_CONTROL_CLI` may name one absolute,
+executable `omp` path. Otherwise the launcher prefers the adjacent built CLI
+and only falls back to `omp` on `PATH` when its package version matches. A
+missing or mismatched control CLI warns but does not terminate already-launched
+worker panes.
 
 ```bash
 if [ -f ~/.copilot/installed-plugins/oh-my-copilot/oh-my-copilot/.github/skills/team/scripts/team-launch.sh ]; then
@@ -75,14 +92,16 @@ The script (with `--no-monitor`):
 ### Step 3 — Collect (you drive the loop — do NOT go idle)
 
 Each worker was told to write its final result to a file; the launcher prints the
-exact collect command (`omp team collect --dir <dir> --json`). Completion is a
+exact collect command to use (it may contain an absolute CLI path). Completion is a
 real file write — not a guess from the live pane — so it's reliable. **You must
 actively poll** until every lane has delivered, then synthesize. Do not stop
 after launching and wait.
 
-```bash
-omp team collect --dir /tmp/team-<name> --json
-```
+Collection accepts only the launcher's validated manifest and regular,
+non-linked result files inside that delivery directory.
+
+Run the launcher’s printed command verbatim; its control CLI and delivery path
+are the same ones used to register the live panes.
 
 Returns `{ dir, total, doneCount, allDone, lanes: [{ id, name, status, output }] }`
 where `status` is `working` | `done` | `dead`. Procedure:
@@ -117,7 +136,7 @@ The runtime automatically:
 2. Launches `copilot --allow-all-tools` in each pane
 3. Auto-accepts folder trust prompts
 4. Waits for readiness, then sends the task prompt
-5. Tracks task state, heartbeats, and supports idle-nudging
+5. Tracks task state and heartbeats; active loops enable bounded idle prompting
 
 ### Monitor and cleanup
 

@@ -31,6 +31,11 @@ if [[ -z "$SESSION" || -z "$LANES_FILE" ]]; then
   exit 1
 fi
 
+if [[ ! "$SESSION" =~ ^[A-Za-z0-9._-]+$ || "$SESSION" == "." || "$SESSION" == ".." || ${#SESSION} -gt 128 ]]; then
+  echo "Invalid session: use 1-128 letters, digits, dots, underscores, or hyphens" >&2
+  exit 1
+fi
+
 if [[ ! -f "$LANES_FILE" ]]; then
   echo "Lanes file not found: $LANES_FILE" >&2
   exit 1
@@ -42,6 +47,30 @@ fi
 
 if [[ -z "${TMUX:-}" ]]; then
   echo "Not inside a tmux session. Run this from within tmux." >&2; exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PACKAGE_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+PACKAGE_VERSION="$(jq -r '.version // empty' "$PACKAGE_ROOT/plugin.json" 2>/dev/null || true)"
+CONTROL_CLI=""
+
+if [[ -n "${OMP_TEAM_CONTROL_CLI:-}" ]]; then
+  if [[ "$OMP_TEAM_CONTROL_CLI" = /* && -x "$OMP_TEAM_CONTROL_CLI" ]]; then
+    CONTROL_CLI="$OMP_TEAM_CONTROL_CLI"
+  else
+    echo "⚠️  OMP_TEAM_CONTROL_CLI must be an absolute executable path; visual monitoring is disabled" >&2
+  fi
+elif [[ -x "$PACKAGE_ROOT/dist/src/cli.js" ]]; then
+  CONTROL_CLI="$PACKAGE_ROOT/dist/src/cli.js"
+elif command -v omp &>/dev/null; then
+  INSTALLED_VERSION="$(omp version --json 2>/dev/null | jq -r '.package // empty' 2>/dev/null || true)"
+  if [[ -n "$PACKAGE_VERSION" && "$INSTALLED_VERSION" == "$PACKAGE_VERSION" ]]; then
+    CONTROL_CLI="$(command -v omp)"
+  else
+    echo "⚠️  Installed omp version does not match this package; visual monitoring is disabled" >&2
+  fi
+else
+  echo "⚠️  No matching omp control CLI found; visual monitoring is disabled" >&2
 fi
 
 # OMP_TEAM_WORKER tags worker sessions so the agentStop hook skips loop
@@ -57,19 +86,42 @@ else
   echo "Neither omp nor copilot CLI found" >&2; exit 1
 fi
 
-LANE_COUNT=$(jq length "$LANES_FILE")
-if [[ "$LANE_COUNT" -lt 1 ]]; then
-  echo "No lanes defined in $LANES_FILE" >&2; exit 1
+if ! jq -e '
+  type == "array" and
+  length > 0 and
+  all(.[];
+    (.id | type == "string") and
+    (.id | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")) and
+    (.name | type == "string") and
+    (.prompt | type == "string")
+  ) and
+  (([.[].id] | length) == ([.[].id] | unique | length))
+' "$LANES_FILE" >/dev/null; then
+  echo "Invalid lanes file: lane ids must be unique path-safe names and name/prompt must be strings" >&2
+  exit 1
 fi
+LANE_COUNT=$(jq length "$LANES_FILE")
 
 CWD=$(pwd)
 # Each worker writes its final result here so the lead can collect deterministically
 # (`omp team collect --dir`), rather than scraping live panes.
 DELIVERY_DIR="/tmp/team-$SESSION"
-mkdir -p "$DELIVERY_DIR"
+if [[ -e "$DELIVERY_DIR" || -L "$DELIVERY_DIR" ]]; then
+  echo "Delivery directory already exists; choose a fresh session name: $DELIVERY_DIR" >&2
+  exit 1
+fi
+if ! (umask 077 && mkdir "$DELIVERY_DIR"); then
+  echo "Unable to create a private delivery directory: $DELIVERY_DIR" >&2
+  exit 1
+fi
 POLL="${TEAM_POLL_INTERVAL:-2}"
 MAX_READY="${TEAM_MAX_READY_WAIT:-60}"
 MAX_DONE="${TEAM_MAX_COMPLETION_WAIT:-300}"
+if command -v uuidgen &>/dev/null; then
+  LAUNCH_ID="$(uuidgen)"
+else
+  LAUNCH_ID="$(node -e 'process.stdout.write(require("node:crypto").randomUUID())')"
+fi
 
 # ── helpers ──────────────────────────────────────────────────────────
 
@@ -123,6 +175,8 @@ for i in $(seq 0 $((LANE_COUNT - 1))); do
   fi
   PANE_IDS+=("$PANE_ID")
 
+  tmux set-option -p -t "$PANE_ID" @omp_launch_uuid "$LAUNCH_ID"
+  tmux set-option -p -t "$PANE_ID" @omp_lane_id "$LANE_ID"
   tmux select-pane -t "$PANE_ID" -T "$LANE_ID: $LANE_NAME"
   tmux send-keys -t "$PANE_ID" "$AGENT_CMD" C-m
 
@@ -173,23 +227,45 @@ done
 
 tmux select-pane -t '{left}'
 
+# Write the manifest before registration so the control CLI can validate the
+# exact launch generation and pane map before the monitor discovers it.
+MANIFEST="[]"
+for i in $(seq 0 $((LANE_COUNT - 1))); do
+  MANIFEST=$(echo "$MANIFEST" | jq \
+    --arg id "$(jq -r ".[$i].id" "$LANES_FILE")" \
+    --arg name "$(jq -r ".[$i].name" "$LANES_FILE")" \
+    --arg pane "${PANE_IDS[$i]}" \
+    '. + [{id:$id,name:$name,paneId:$pane}]')
+done
+echo "$MANIFEST" > "$DELIVERY_DIR/manifest.json"
+
+if [[ -n "$CONTROL_CLI" ]]; then
+  TMUX_IDENTITY=$(tmux display-message -p -t "${PANE_IDS[0]}" \
+    -F '#{socket_path}|#{pid}|#{start_time}|#{session_id}|#{session_created}|#{window_id}')
+  IFS='|' read -r SOCKET_PATH SERVER_PID SERVER_START_TIME SESSION_ID SESSION_CREATED WINDOW_ID _ <<< "$TMUX_IDENTITY"
+
+  if ! "$CONTROL_CLI" team register-visual \
+    --root "$CWD" \
+    --name "$SESSION" \
+    --launch-id "$LAUNCH_ID" \
+    --dir "$DELIVERY_DIR" \
+    --manifest "$DELIVERY_DIR/manifest.json" \
+    --socket "$SOCKET_PATH" \
+    --server-pid "$SERVER_PID" \
+    --server-start-time "$SERVER_START_TIME" \
+    --session-id "$SESSION_ID" \
+    --session-created "$SESSION_CREATED" \
+    --window-id "$WINDOW_ID" \
+    --json >/dev/null; then
+    echo "⚠️  Visual team registration failed; agents remain available in tmux" >&2
+  fi
+fi
+
 # Prompts are sent — in --no-monitor mode return now so the caller (a Copilot
 # lead) doesn't block on the long monitor loop and doesn't get killed mid-run
 # by its shell-tool cleanup. The agents keep working in the panes for the user
 # to watch; this is the default for the in-session visual flow.
 if [[ -n "$NO_MONITOR" ]]; then
-  # Write a manifest (lane id/name → pane) so `omp team collect --dir` can map
-  # delivery files to lanes and flag a crashed pane as dead.
-  MANIFEST="[]"
-  for i in $(seq 0 $((LANE_COUNT - 1))); do
-    MANIFEST=$(echo "$MANIFEST" | jq \
-      --arg id "$(jq -r ".[$i].id" "$LANES_FILE")" \
-      --arg name "$(jq -r ".[$i].name" "$LANES_FILE")" \
-      --arg pane "${PANE_IDS[$i]}" \
-      '. + [{id:$id,name:$name,paneId:$pane}]')
-  done
-  echo "$MANIFEST" > "$DELIVERY_DIR/manifest.json"
-
   echo ""
   echo "✅ $LANE_COUNT agents launched and prompted ($SESSION)."
   echo "📋 Lane → pane:"
@@ -198,7 +274,11 @@ if [[ -n "$NO_MONITOR" ]]; then
   done
   echo ""
   echo "➡️  Collect — poll this until allDone, then read each lane's result and synthesize:"
-  echo "   omp team collect --dir $DELIVERY_DIR --json"
+  if [[ -n "$CONTROL_CLI" ]]; then
+    printf '   %q team collect --dir %q --json\n' "$CONTROL_CLI" "$DELIVERY_DIR"
+  else
+    echo "   omp team collect --dir $DELIVERY_DIR --json"
+  fi
   exit 0
 fi
 

@@ -1,5 +1,17 @@
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
-import { makeTmux, paneHasActiveTask, paneLooksReady, sendToWorker, type TmuxResult } from "../../src/team/tmux.js";
+import {
+  makeTmux,
+  makeTmuxForSocket,
+  paneHasActiveTask,
+  paneLooksReady,
+  sendToWorker,
+  type TmuxResult,
+} from "../../src/team/tmux.js";
 
 function ok(stdout = ""): TmuxResult {
   return { stdout, stderr: "", status: 0 };
@@ -42,6 +54,49 @@ describe("pane content classification", () => {
 });
 
 describe("makeTmux", () => {
+  it("tmuxExec returns a nonzero timeout result when tmux hangs", () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "omp-tmux-timeout-"));
+    try {
+      const fakeTmux = path.join(tempDir, "tmux");
+      const probe = path.join(tempDir, "probe.ts");
+      const tsxCli = path.resolve("node_modules", "tsx", "dist", "cli.mjs");
+      const tmuxModule = pathToFileURL(path.resolve("src", "team", "tmux.ts")).href;
+      writeFileSync(fakeTmux, "#!/bin/sh\nexec sleep 10\n");
+      writeFileSync(
+        probe,
+        [
+          `import { tmuxExec } from ${JSON.stringify(tmuxModule)};`,
+          "const startedAt = Date.now();",
+          'const result = tmuxExec(["display-message", "-p", "ok"]);',
+          "const elapsedMs = Date.now() - startedAt;",
+          "console.log(JSON.stringify({ elapsedMs, result }));",
+        ].join("\n"),
+      );
+      chmodSync(fakeTmux, 0o700);
+
+      const child = spawnSync(process.execPath, [tsxCli, probe], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: process.env.PATH ? `${tempDir}${path.delimiter}${process.env.PATH}` : tempDir,
+        },
+        timeout: 8_000,
+      });
+      const parsed = JSON.parse(child.stdout.trim()) as {
+        elapsedMs: number;
+        result: TmuxResult;
+      };
+
+      expect(child.status).toBe(0);
+      expect(parsed.elapsedMs).toBeLessThan(4500);
+      expect(parsed.result.status).not.toBe(0);
+      expect(`${parsed.result.stderr}\n${parsed.result.stdout}`).toMatch(/timeout|timed out|ETIMEDOUT/i);
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true });
+    }
+  }, 15_000);
+
   it("constructs the correct args for each operation", () => {
     const calls: string[][] = [];
     // Empty env -> no -e passthrough args, so the base arg shapes stay exact.
@@ -85,6 +140,40 @@ describe("makeTmux", () => {
     expect(calls[1]).toEqual([
       "split-window", "-h", "-t", "%4", "-d", "-P", "-F", "#{pane_id}", "-c", "/tmp",
       "-e", "COPILOT_PROVIDER_BASE_URL=https://openrouter.ai/api/v1",
+    ]);
+  });
+
+  it("binds commands to one socket and reads the full pane identity", () => {
+    const calls: string[][] = [];
+    const api = makeTmuxForSocket(
+      "/tmp/team.sock",
+      (args) => {
+        calls.push(args);
+        return ok(
+          "/tmp/team.sock|66728|1785439051|$4|1785439000|@8|%7|/work/project|0|launch-1|lane-a",
+        );
+      },
+      {},
+    );
+
+    expect(api.paneContext?.("%7")).toEqual({
+      socketPath: "/tmp/team.sock",
+      serverPid: 66728,
+      serverStartedAt: 1785439051,
+      sessionId: "$4",
+      sessionCreatedAt: 1785439000,
+      windowId: "@8",
+      paneId: "%7",
+      currentPath: "/work/project",
+      dead: false,
+      launchId: "launch-1",
+      laneId: "lane-a",
+    });
+    expect(calls[0]?.slice(0, 4)).toEqual([
+      "-S",
+      "/tmp/team.sock",
+      "display-message",
+      "-t",
     ]);
   });
 });

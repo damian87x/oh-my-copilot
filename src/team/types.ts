@@ -21,12 +21,22 @@ export interface Worker {
   taskId?: string;
 }
 
+export interface TeamTmuxIdentity {
+  socketPath: string;
+  serverPid: number;
+  serverStartedAt: number;
+  sessionId: string;
+  sessionCreatedAt: number;
+  windowId: string;
+}
+
 export interface TeamConfig {
   name: string;
   task: string;
   role: WorkerRole;
   workerCount: number;
   tmuxSession: string;
+  tmuxIdentity?: TeamTmuxIdentity;
   workers: Worker[];
   cwd: string;
   createdAt: string;
