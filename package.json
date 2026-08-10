@@ -68,7 +68,7 @@
     "@types/node": "^26.1.2",
     "@types/node-notifier": "^8.0.5",
     "@vitest/coverage-v8": "^4.1.10",
-    "tsx": "^4.23.5",
+    "tsx": "^4.23.10",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },
