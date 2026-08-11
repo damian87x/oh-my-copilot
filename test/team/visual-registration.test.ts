@@ -13,7 +13,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import {
   registerVisualTeam,
@@ -340,7 +340,7 @@ describe("registerVisualTeam", () => {
   it("rejects a manifest outside the system temporary root", () => {
     const { input, context } = fixture();
     const outsideDir = mkdtempSync(
-      path.join(process.cwd(), ".omc-visual-outside-"),
+      path.join(homedir(), ".omc-visual-outside-"),
     );
     const outsideManifest = path.join(outsideDir, "manifest.json");
     writeFileSync(
