@@ -1,7 +1,13 @@
 # Design: Team messaging (worker↔worker / worker↔leader) + nudge gating
 
-> Status: **Design only — no implementation yet.** Target repo: `oh-my-copilot`.
+> Status: **Implemented, with the issue #110 activation amendment below.** Target repo: `oh-my-copilot`.
 > Date: 2026-05-29
+>
+> **2026-07-30 amendment:** production loop starts and both team launch paths now
+> converge on one project-scoped monitor. Active Ralph, Ultrawork, or UltraQA
+> state enables the existing 30-second, maximum-three idle prompt policy.
+> Clearing the final loop or losing the final live team stops monitoring.
+> `team status` and `team collect` remain read-only.
 
 ## 1. Problem & evidence
 
@@ -21,13 +27,12 @@ cannot ask the lead a question, hand off to a peer, or nudge a teammate. This is
 This must work **without MCP** (Copilot CLI; MCP is disabled in the target org). The
 existing design is already file + CLI based, so this is the natural fit.
 
-**B. Nudge is ungated.** `NudgeTracker` runs only inside `monitorTeam`
-(`src/team/runtime.ts:224`) and is **default-on** (`:213`). `monitorTeam` is not yet
-wired into any command, so nudge effectively never fires today — but when it is wired
-in, default-on would nudge every monitored team run (including read-only polling).
-Desired: **off by default, but ON for `/team` orchestration runs and for active
-ralph/loop modes.** Plain read-only polling (`team status`) and library/one-shot use
-stay quiet.
+**B. Original gap (closed by issue #110).** `NudgeTracker` originally ran only
+inside the uncalled `monitorTeam` API, so its correct gate was unreachable in
+production. Loop and team lifecycle commands now activate a shared monitor for
+both visual and runtime teams. Automatic idle prompting is **off without an
+active loop and on while any supported loop is active**. Plain read-only polling
+(`team status` and `team collect`) stays quiet.
 
 ## 2. What already exists (reuse, don't rebuild)
 
@@ -115,26 +120,24 @@ worker→leader, worker→peer, broadcast-excludes-sender, mailbox-list/mark-del
 unknown-recipient rejection, cursor advance. A nudge unit test mocks `tmux`/`sendToWorker`
 to assert the recipient pane is poked.
 
-## 4. Feature B — nudge gating
+## 4. Feature B — nudge gating and production activation
 
-Change `monitorTeam` so nudge is **off by default**, but **ON for `/team`
-orchestration runs and active ralph/loop modes**:
+The implemented contract keeps nudge **off by default** and turns it on while a
+supported loop is active:
 
 - Default `opts.nudge?.enabled` to **`false`** (flip current `!== false`).
-- Add `resolveNudgeEnabled(opts, cwd)` → `true` when ANY of:
-  1. `opts.nudge?.enabled === true` — set by the **`/team` command's monitor loop**
-     (the orchestration spawn+monitor path in `cli.ts` passes `nudge:{enabled:true}`).
-     This is what makes nudge ON for `/team`.
+- `resolveNudgeEnabled(opts, cwd)` remains the compatibility API and returns
+  `true` when either:
+  1. `opts.nudge?.enabled === true` for an explicit library caller.
   2. A loop-mode state file is active: `readRalph(cwd)?.active`, or the equivalent
      `ultrawork`/`ultraqa` state (modes live at `.omp/state/<mode>.json`,
      `src/mode-state/paths.ts`).
-  3. Falls back to `false` otherwise.
-- Add a small `isLoopModeActive(cwd)` helper in `mode-state` (reads the three mode
-  files) so condition 2 is one source of truth.
+- Production loop/team commands use `isLoopModeActive(cwd)` as the same aggregate
+  gate for the shared monitor.
 
 Result:
-- **`/team` orchestration** → nudge ON (condition 1).
-- **ralph / ultrawork / ultraqa loops** → nudge ON (condition 2).
+- **Visual or runtime team plus Ralph / Ultrawork / UltraQA** → nudge ON.
+- **Team with no active loop** → automatic idle prompting OFF.
 - **Read-only `team status` / library one-shot use** → nudge OFF (no `enabled:true`,
   no active loop mode).
 
@@ -166,5 +169,5 @@ is present (e.g. `team status` polling).
 - **Nudge throttling reuses existing mechanisms** (idle `NudgeTracker` scan/maxCount +
   an unread-count in the send trigger, mirroring `generateMailboxTriggerMessage`).
   No new debounce/coalesce layer.
-- **Nudge gating:** off by default; ON for `/team` orchestration runs and active
-  ralph/ultrawork/ultraqa loop modes.
+- **Nudge gating:** off by default; ON for visual and runtime teams while any
+  Ralph, Ultrawork, or UltraQA loop is active.

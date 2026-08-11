@@ -1,4 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -62,6 +67,51 @@ describe("collectDeliveries", () => {
     expect(readManifest(dir)).toEqual([{ id: "lane-a", name: "Math", paneId: "%1" }]);
     expect(readManifest(join(dir, "nope"))).toEqual([]);
   });
+
+  it("rejects a path-like manifest lane instead of reading outside the delivery directory", () => {
+    const id = `../collect-secret-${process.pid}-${Date.now()}`;
+    const outsideResult = join(dir, `${id}.result.md`);
+    writeFileSync(outsideResult, "must not leak");
+    writeFileSync(
+      join(dir, "manifest.json"),
+      JSON.stringify([{ id, name: "Escape" }]),
+    );
+
+    try {
+      expect(readManifest(dir)).toEqual([]);
+      expect(() => resultPath(dir, id)).toThrow(/invalid lane id/i);
+      expect(() => collectDeliveries(dir, [{ id }])).toThrow(/invalid lane id/i);
+    } finally {
+      rmSync(outsideResult, { force: true });
+    }
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "does not follow a symlinked lane result outside the delivery directory",
+    () => {
+      const outsideResult = join(
+        dir,
+        "..",
+        `collect-linked-secret-${process.pid}-${Date.now()}`,
+      );
+      writeFileSync(outsideResult, "must not leak");
+      symlinkSync(outsideResult, resultPath(dir, "lane-a"));
+
+      try {
+        const result = collectDeliveries(
+          dir,
+          [{ id: "lane-a", paneId: "%1" }],
+          { tmux: fakeTmux({}) },
+        );
+        expect(result.lanes[0]).toMatchObject({
+          status: "working",
+          output: "",
+        });
+      } finally {
+        rmSync(outsideResult, { force: true });
+      }
+    },
+  );
 
   it("formatCollect summarises delivered/total and shows done output", () => {
     writeFileSync(resultPath(dir, "lane-a"), "Paris");

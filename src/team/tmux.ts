@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { isAbsolute } from "node:path";
 import { copilotEnvPassthroughArgs } from "../copilot/env-passthrough.js";
 
 export interface TmuxResult {
@@ -9,11 +10,32 @@ export interface TmuxResult {
 
 export type TmuxRunner = (args: string[]) => TmuxResult;
 
+const TMUX_EXEC_TIMEOUT_MS = 3000;
+
+export interface TmuxPaneContext {
+  socketPath: string;
+  serverPid: number;
+  serverStartedAt: number;
+  sessionId: string;
+  sessionCreatedAt: number;
+  windowId: string;
+  paneId: string;
+  currentPath: string;
+  dead: boolean;
+  launchId: string;
+  laneId: string;
+}
+
 export function tmuxExec(args: string[]): TmuxResult {
-  const r = spawnSync("tmux", args, { encoding: "utf8" });
+  const r = spawnSync("tmux", args, {
+    encoding: "utf8",
+    killSignal: "SIGKILL",
+    timeout: TMUX_EXEC_TIMEOUT_MS,
+  });
+  const stderr = [r.stderr ?? "", r.error?.message ?? ""].filter(Boolean).join("\n");
   return {
     stdout: r.stdout ?? "",
-    stderr: r.stderr ?? "",
+    stderr,
     status: r.status ?? 1,
   };
 }
@@ -23,14 +45,14 @@ const ACTIVE_HINTS = [
   /esc to interrupt/i,
   /esc cancel/i, // Copilot CLI >=1.0.61 working indicator ("◉ Working esc cancel")
   /[◉○◐◑]\s*working/i, // Copilot spinner + "Working"
-  /running\s*[…\.]/,
+  /running\s*[….]/,
   /background terminal/i,
   /tool call in progress/i,
 ];
 
 // Lines the Copilot CLI renders below the actual prompt — skip these when
 // scanning backwards for the real prompt character.
-const STATUS_BAR_RE = /^\s*[\/ ]?\s*commands\b|^\s*[─━═]{3,}/;
+const STATUS_BAR_RE = /^\s*[/ ]?\s*commands\b|^\s*[─━═]{3,}/;
 
 // Copilot's TUI shows this idle footer ("/ commands · ? help") ONLY when it is
 // waiting for input; while a task runs it shows a spinner / "esc to interrupt"
@@ -68,7 +90,22 @@ export interface TmuxApi {
   paneDead(target: string): boolean;
   sessionExists(session: string): boolean;
   listSessions(): string[];
+  paneContext?(target: string): TmuxPaneContext | undefined;
 }
+
+const PANE_CONTEXT_FORMAT = [
+  "#{socket_path}",
+  "#{pid}",
+  "#{start_time}",
+  "#{session_id}",
+  "#{session_created}",
+  "#{window_id}",
+  "#{pane_id}",
+  "#{pane_current_path}",
+  "#{pane_dead}",
+  "#{@omp_launch_uuid}",
+  "#{@omp_lane_id}",
+].join("|");
 
 export function makeTmux(
   runner: TmuxRunner = tmuxExec,
@@ -119,7 +156,67 @@ export function makeTmux(
         .map((l) => l.trim())
         .filter((l) => l.length > 0);
     },
+    paneContext(target) {
+      const result = runner([
+        "display-message",
+        "-t",
+        target,
+        "-p",
+        PANE_CONTEXT_FORMAT,
+      ]);
+      if (result.status !== 0) return undefined;
+      const parts = result.stdout.trimEnd().split("|");
+      if (parts.length < 11) return undefined;
+      const socketPath = parts[0]!;
+      const serverPid = Number(parts[1]);
+      const serverStartedAt = Number(parts[2]);
+      const sessionId = parts[3]!;
+      const sessionCreatedAt = Number(parts[4]);
+      const windowId = parts[5]!;
+      const paneId = parts[6]!;
+      const currentPath = parts.slice(7, -3).join("|");
+      const deadRaw = parts.at(-3);
+      const launchId = parts.at(-2) ?? "";
+      const laneId = parts.at(-1) ?? "";
+      if (
+        !socketPath ||
+        !Number.isInteger(serverPid) ||
+        !Number.isFinite(serverStartedAt) ||
+        !sessionId ||
+        !Number.isFinite(sessionCreatedAt) ||
+        !windowId ||
+        !paneId ||
+        !currentPath ||
+        (deadRaw !== "0" && deadRaw !== "1")
+      ) {
+        return undefined;
+      }
+      return {
+        socketPath,
+        serverPid,
+        serverStartedAt,
+        sessionId,
+        sessionCreatedAt,
+        windowId,
+        paneId,
+        currentPath,
+        dead: deadRaw === "1",
+        launchId,
+        laneId,
+      };
+    },
   };
+}
+
+export function makeTmuxForSocket(
+  socketPath: string,
+  runner: TmuxRunner = tmuxExec,
+  env: NodeJS.ProcessEnv = process.env,
+): TmuxApi {
+  if (!isAbsolute(socketPath)) {
+    throw new Error("tmux socket path must be absolute");
+  }
+  return makeTmux((args) => runner(["-S", socketPath, ...args]), env);
 }
 
 function sleep(ms: number): Promise<void> {

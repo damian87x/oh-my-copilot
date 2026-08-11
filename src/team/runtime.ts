@@ -16,7 +16,13 @@ import { makeTmux, sendToWorker, waitForReady, type TmuxApi } from "./tmux.js";
 import { NudgeTracker, type NudgeAttempt, type NudgeConfig, type NudgeSummaryEntry } from "./idle-nudge.js";
 import { loadTeamConfig } from "./config.js";
 import { isLoopModeActive } from "../mode-state/paths.js";
-import type { Task, TeamConfig, Worker, WorkerRole } from "./types.js";
+import type {
+  Task,
+  TeamConfig,
+  TeamTmuxIdentity,
+  Worker,
+  WorkerRole,
+} from "./types.js";
 
 const ROLE_BIN: Record<string, string> = {
   claude: "claude",
@@ -48,6 +54,32 @@ export interface StartTeamResult {
   config: TeamConfig;
   tmuxSession: string;
   paths: TeamStatePaths;
+}
+
+function captureTeamTmuxIdentity(
+  tmux: TmuxApi,
+  workers: Worker[],
+): TeamTmuxIdentity | undefined {
+  if (!tmux.paneContext) return undefined;
+  const firstPane = workers.find((worker) => worker.paneId)?.paneId;
+  if (!firstPane) return undefined;
+  let context;
+  try {
+    context = tmux.paneContext(firstPane);
+  } catch {
+    return undefined;
+  }
+  if (!context || context.dead || context.paneId !== firstPane) {
+    return undefined;
+  }
+  return {
+    socketPath: context.socketPath,
+    serverPid: context.serverPid,
+    serverStartedAt: context.serverStartedAt,
+    sessionId: context.sessionId,
+    sessionCreatedAt: context.sessionCreatedAt,
+    windowId: context.windowId,
+  };
 }
 
 export async function startTeam(opts: StartTeamOptions): Promise<StartTeamResult> {
@@ -118,12 +150,14 @@ export async function startTeam(opts: StartTeamOptions): Promise<StartTeamResult
       await sendToWorker(tmux, w.paneId, prompt);
     }
 
+    const tmuxIdentity = captureTeamTmuxIdentity(tmux, workers);
     const config: TeamConfig = {
       name: opts.name,
       task: opts.task,
       role: opts.role,
       workerCount: opts.workerCount,
       tmuxSession: sessionName,
+      ...(tmuxIdentity ? { tmuxIdentity } : {}),
       workers,
       cwd,
       createdAt: new Date().toISOString(),

@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { ensureTeamDirs, ensureWorkerDirs, resolveTeamPaths, resolveWorkerPaths } from "../../src/team/state-paths.js";
+import {
+  ensureTeamDirs,
+  ensureTeamMonitorDirs,
+  ensureWorkerDirs,
+  resolveTeamMonitorPaths,
+  resolveTeamPaths,
+  resolveWorkerPaths,
+} from "../../src/team/state-paths.js";
 
 describe("resolveTeamPaths", () => {
   it("places team state under cwd/.omp/state/team/<name>", () => {
@@ -24,6 +36,17 @@ describe("resolveTeamPaths", () => {
     expect(w.outboxOffsetFile).toBe(path.join(w.workerRoot, ".outbox-offset"));
     expect(w.heartbeatFile).toBe(path.join(w.workerRoot, "heartbeat.json"));
   });
+
+  it("rejects path-like team and worker names", () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), "omc-team-paths-"));
+    expect(() => resolveTeamPaths(cwd, "../../../escape")).toThrow(
+      /invalid team name/i,
+    );
+    const team = resolveTeamPaths(cwd, "demo");
+    expect(() => resolveWorkerPaths(team, "../escape")).toThrow(
+      /invalid worker name/i,
+    );
+  });
 });
 
 describe("ensure*Dirs", () => {
@@ -37,5 +60,36 @@ describe("ensure*Dirs", () => {
     const w = resolveWorkerPaths(t, "worker-1");
     ensureWorkerDirs(w);
     expect(existsSync(w.workerRoot)).toBe(true);
+  });
+});
+
+describe.skipIf(process.platform === "win32")("trusted team state roots", () => {
+  it("rejects a symlinked team root without creating state outside the project", () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), "omc-team-root-"));
+    const outside = mkdtempSync(path.join(tmpdir(), "omc-team-outside-"));
+    mkdirSync(path.join(cwd, ".omp", "state"), { recursive: true });
+    symlinkSync(outside, path.join(cwd, ".omp", "state", "team"), "dir");
+
+    expect(() => ensureTeamDirs(resolveTeamPaths(cwd, "demo"))).toThrow(
+      /symlink-ancestor/i,
+    );
+    expect(existsSync(path.join(outside, "demo"))).toBe(false);
+  });
+
+  it("rejects a symlinked monitor root without creating state outside the project", () => {
+    const cwd = mkdtempSync(path.join(tmpdir(), "omc-monitor-root-"));
+    const outside = mkdtempSync(path.join(tmpdir(), "omc-monitor-outside-"));
+    mkdirSync(path.join(cwd, ".omp", "state"), { recursive: true });
+    symlinkSync(
+      outside,
+      path.join(cwd, ".omp", "state", "team-monitor"),
+      "dir",
+    );
+
+    expect(() =>
+      ensureTeamMonitorDirs(resolveTeamMonitorPaths(cwd)),
+    ).toThrow(/symlink-ancestor/i);
+    expect(existsSync(path.join(outside, "visual"))).toBe(false);
+    expect(existsSync(path.join(outside, "targets"))).toBe(false);
   });
 });
