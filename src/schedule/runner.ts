@@ -45,7 +45,7 @@ export function agentEnvPath(env: NodeJS.ProcessEnv = process.env, ompBinPath?: 
     ...(ompBinPath ? [dirname(ompBinPath)] : []),
     "/opt/homebrew/bin",
     "/usr/local/bin",
-    env.PATH ?? "",
+    ...(env.PATH ?? "").split(":"),
   ];
   return [...new Set(parts.filter(Boolean))].join(":");
 }
