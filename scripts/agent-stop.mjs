@@ -181,16 +181,17 @@ function writeState(directory, mode, state) {
 // Read only the tail of the transcript — it can be large, and a completion
 // sentinel from this turn lives at the end.
 function readTranscriptTail(path) {
-  if (!path || !existsSync(path)) return "";
+  if (!path) return "";
   try {
     const fd = openSync(path, "r");
     try {
       const size = fstatSync(fd).size;
       const start = Math.max(0, size - TRANSCRIPT_TAIL_BYTES);
       const len = size - start;
+      if (len <= 0) return "";
       const buf = Buffer.alloc(len);
-      readSync(fd, buf, 0, len, start);
-      return buf.toString("utf8");
+      const n = readSync(fd, buf, 0, len, start);
+      return buf.toString("utf8", 0, n);
     } finally {
       closeSync(fd);
     }
