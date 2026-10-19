@@ -75,7 +75,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@slack/bolt": "^5.1.0",
-    "node-notifier": "^10.0.1"
+    "node-notifier": "^11.0.0"
   },
   "overrides": {
     "fast-uri": "3.1.8",
