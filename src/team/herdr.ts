@@ -119,13 +119,21 @@ function unsupported(what: string): TmuxResult {
 
 export function makeHerdr(opts: MakeHerdrOptions = {}): HerdrApi {
   const env = opts.env ?? process.env;
-  const runner =
+  // Resolve hc lazily: a missing binary must degrade to "unknown"/errors per call
+  // (collect/status keep working), never throw at construction.
+  let resolved: HcRunner | undefined;
+  const runner: HcRunner =
     opts.runner ??
-    (() => {
-      const bin = resolveHcBin(env);
-      if (!bin) throw new Error("hc (herdr-core) not found; install from https://herdr.dev or set OMP_MUX=tmux");
-      return hcExec(bin);
-    })();
+    ((args, timeoutMs) => {
+      if (!resolved) {
+        const bin = resolveHcBin(env);
+        if (!bin) {
+          return { stdout: "", stderr: "hc (herdr-core) not found; install from https://herdr.dev or set OMP_MUX=tmux", status: 127 };
+        }
+        resolved = hcExec(bin);
+      }
+      return resolved(args, timeoutMs);
+    });
   const run = (args: string[], timeoutMs: number = HC_TIMEOUT_MS.default) => runner(args, timeoutMs);
   let warmed = false;
 

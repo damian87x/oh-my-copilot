@@ -204,3 +204,14 @@ describe("makeHerdr", () => {
     expect(api.sendText("t1", "x").stderr).toMatch(/not supported on herdr/);
   });
 });
+
+describe("makeHerdr without hc installed", () => {
+  it("degrades per call instead of throwing", async () => {
+    const api = makeHerdr({ env: { PATH: "/nonexistent" } });
+    expect(api.alive("t1")).toBe("unknown");
+    expect(api.paneDead("t1")).toBe(false);
+    expect(api.capturePane("t1").status).toBe(127);
+    expect(await api.submit("t1", "x")).toBe(false);
+    expect(api.spawnWorker({ name: "omp-abc123-w1", cwd: "/", argv: ["/bin/sh"] })).toEqual({ ok: false, error: expect.stringMatching(/hc \(herdr-core\) not found/) });
+  });
+});

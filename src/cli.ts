@@ -2264,6 +2264,42 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
         };
   }
 
+  if (command === "hc-spawn") {
+    // Used by team-launch.sh: start one hc terminal through the private env-file
+    // launcher, so secrets never reach argv and quoting lives in one place.
+    const sep = argv.indexOf("--");
+    const agentArgv = sep >= 0 ? argv.slice(sep + 1) : [];
+    const flags = sep >= 0 ? argv.slice(0, sep) : argv;
+    const name = flagValue(flags, "--name");
+    const spawnCwd = flagValue(flags, "--cwd") ?? process.cwd();
+    if (!name || agentArgv.length === 0) {
+      return { ok: false, exitCode: 1, message: "team hc-spawn requires --name <hc-name> and -- <command> [args]" };
+    }
+    const pairs = (flag: string) =>
+      flags.flatMap((arg, i) => (arg === flag && flags[i + 1] ? [flags[i + 1]!] : []));
+    const toRecord = (items: string[]) =>
+      Object.fromEntries(items.filter((kv) => kv.includes("=")).map((kv) => [kv.slice(0, kv.indexOf("=")), kv.slice(kv.indexOf("=") + 1)]));
+    const { makeHerdr } = await import("./team/herdr.js");
+    let result;
+    try {
+      result = makeHerdr().spawnWorker({
+        name,
+        cwd: spawnCwd,
+        argv: agentArgv,
+        labels: toRecord(pairs("--label")),
+        extraEnv: toRecord(pairs("--set")),
+        keepParent: flags.includes("--keep-parent"),
+      });
+    } catch (error) {
+      result = { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
+    return result.ok
+      ? json
+        ? { ok: true, output: result }
+        : { ok: true, message: `${result.name} ${result.address}` }
+      : { ok: false, exitCode: 1, output: json ? result : undefined, message: result.error };
+  }
+
   if (command === "monitor-panes") {
     const leaderPaneId = flagValue(argv, "--leader-pane");
     const workerPaneIds = argv
