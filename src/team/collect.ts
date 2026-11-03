@@ -5,7 +5,9 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { openRegularFile } from "../utils/fs.js";
-import { makeTmux, type TmuxApi } from "./tmux.js";
+import type { TmuxApi } from "./tmux.js";
+import { HC_ADDRESS_RE } from "./herdr.js";
+import { backendFor } from "./pane-backend.js";
 
 // Deterministic team report-back for the visual flow (oh-my-codex model): each
 // worker is told to write its final result to <dir>/<laneId>.result.md, so
@@ -17,8 +19,10 @@ import { makeTmux, type TmuxApi } from "./tmux.js";
 export interface LaneSpec {
   id: string;
   name?: string;
-  /** Optional tmux pane id, used only to flag a crashed worker as "dead". */
+  /** Optional pane id (tmux `%N` or hc address `tN`), used only to flag a crashed worker as "dead". */
   paneId?: string;
+  /** Backend that owns `paneId`; missing ⇒ tmux. */
+  mux?: "tmux" | "herdr";
 }
 
 export type LaneStatus = "done" | "working" | "dead";
@@ -41,7 +45,7 @@ export interface CollectResult {
 }
 
 const LANE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-const PANE_ID_RE = /^%\d+$/;
+const TMUX_PANE_ID_RE = /^%\d+$/;
 
 function validLane(lane: unknown): lane is LaneSpec {
   if (!lane || typeof lane !== "object") return false;
@@ -50,9 +54,11 @@ function validLane(lane: unknown): lane is LaneSpec {
     typeof value.id === "string" &&
     LANE_ID_RE.test(value.id) &&
     (value.name === undefined || typeof value.name === "string") &&
+    (value.mux === undefined || value.mux === "tmux" || value.mux === "herdr") &&
     (
       value.paneId === undefined ||
-      (typeof value.paneId === "string" && PANE_ID_RE.test(value.paneId))
+      (typeof value.paneId === "string" &&
+        (value.mux === "herdr" ? HC_ADDRESS_RE : TMUX_PANE_ID_RE).test(value.paneId))
     )
   );
 }
@@ -91,6 +97,8 @@ export function readManifest(dir: string): LaneSpec[] {
     if (raw === undefined) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed) || !parsed.every(validLane)) return [];
+    // One manifest = one backend (missing ⇒ tmux); mixed lanes are rejected.
+    if (new Set(parsed.map((lane) => lane.mux ?? "tmux")).size > 1) return [];
     const ids = new Set<string>();
     const panes = new Set<string>();
     for (const lane of parsed) {
@@ -109,11 +117,13 @@ export function readManifest(dir: string): LaneSpec[] {
 export function collectDeliveries(
   dir: string,
   lanes: LaneSpec[],
-  opts: { tmux?: TmuxApi } = {},
+  opts: { tmux?: TmuxApi; herdr?: TmuxApi } = {},
 ): CollectResult {
-  // Only build a tmux client if some lane can report a (possibly dead) pane.
+  // Only build a pane client if some lane can report a (possibly dead) pane.
+  // The manifest's lane mux pins the backend (missing ⇒ tmux).
   const needPane = lanes.some((l) => l.paneId);
-  const tmux = needPane ? (opts.tmux ?? makeTmux()) : opts.tmux;
+  const kind = lanes[0]?.mux === "herdr" ? "herdr" : "tmux";
+  const tmux = needPane ? backendFor(kind, opts) : kind === "tmux" ? opts.tmux : opts.herdr;
 
   const results: LaneResult[] = lanes.map((lane) => {
     const file = resultPath(dir, lane.id);

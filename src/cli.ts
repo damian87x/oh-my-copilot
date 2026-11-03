@@ -2121,7 +2121,9 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
         ? { ok: true, output: result }
         : {
             ok: true,
-            message: `started team ${name} session=${result.tmuxSession} workers=${result.config.workers
+            message: `started team ${name} ${result.config.mux?.kind === "herdr" ? "backend=herdr" : "session="}${
+              result.config.mux?.kind === "herdr" ? "" : result.tmuxSession
+            } workers=${result.config.workers
               .map((w) => `${w.name}(${w.paneId ?? "?"})`)
               .join(",")}`,
           };
@@ -2284,10 +2286,20 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
     } catch (err) {
       return { ok: false, exitCode: 1, message: String(err instanceof Error ? err.message : err) };
     }
+    const muxFlag = flagValue(argv, "--mux");
+    if (muxFlag !== undefined && muxFlag !== "tmux" && muxFlag !== "herdr") {
+      return { ok: false, exitCode: 1, message: "team monitor-panes --mux must be herdr or tmux" };
+    }
+    const { inferMuxFromPaneIds } = await import("./team/pane-backend.js");
+    const inferred = muxFlag ?? inferMuxFromPaneIds([leaderPaneId, ...workerPaneIds]);
+    if (typeof inferred !== "string") {
+      return { ok: false, exitCode: 1, message: `team monitor-panes: ${inferred.error}` };
+    }
     const { monitorPanes } = await import("./team/pane-monitor.js");
     const result = await monitorPanes({
       leaderPaneId,
       workerPaneIds,
+      mux: inferred,
       sessionLabel: flagValue(argv, "--session-label"),
       config: {
         pollIntervalMs,
