@@ -53,7 +53,7 @@ That's it.
 ## Why oh-my-copilot?
 
 - **Zero configuration** — works out of the box with sane defaults
-- **Team-first orchestration** — parallel tmux panes, each running an independent agent session
+- **Team-first orchestration** — parallel agent terminals ([herdr](https://herdr.dev) by default, tmux opt-out), each running an independent agent session
 - **Bare-flag bypass** — `omp --madmax` injects `--yolo` so non-interactive runs never block on a permission prompt
 - **Persistent execution** — Ralph, UltraQA, and Ultrawork keep going until the goal is verified
 - **File-state coordination** — workers swap typed messages over an outbox/inbox cursor with atomic `O_EXCL` task locks; no broker or daemon to babysit
@@ -89,7 +89,7 @@ flowchart TB
     UW["ultrawork<br/>parallel fan-out"]
     UQA["ultraqa<br/>QA cycles"]
     AP["autopilot"]
-    TEAM["team<br/>tmux multi-agent"]
+    TEAM["team<br/>herdr/tmux multi-agent"]
     COUNCIL["council<br/>weighted consensus"]
   end
 
@@ -180,7 +180,7 @@ flowchart TD
 
 | Mode                 | What it is                                                       | Best for                                       |
 | -------------------- | ---------------------------------------------------------------- | ---------------------------------------------- |
-| **Team**             | tmux CLI workers on a shared task list with file-state outbox    | Coordinated parallel work on one objective     |
+| **Team**             | herdr/tmux CLI workers on a shared task list with file-state outbox | Coordinated parallel work on one objective     |
 | **Autopilot**        | Single-lead autonomous loop (`/omp-autopilot`)                   | End-to-end feature work with minimal ceremony  |
 | **Ralph**            | Persistent verify/fix loop with explicit reviewer                | Tasks that must complete fully (no partials)   |
 | **Loop**             | Gate-driven retry loop (`/loop --gate …`) — repeats until a shell gate passes | PR checks / tests that must go green           |
@@ -218,7 +218,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/ultrawork`            | Maximum parallelism                                       | `/ultrawork "fix all type errors"`                   |
 | `/ultraqa`              | QA cycling until goal met                                 | `/ultraqa "build green, tests pass"`                 |
 | `/ralplan`              | Consensus planning                                        | `/ralplan "plan this feature"`                       |
-| `/team`                 | Parallel tmux agent panes                                 | `/team`                                              |
+| `/team`                 | Parallel agent lanes (herdr terminals or tmux panes)      | `/team`                                              |
 | `/code-review`          | Diff-focused reviewer                                     | `/code-review`                                       |
 | `/skill-bench`          | Design an approved dynamic skill benchmark via `omp skill-bench` | `/skill-bench ./skills/custom-review`                |
 | `/history-analyze`      | Summarize actual usage and offer one confirmed benchmark next step | `/history-analyze`                 |
@@ -354,7 +354,7 @@ omp setup [--root DIR] [--plugin-root DIR] [--dry-run] [--scope user|project] [-
 omp launch -- [copilot flags…]              # forward arbitrary args to copilot
 omp --madmax -p "edit src/foo.ts"           # bare-flag, maps to copilot --yolo
 omp suggest "fix flaky tests"               # recommend a slash-skill workflow
-omp team 3:executor "fix all type errors"   # spawn tmux workers
+omp team 3:executor "fix all type errors"   # spawn workers (herdr terminals or tmux panes)
 omp team status <name>
 omp team shutdown <name>
 omp ralph start "<task>" [--max-iterations N] [--session-id ID]
@@ -362,7 +362,7 @@ omp ultrawork start "<objective>" [--task-count N] [--session-id ID]
 omp ultraqa start "<goal>" [--max-cycles N] [--session-id ID]
 omp council "<question>" [--models a,b,c] [--context @file] [--json]   # multi-model council
 omp cost [--today] [--session <id>]            # summarize estimated hook-ledger tokens
-omp comms status | send | recv | ask        # drive a running copilot tmux session
+omp comms status | send | recv | ask        # drive a running copilot session (herdr or tmux)
 omp gateway serve [--only slack]            # run chat connectors (today: slack)
 omp gateway status [--json]                 # per-connector readiness (no sockets)
 omp gateway notify --text "<msg>" [--target slack:C…|G…|D…|U… [:thread_ts]] [--thread-ts <ts>] [--json]
@@ -430,16 +430,35 @@ set `OMP_NOTIFY_USE_TERMINAL_NOTIFIER=1` with a system `terminal-notifier` and a
 Always use `omp schedule remove`, never delete `.omp/state/schedule/` by hand, so the OS entry is
 uninstalled cleanly.
 
+### Terminal backend: herdr (default) or tmux
+
+`omp`, `/team`, `omp team` and `omp comms` run agents in [herdr](https://herdr.dev)
+(`hc`, herdr-core) terminals by default, and in tmux on opt-out:
+
+1. `OMP_MUX=herdr|tmux` — one command
+2. `~/.copilot/omp.json` (or `$COPILOT_HOME/omp.json`): `{ "mux": "tmux" }` — always tmux
+3. otherwise auto: inside a herdr terminal ⇒ herdr, inside tmux ⇒ tmux, otherwise herdr
+4. herdr picked but `hc` not installed ⇒ tmux
+
+Each team remembers the backend it started with, so `status`/`shutdown`/messaging keep
+working even if the setting changes later. On herdr, secrets (`COPILOT_*`, `GH_TOKEN`, …)
+reach workers through a private 0600 env file, never the command line. Watch a worker with
+`hc attach <name>` (Ctrl+\ detaches); the Herdr app shows lanes as agents in your tab.
+Loop-mode idle nudges are tmux-only for now. `omp doctor` prints the effective backend.
+
+**Upgrading:** if `hc` is installed and you are not inside tmux, `omp` now opens Copilot in
+a herdr terminal. To keep the old behavior, write `{"mux":"tmux"}` to `~/.copilot/omp.json`.
+
 ### Chat bridge: drive Copilot from Slack
 
 `omp gateway` runs long-lived chat connectors that forward messages into a running
-Copilot CLI session (via tmux) and post replies back. Today's connector is `slack`
+Copilot CLI session (herdr or tmux) and post replies back. Today's connector is `slack`
 (WebSocket Socket Mode — no public URL needed); the runtime is generic so future
 connectors (Telegram, Discord, webhooks) drop in as one file each.
 
 ```bash
-# 1. a Copilot tmux session is running (any `omp-<digits>` name)
-tmux new-session -d -s omp-9999
+# 1. a Copilot session is running (any `omp-<digits>` name): just run `omp`
+#    (herdr terminal by default), or on tmux: tmux new-session -d -s omp-9999
 
 # 2. interactive setup — explains where to grab each token and writes
 #    ~/.omp/.env (chmod 600). Re-runnable; masks existing values.

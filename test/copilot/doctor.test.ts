@@ -308,3 +308,14 @@ describe("formatDoctor", () => {
     expect(text).toContain("! copilot-instructions");
   });
 });
+
+describe("terminal-backend check", () => {
+  it("reports the effective backend and how to switch, without failing doctor", async () => {
+    const { checkTerminalBackend } = await import("../../src/copilot/doctor.js");
+    const tmuxCheck = checkTerminalBackend({ PATH: "/nonexistent", OMP_MUX: "tmux", COPILOT_HOME: "/x" });
+    expect(tmuxCheck).toEqual({ name: "terminal-backend", status: "pass", detail: expect.stringMatching(/^tmux \(env\).*\/x\/omp\.json/) });
+    const missing = checkTerminalBackend({ PATH: "/nonexistent", OMP_MUX: "herdr", COPILOT_HOME: "/x" });
+    expect(missing.status).toBe("warn");
+    expect(missing.detail).toMatch(/hc not found; using tmux/);
+  });
+});

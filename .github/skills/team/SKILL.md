@@ -1,14 +1,25 @@
 ---
 name: team
-description: Split an approved plan into parallel tmux panes in the current window so the user can watch agents work. Prefer this visual flow by default; use `omp team` only when the user explicitly wants background execution or runtime messaging/status APIs.
+description: Split an approved plan into parallel agent lanes the user can watch — herdr (hc) terminals by default, or panes in the current tmux window. Prefer this visual flow by default; use `omp team` only when the user explicitly wants background execution or runtime messaging/status APIs.
 argument-hint: "<number of workers> <task description>"
 ---
 
-# Team — tmux-based parallel agent execution
+# Team — parallel agent execution (herdr or tmux)
 
-`/team` launches independent Copilot CLI agents in parallel tmux panes.
+`/team` launches independent Copilot CLI agents in parallel — as herdr-core (`hc`)
+terminals by default, or as panes in the current tmux window.
 
-**Default behavior:** use the **split-window** flow so the user sees agents working in the current tmux window.
+**Backend** (one rule for `/team`, `omp team`, the `omp` launcher and `omp comms`):
+
+1. `OMP_MUX=herdr|tmux` for one command
+2. `"mux": "herdr" | "tmux"` in `~/.copilot/omp.json` (or `omp.json` under `COPILOT_HOME` when set)
+3. otherwise auto: inside a herdr terminal ⇒ herdr; inside tmux ⇒ tmux; otherwise herdr
+4. herdr picked but `hc` not installed ⇒ tmux (a notice prints only if herdr was asked for explicitly)
+
+To always use tmux: `echo '{"mux":"tmux"}' > ~/.copilot/omp.json`. `omp doctor` shows the
+effective backend.
+
+**Default behavior:** use the **split/visual** flow so the user sees agents working.
 
 Use **runtime mode** (`omp team`) only when the user explicitly asks for background execution, detached monitoring, or runtime APIs like status, nudging, or worker messaging.
 
@@ -16,11 +27,11 @@ Two modes available:
 
 | Mode | Command | Panes visible in | Best for |
 |------|---------|-------------------|----------|
-| **Split** | `team-launch.sh` | Current window | **Default**. Visual demo, watching agents work |
-| **Runtime** | `omp team N:copilot "task"` | Separate tmux session | Explicit background jobs, task tracking, nudging, messaging |
+| **Split** | `team-launch.sh` | Your Herdr tab (herdr) or current window (tmux) | **Default**. Visual demo, watching agents work |
+| **Runtime** | `omp team N:copilot "task"` | Background hc terminals or a separate tmux session | Explicit background jobs, task tracking, nudging, messaging |
 
 When a Ralph, Ultrawork, or UltraQA loop is active, both modes automatically
-keep idle workers moving: a pane idle for at least 30 seconds receives the
+keep idle workers moving **on tmux** (loop nudges are not available on herdr yet): a pane idle for at least 30 seconds receives the
 standard continuation prompt, with a hard maximum of three prompts for that
 pane launch. With no loop active, there is no automatic idle prompting.
 `team status` and `team collect` remain read-only.
@@ -37,7 +48,9 @@ Use this unless the user asks for background execution.
 ### When to choose it
 
 - The user wants to **see** the agents working
-- You want panes in the **current tmux window**
+- On herdr: lanes show as agents in the user's Herdr tab (and as panes when `herdr-app` is
+  available); outside the Herdr app watch one with `hc attach <name>` (Ctrl+\ detaches)
+- On tmux: panes in the **current tmux window**
 - You are demoing or smoke-testing the skill
 
 ### Step 1 — Write lanes JSON
@@ -82,7 +95,8 @@ fi
 ```
 
 The script (with `--no-monitor`):
-1. Splits the **current window** into panes
+1. Starts one hc terminal per lane (`omp-<hash>-wN`; secrets go through a private env file,
+   never argv) — or, on tmux, splits the **current window** into panes
 2. Launches `omp --madmax` in each
 3. Auto-accepts folder trust prompts
 4. Waits for readiness, sends each lane's prompt
@@ -132,7 +146,8 @@ omp team <N>:copilot "<task description>" --name <name>
 ```
 
 The runtime automatically:
-1. Creates a tmux session with split panes
+1. Creates one hc terminal per worker (herdr) or a tmux session with split panes (tmux);
+   the backend is recorded in the team config, so later commands always target it
 2. Launches `copilot --allow-all-tools` in each pane
 3. Auto-accepts folder trust prompts
 4. Waits for readiness, then sends the task prompt
@@ -142,14 +157,16 @@ The runtime automatically:
 
 ```bash
 omp team status <name>            # check progress (same <name> passed to --name)
-tmux attach -t omp-team-<name>    # watch panes live
+hc ls / hc attach <name>          # herdr: list / watch a worker (names shown by status)
+tmux attach -t omp-team-<name>    # tmux: watch panes live
 omp team shutdown <name>          # kill when done
 ```
 
 ## Prerequisites
 
-- `tmux` installed and session running
-- `omp` on PATH
+- herdr: `hc` from https://herdr.dev (tested with hc 0.1.17); the Herdr app for visible panes
+- or tmux: `tmux` installed and, for split mode, a running session
+- `omp` on PATH (split mode on herdr also needs the matching omp control CLI)
 - `jq` for JSON parsing (split mode only)
 
 ## Task / prompt guidelines

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { resolveCopilotPaths, type CopilotPaths, type ResolveCopilotPathsOptions } from "./paths.js";
 import { UNAVAILABLE_SIGNATURE } from "../council/types.js";
 import { readMemoryConfig } from "../memory-review/config.js";
+import { muxConfigPath, resolveHcBin, resolveMux } from "../team/mux.js";
 
 export type CheckStatus = "pass" | "fail" | "warn";
 
@@ -398,6 +399,21 @@ function checkDuplicateHookRegistration(paths: CopilotPaths): DoctorCheck {
   };
 }
 
+/** Which terminal backend agents run in (herdr-core by default, tmux opt-out). Never fails doctor. */
+export function checkTerminalBackend(env: NodeJS.ProcessEnv = process.env): DoctorCheck {
+  const selection = resolveMux({ env });
+  const hc = resolveHcBin(env);
+  const hcVersion = hc
+    ? (spawnSync(hc, ["--version"], { encoding: "utf8", timeout: 3000, killSignal: "SIGKILL" }).stdout ?? "").trim()
+    : "";
+  const where = selection.kind === "herdr" ? `${hc} (${hcVersion || "unknown version"})` : "tmux";
+  const detail = `${selection.kind} (${selection.source}) via ${where}; switch with "mux" in ${muxConfigPath(env)} or OMP_MUX`;
+  if (selection.notice || selection.warning) {
+    return { name: "terminal-backend", status: "warn", detail: `${detail} — ${selection.notice ?? selection.warning}` };
+  }
+  return { name: "terminal-backend", status: "pass", detail };
+}
+
 export function runDoctor(options: DoctorOptions = {}): DoctorReport {
   const paths = resolveCopilotPaths(options);
   const checks: DoctorCheck[] = [
@@ -407,6 +423,7 @@ export function runDoctor(options: DoctorOptions = {}): DoctorReport {
     checkSkillsDiscovery(paths),
     checkHooksManifest(paths),
     checkDuplicateHookRegistration(paths),
+    checkTerminalBackend({ ...process.env, COPILOT_HOME: paths.userScope }),
   ];
   if (options.checkHooks) {
     checks.push(checkHooksSmoke(paths));

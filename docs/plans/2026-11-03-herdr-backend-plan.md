@@ -274,3 +274,21 @@ ambiguity error lists candidates, send/recv round trip, and a worker name like `
 - Review threads ran as Cloudroom child threads (claude-code), not `copilot --agent`, because `copilot` is not
   installed in this sandbox. Raw reviews: /tmp/arch-review.md, /tmp/critic-review-1.md, /tmp/arch-review-2.md,
   /tmp/critic-review-2.md (sandbox-only).
+
+## Implementation notes (ralph, 2026-11-03) — deviations from v5, with reasons
+1. **No separate `PaneBackend` interface.** The herdr client implements the existing `TmuxApi` contract plus
+   `kind`, native `submit`, `spawnWorker`, `alive`, `closeGroup`; `sendToWorker` delegates to `submit`. The
+   architect's concerns are still met: backend is pinned per team (`TeamConfig.mux`, manifest lane `mux`,
+   `backendForConfig`), herdr start is an explicit branch (no `%N` parsing), tmux-only calls on herdr fail loudly
+   (`newSession`/`splitWindow`/`sendText`), and timeouts/core-down never read as dead. Zero signature churn for callers.
+2. **tmux start path kept byte-for-byte** (only `C-m` → `Enter`); `spawnWorker` exists only on herdr.
+3. **`omp team hc-spawn` instead of `omp team hc-env --out-json`.** The bash launcher hands the whole spawn to the CLI,
+   so the env file, absolute-binary resolution and hc flags are implemented once (TS) and bash never marshals argv.
+4. **`omp setup` does not create `omp.json`.** A file with `{"mux":"herdr"}` would override auto and force herdr inside
+   tmux, contradicting the auto rule. `omp doctor` reports the effective backend (`terminal-backend` check) instead.
+5. **"hc not found" notice only when herdr was explicitly requested** (env/config). With auto, users without hc
+   silently keep tmux; otherwise every `omp` launch would print it.
+6. **`monitor-supervisor.hasLiveRuntimeTarget` unchanged:** herdr configs have no `tmuxIdentity`, so it already
+   returns false for them; loop-monitor discovery got the explicit skip (mutation-tested).
+7. **hc resolution is lazy** inside `makeHerdr`: a missing `hc` degrades per call (alive → unknown, errors) instead
+   of throwing, so `collect`/`status` keep working — found by the real-hc end-to-end run.
