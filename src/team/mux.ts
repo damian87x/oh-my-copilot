@@ -93,12 +93,12 @@ export function resolveMux(opts: ResolveMuxOptions = {}): MuxSelection {
   }
 
   if (kind === "herdr" && !hcAvailable()) {
-    return {
-      kind: "tmux",
-      source,
-      warning,
-      notice: `hc not found; using tmux. Install: https://herdr.dev or set "mux":"tmux" in ${muxConfigPath(env)}`,
-    };
+    // Silent for auto (most people simply don't have hc); loud when herdr was asked for.
+    const notice =
+      source === "auto"
+        ? undefined
+        : `hc not found; using tmux. Install: https://herdr.dev or set "mux":"tmux" in ${muxConfigPath(env)}`;
+    return { kind: "tmux", source, ...(warning ? { warning } : {}), ...(notice ? { notice } : {}) };
   }
   return { kind, source, ...(warning ? { warning } : {}) };
 }

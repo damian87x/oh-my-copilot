@@ -62,27 +62,27 @@ hc_bin() {
   command -v herdr-core 2>/dev/null || true
 }
 
+# Prints "<backend> <source>" where source is env|config|auto.
 mux_backend() {
   local m
   m=$(printf '%s' "${OMP_MUX:-}" | tr '[:upper:]' '[:lower:]')
-  if [[ "$m" != "herdr" && "$m" != "tmux" ]]; then
-    m=""
-    local cfg="${COPILOT_HOME:-$HOME/.copilot}/omp.json"
-    if [[ -f "$cfg" ]]; then m=$(jq -r '.mux // empty' "$cfg" 2>/dev/null || true); fi
-    if [[ "$m" != "herdr" && "$m" != "tmux" ]]; then
-      if [[ -n "${HC_TERMINAL_ID:-}" ]]; then m="herdr"
-      elif [[ -n "${TMUX:-}" ]]; then m="tmux"
-      else m="herdr"; fi
-    fi
-  fi
-  printf '%s\n' "$m"
+  if [[ "$m" == "herdr" || "$m" == "tmux" ]]; then printf '%s env\n' "$m"; return; fi
+  local cfg="${COPILOT_HOME:-$HOME/.copilot}/omp.json"
+  if [[ -f "$cfg" ]]; then m=$(jq -r '.mux // empty' "$cfg" 2>/dev/null || true); fi
+  if [[ "$m" == "herdr" || "$m" == "tmux" ]]; then printf '%s config\n' "$m"; return; fi
+  if [[ -n "${HC_TERMINAL_ID:-}" ]]; then m="herdr"
+  elif [[ -n "${TMUX:-}" ]]; then m="tmux"
+  else m="herdr"; fi
+  printf '%s auto\n' "$m"
 }
 
-MUX=$(mux_backend)
+read -r MUX MUX_SOURCE <<< "$(mux_backend)"
 HC=""
 if [[ "$MUX" == "herdr" ]]; then
   HC=$(hc_bin)
-  if [[ -z "$HC" ]]; then
+  if [[ -z "$HC" && "$MUX_SOURCE" == "auto" ]]; then
+    MUX="tmux"
+  elif [[ -z "$HC" ]]; then
     echo "ℹ️  hc not found; using tmux. Install: https://herdr.dev or set \"mux\":\"tmux\" in ${COPILOT_HOME:-$HOME/.copilot}/omp.json" >&2
     MUX="tmux"
   fi

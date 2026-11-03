@@ -1,6 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { copilotEnvPassthroughArgs } from "./env-passthrough.js";
 import { ensureFolderTrusted } from "./trust.js";
+import { makeHerdr } from "../team/herdr.js";
+import { resolveHcBin, resolveMux } from "../team/mux.js";
 
 const MADMAX_FLAG = "--madmax";
 const COPILOT_BYPASS_FLAG = "--yolo";
@@ -60,6 +62,47 @@ function isInsideTmux(env: NodeJS.ProcessEnv): boolean {
   return !!env.TMUX;
 }
 
+/** Already inside a multiplexer (tmux pane or herdr-core terminal) ⇒ never nest. */
+function isInsideMultiplexer(env: NodeJS.ProcessEnv): boolean {
+  return isInsideTmux(env) || !!env.HC_TERMINAL_ID;
+}
+
+/**
+ * Run Copilot in a fresh herdr-core terminal and attach to it. Ctrl+\ detaches
+ * (the session keeps running, like a detached tmux session). Returns undefined
+ * if the terminal could not be started, so the caller launches directly.
+ */
+async function launchInHerdr(
+  bin: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): Promise<LaunchResult | undefined> {
+  const hcBin = resolveHcBin(env);
+  if (!hcBin) return undefined;
+  const herdr = makeHerdr({ env });
+  const name = `omp-${Date.now()}`;
+  const spawned = herdr.spawnWorker({ name, cwd, argv: [bin, ...args], labels: { "omp.role": "launcher" } });
+  if (!spawned.ok) {
+    console.error(`omp: could not start Copilot in herdr (${spawned.error}); falling back`);
+    return undefined;
+  }
+  console.error(`omp: Copilot runs in herdr terminal ${name} — Ctrl+\\ detaches, \`hc attach ${name}\` returns.`);
+  return new Promise<LaunchResult>((resolveFn) => {
+    let settled = false;
+    const finish = (exitCode: number) => {
+      if (settled) return;
+      settled = true;
+      // Remove the terminal once Copilot has exited; a detached, live session stays.
+      if (herdr.alive(spawned.address) === "dead") herdr.killPane(spawned.address);
+      resolveFn({ ok: exitCode === 0, exitCode, bin });
+    };
+    const child = spawn(hcBin, ["attach", spawned.address], { stdio: "inherit", cwd, env });
+    child.on("error", () => finish(127));
+    child.on("close", (code) => finish(typeof code === "number" ? code : 1));
+  });
+}
+
 function tmuxAvailable(): boolean {
   const r = spawnSync("tmux", ["-V"], { encoding: "utf8", timeout: 3000 });
   return r.status === 0;
@@ -81,8 +124,18 @@ export async function launchCopilot(options: LaunchOptions): Promise<LaunchResul
   // Copilot's folder-trust dialog (which --yolo/--allow-all-paths do NOT skip).
   ensureFolderTrusted(cwd);
 
-  // If not already inside tmux and tmux is available, wrap in a tmux session
-  if (!isInsideTmux(env) && shouldAutoWrapInTmux(env) && tmuxAvailable()) {
+  // Not inside a multiplexer: wrap in herdr (default) or tmux, per resolveMux().
+  const wrap = !isInsideMultiplexer(env) && shouldAutoWrapInTmux(env);
+  if (wrap) {
+    const mux = resolveMux({ env });
+    if (mux.notice) console.error(`omp: ${mux.notice}`);
+    if (mux.warning) console.error(`omp: ${mux.warning}`);
+    if (mux.kind === "herdr") {
+      const result = await launchInHerdr(bin, args, cwd, env);
+      if (result) return result;
+    }
+  }
+  if (wrap && tmuxAvailable()) {
     const sessionName = `omp-${Date.now()}`;
     const copilotCmd = [bin, ...args].map(shellEscape).join(" ");
     // Forward COPILOT_* (BYOK) vars into the new pane: a running tmux server
@@ -113,7 +166,7 @@ export async function launchCopilot(options: LaunchOptions): Promise<LaunchResul
     });
   }
 
-  // Already inside tmux or tmux not available — launch directly
+  // Already inside a multiplexer, or no wrapper available — launch directly
   return new Promise<LaunchResult>((resolveFn) => {
     let settled = false;
     const child = spawn(bin, args, {

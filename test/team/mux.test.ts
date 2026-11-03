@@ -33,10 +33,15 @@ describe("resolveMux", () => {
     expect(sel).toEqual({ kind: "tmux", source: "env" });
   });
 
-  it("herdr selected but hc missing ⇒ tmux with a notice", () => {
-    const sel = resolveMux({ env: {}, hcAvailable: no, readConfig: noConfig });
+  it("herdr requested but hc missing ⇒ tmux with a notice", () => {
+    const sel = resolveMux({ env: {}, hcAvailable: no, readConfig: () => '{"mux":"herdr"}' });
     expect(sel.kind).toBe("tmux");
     expect(sel.notice).toMatch(/hc not found; using tmux/);
+    expect(resolveMux({ env: { OMP_MUX: "herdr" }, hcAvailable: no, readConfig: noConfig }).notice).toBeTruthy();
+  });
+
+  it("auto with hc missing ⇒ tmux silently", () => {
+    expect(resolveMux({ env: {}, hcAvailable: no, readConfig: noConfig })).toEqual({ kind: "tmux", source: "auto" });
   });
 
   it("malformed config ⇒ auto with warning", () => {
