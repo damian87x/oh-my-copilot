@@ -37,6 +37,8 @@ export interface TeamConfig {
   workerCount: number;
   tmuxSession: string;
   tmuxIdentity?: TeamTmuxIdentity;
+  /** Backend pinned at start. Absent ⇒ tmux (legacy configs). */
+  mux?: { kind: "tmux" } | { kind: "herdr"; group: string };
   workers: Worker[];
   cwd: string;
   createdAt: string;

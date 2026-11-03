@@ -91,6 +91,10 @@ export interface TmuxApi {
   sessionExists(session: string): boolean;
   listSessions(): string[];
   paneContext?(target: string): TmuxPaneContext | undefined;
+  /** Backend kind; absent ⇒ tmux. */
+  kind?: "tmux" | "herdr";
+  /** Native submit (herdr): paste + Enter in one call, never blindly retried. */
+  submit?(target: string, text: string): Promise<boolean>;
 }
 
 const PANE_CONTEXT_FORMAT = [
@@ -282,7 +286,7 @@ export interface SendToWorkerOptions {
  * whole scrollback — so the echo of an already-submitted message is not
  * mistaken for a still-buffered prompt.
  */
-function promptStillBuffered(pane: string, probe: string): boolean {
+export function promptStillBuffered(pane: string, probe: string): boolean {
   const lines = pane.split(/\r?\n/);
   let idx = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -301,6 +305,7 @@ export async function sendToWorker(
   text: string,
   options: SendToWorkerOptions = {},
 ): Promise<boolean> {
+  if (api.submit) return api.submit(target, text);
   const rounds = options.rounds ?? 6;
   const delayMs = options.delayMs ?? 150;
   const payload = text.length > 200 ? text.slice(0, 200) : text;
