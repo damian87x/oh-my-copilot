@@ -82,6 +82,6 @@ export function loadSlackConfig(
     appToken,
     allowedUsers,
     requireMention: parseBool(env.SLACK_REQUIRE_MENTION, true),
-    sessionEnv: env.COPILOT_TMUX_SESSION,
+    sessionEnv: env.COPILOT_SESSION || env.COPILOT_TMUX_SESSION,
   };
 }

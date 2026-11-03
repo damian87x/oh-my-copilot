@@ -29,7 +29,12 @@ export function makeFakeHc(screen = "❯\n / commands · ? help\n"): FakeHc {
     runner: (args) => {
       fake.calls.push(args);
       if (fake.down) return { stdout: "", stderr: "connect failed", status: 1 };
-      const [cmd, target] = args;
+      const [cmd, rawTarget] = args;
+      // Like hc, accept an address (t7) or a live terminal name.
+      const target =
+        rawTarget && !fake.terminals.has(rawTarget)
+          ? ([...fake.terminals.entries()].find(([, v]) => v.state === "live" && v.name === rawTarget)?.[0] ?? rawTarget)
+          : rawTarget;
       const t = target ? fake.terminals.get(target) : undefined;
       switch (cmd) {
         case "server":
@@ -65,7 +70,7 @@ export function makeFakeHc(screen = "❯\n / commands · ? help\n"): FakeHc {
           return t ? ok(screen) : fail("not_found", 3);
         case "send":
           if (!t) return fail("not_found", 3);
-          fake.sends.push({ target: target!, text: args[2]! });
+          fake.sends.push({ target: rawTarget!, text: args[2]! });
           return ok("{}");
         case "keys":
           return t ? ok("{}") : fail("not_found", 3);

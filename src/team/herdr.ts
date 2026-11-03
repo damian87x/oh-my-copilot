@@ -193,7 +193,8 @@ export function makeHerdr(opts: MakeHerdrOptions = {}): HerdrApi {
       return alive(target) === "dead";
     },
     sessionExists(group) {
-      return liveTerminals().some((t) => t.name?.startsWith(`${group}-`));
+      // A runtime team group (`<group>-wN`) or a single named terminal (comms: `omp-<digits>`).
+      return liveTerminals().some((t) => t.name === group || t.name?.startsWith(`${group}-`));
     },
     listSessions() {
       return liveTerminals()

@@ -1607,7 +1607,7 @@ async function handleCommsCommand(argv: string[], json: boolean): Promise<CliRes
   }
   const resolved = resolveSession({
     flag: flagSession,
-    env: process.env.COPILOT_TMUX_SESSION,
+    env: process.env.COPILOT_SESSION || process.env.COPILOT_TMUX_SESSION,
   });
   if (!resolved.ok) {
     return json
@@ -1830,7 +1830,7 @@ async function handleSlackCommand(argv: string[], json: boolean): Promise<CliRes
     const hasBot = !!process.env.SLACK_BOT_TOKEN;
     const hasApp = !!process.env.SLACK_APP_TOKEN;
     const { resolveSession } = await import("./comms/resolve-session.js");
-    const resolved = resolveSession({ env: process.env.COPILOT_TMUX_SESSION });
+    const resolved = resolveSession({ env: process.env.COPILOT_SESSION || process.env.COPILOT_TMUX_SESSION });
     const startable = hasBot && hasApp;
     const ready = startable && resolved.ok;
     const output = {
