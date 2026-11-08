@@ -2,13 +2,13 @@ import { makeTmux, type TmuxApi } from "../team/tmux.js";
 import { makeHerdr } from "../team/herdr.js";
 import { resolveMux } from "../team/mux.js";
 
-/**
- * Default comms client: the backend `omp` launches Copilot in (herdr-core by
- * default, tmux on opt-out). Sessions are hc terminal names on herdr and tmux
- * session names on tmux; both use the `omp-<digits>` launcher naming.
- */
-export function makeCommsMux(env: NodeJS.ProcessEnv = process.env): TmuxApi {
-  return resolveMux({ env }).kind === "herdr" ? makeHerdr({ env }) : makeTmux();
+/** Route existing sessions by ownership, not today's launch preference. */
+export function makeCommsMux(env: NodeJS.ProcessEnv = process.env, session?: string): TmuxApi {
+  const preferredHerdr = resolveMux({ env }).kind === "herdr";
+  const preferred = preferredHerdr ? makeHerdr({ env }) : makeTmux();
+  if (!session || preferred.sessionExists(session)) return preferred;
+  const other = preferredHerdr ? makeTmux() : makeHerdr({ env });
+  return other.sessionExists(session) ? other : preferred;
 }
 
 /**
@@ -42,17 +42,15 @@ export interface ResolveSessionOpts {
 }
 
 /**
- * Resolve the target Copilot tmux session via three-tier precedence:
+ * Resolve the target Copilot session via three-tier precedence:
  * 1. Explicit --session flag
- * 2. COPILOT_TMUX_SESSION env var
- * 3. Auto-discovery: scan tmux for exactly one session matching COPILOT_SESSION_RE
+ * 2. COPILOT_SESSION / COPILOT_TMUX_SESSION env var
+ * 3. Auto-discovery across tmux and herdr for exactly one launcher session
  *
  * Returns a structured result — never throws.
  */
 export function resolveSession(opts: ResolveSessionOpts = {}): ResolveSessionResult {
   const { flag, env } = opts;
-  const tmux = opts.tmux ?? makeCommsMux();
-
   if (flag && flag.length > 0) {
     return { ok: true, session: flag, source: "flag" };
   }
@@ -63,12 +61,14 @@ export function resolveSession(opts: ResolveSessionOpts = {}): ResolveSessionRes
 
   let sessions: string[];
   try {
-    sessions = tmux.listSessions();
+    sessions = opts.tmux
+      ? opts.tmux.listSessions()
+      : [...makeTmux().listSessions(), ...makeHerdr().listSessions()];
   } catch (err) {
     // Honor the no-throw contract: surface tmux failures as a structured result.
     return {
       ok: false,
-      error: `failed to list tmux sessions (${err instanceof Error ? err.message : String(err)}) — pass --session <name>`,
+      error: `failed to list ${opts.tmux ? "tmux" : "tmux/herdr"} sessions (${err instanceof Error ? err.message : String(err)}) — pass --session <name>`,
     };
   }
   const candidates = sessions.filter((name) => COPILOT_SESSION_RE.test(name));

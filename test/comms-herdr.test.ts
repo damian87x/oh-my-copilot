@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { commsRecv, commsSend } from "../src/comms/index.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { commsRecv, commsSend, commsStatus } from "../src/comms/index.js";
+import * as tmuxModule from "../src/team/tmux.js";
+import * as herdrModule from "../src/team/herdr.js";
+
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 import { resolveSession } from "../src/comms/resolve-session.js";
 import { makeHerdr } from "../src/team/herdr.js";
 import { makeFakeHc } from "./team/fake-hc.js";
@@ -11,6 +15,25 @@ function herdrWith(names: string[], screen?: string) {
 }
 
 describe("omp comms on herdr", () => {
+  it("discovers and routes an existing herdr session after switching the default to tmux", async () => {
+    const { api } = herdrWith(["omp-42"]);
+    vi.stubEnv("OMP_MUX", "tmux");
+    vi.spyOn(herdrModule, "makeHerdr").mockReturnValue(api);
+    const tmux = { listSessions: () => [], sessionExists: () => false } as unknown as tmuxModule.TmuxApi;
+    vi.spyOn(tmuxModule, "makeTmux").mockReturnValue(tmux);
+    expect(resolveSession()).toEqual({ ok: true, session: "omp-42", source: "discovery" });
+    expect(await commsStatus("omp-42", { isOnline: async () => true })).toMatchObject({ exists: true });
+    expect(await commsSend("omp-42", "hello", { isOnline: async () => true })).toMatchObject({ ok: true, submitted: true });
+    expect(await commsRecv("omp-42")).toMatchObject({ ok: true });
+  });
+
+  it("refuses to discover silently when both backends have launcher sessions", () => {
+    const { api } = herdrWith(["omp-42"]);
+    vi.stubEnv("OMP_MUX", "tmux");
+    vi.spyOn(herdrModule, "makeHerdr").mockReturnValue(api);
+    vi.spyOn(tmuxModule, "makeTmux").mockReturnValue({ listSessions: () => ["omp-43"] } as unknown as tmuxModule.TmuxApi);
+    expect(resolveSession()).toMatchObject({ ok: false, candidates: ["omp-43", "omp-42"] });
+  });
   it("discovers exactly one launcher terminal (omp-<digits>)", () => {
     const { api } = herdrWith(["omp-1793739514795", "build"]);
     expect(resolveSession({ tmux: api })).toEqual({ ok: true, session: "omp-1793739514795", source: "discovery" });

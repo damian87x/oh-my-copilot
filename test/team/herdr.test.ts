@@ -52,7 +52,7 @@ function binDir(): { dir: string; bin: string } {
 describe("hc naming", () => {
   it("groups are deterministic, short, lowercase", () => {
     const g = hcGroupName("My Team With A Very Long Name That Exceeds Limits");
-    expect(g).toMatch(/^omp-[0-9a-f]{6}$/);
+    expect(g).toMatch(/^omp-[0-9a-f]{12}$/);
     expect(hcGroupName("x")).toBe(hcGroupName("x"));
     expect(hcWorkerName(g, 12)).toBe(`${g}-w12`);
     expect(validHcName(hcWorkerName(g, 99))).toBe(true);

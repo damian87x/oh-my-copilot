@@ -1,7 +1,8 @@
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as tmuxModule from "../../src/team/tmux.js";
 import { apiSendMessage } from "../../src/team/api.js";
 import { collectDeliveries, readManifest } from "../../src/team/collect.js";
 import { hcGroupName, makeHerdr } from "../../src/team/herdr.js";
@@ -14,6 +15,7 @@ import { makeFakeHc } from "./fake-hc.js";
 
 const dirs: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
@@ -43,7 +45,7 @@ describe("omp team on herdr", () => {
   it("start: one hc terminal per worker, prompts sent, backend pinned in config", async () => {
     const { cwd, fake, herdr } = setup();
     const result = await startTeam({ cwd, name: "x", role: "copilot", workerCount: 2, task: "fix it", herdr, tmux: forbiddenTmux });
-    const group = hcGroupName("x");
+    const group = hcGroupName("x", cwd);
     expect(result.config.mux).toEqual({ kind: "herdr", group });
     expect(result.config.workers.map((w) => w.paneId)).toEqual(["t1", "t2"]);
     expect([...fake.terminals.values()].map((t) => t.name)).toEqual([`${group}-w1`, `${group}-w2`]);
@@ -60,6 +62,36 @@ describe("omp team on herdr", () => {
     const { cwd, herdr } = setup();
     await startTeam({ cwd, name: "x", role: "copilot", workerCount: 1, task: "t", herdr });
     await expect(startTeam({ cwd, name: "x", role: "copilot", workerCount: 1, task: "t", herdr })).rejects.toThrow(/already exist/);
+  });
+
+  it("rejects readiness timeout without sending a task", async () => {
+    const { cwd, fake, herdr } = setup();
+    vi.spyOn(tmuxModule, "waitForReady").mockResolvedValue(false);
+    await expect(startTeam({ cwd, name: "x", role: "copilot", workerCount: 1, task: "t", herdr }))
+      .rejects.toThrow(/did not become ready/);
+    expect(fake.sends).toEqual([]);
+    expect(fake.terminals.size).toBe(0);
+  });
+
+  it("rejects failed task delivery and cleans up without retrying", async () => {
+    const { cwd, fake, herdr } = setup();
+    herdr.submit = async () => false;
+    await expect(startTeam({ cwd, name: "x", role: "copilot", workerCount: 1, task: "t", herdr }))
+      .rejects.toThrow(/deliver/);
+    expect(fake.terminals.size).toBe(0);
+  });
+
+  it("isolates same-named teams and config-less shutdown across projects", async () => {
+    const a = setup();
+    const b = setup();
+    await startTeam({ cwd: a.cwd, name: "x", role: "copilot", workerCount: 1, task: "t", herdr: a.herdr });
+    const noopTmux = { sessionExists: () => false } as unknown as TmuxApi;
+    await shutdownTeam({ cwd: b.cwd, name: "x", tmux: noopTmux, herdr: a.herdr });
+    expect(a.fake.terminals.size).toBe(1);
+    await startTeam({ cwd: b.cwd, name: "x", role: "copilot", workerCount: 1, task: "t", herdr: a.herdr });
+    expect(a.fake.terminals.size).toBe(2);
+    await shutdownTeam({ cwd: b.cwd, name: "x", tmux: noopTmux, herdr: a.herdr });
+    expect(a.fake.terminals.size).toBe(1);
   });
 
   it("a failed spawn leaves no live terminals behind", async () => {

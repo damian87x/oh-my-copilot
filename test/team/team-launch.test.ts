@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   statSync,
+  symlinkSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -31,6 +32,8 @@ interface LauncherHarnessOptions {
   /** omp.json contents under the isolated COPILOT_HOME. */
   ompJson?: string;
   monitor?: boolean;
+  /** Exercise macOS system Bash 3.2 and the shasum fallback. */
+  macosTools?: boolean;
   copiedPackage?: "matching-dist" | "version-mismatch";
   lanes?: unknown;
   session?: string;
@@ -179,8 +182,13 @@ printf '%s\n' "$*" >> "$CONTROL_LOG"
       : options.control === "none" || options.copiedPackage
         ? undefined
         : control;
+  if (options.macosTools) {
+    symlinkSync(process.execPath, path.join(binDir, "node"));
+    const jq = spawnSync("which", ["jq"], { encoding: "utf8" }).stdout.trim();
+    symlinkSync(jq, path.join(binDir, "jq"));
+  }
   const result = spawnSync(
-    "bash",
+    options.macosTools ? "/bin/bash" : "bash",
     [script, "--session", session, "--lanes", lanesFile, ...(options.monitor ? [] : ["--no-monitor"])],
     {
       cwd: process.cwd(),
@@ -192,7 +200,7 @@ printf '%s\n' "$*" >> "$CONTROL_LOG"
         OMP_HC_BIN: options.hc ? fakeHc : "",
         COPILOT_HOME: copilotHome,
         OMP_HOME_OVERRIDE: ompHome,
-        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        PATH: `${binDir}:${options.macosTools ? "/usr/bin:/bin" : process.env.PATH ?? ""}`,
         TMUX: "/tmp/fake,1,0",
         TMUX_LOG: tmuxLog,
         HC_LOG: hcLog,
@@ -366,6 +374,13 @@ describe("team-launch.sh on herdr", () => {
       { id: "lane-b", name: "Lane B", paneId: "t2", mux: "herdr" },
     ]);
     expect(result.stdout).toMatch(/hc attach <name>/);
+  });
+
+  it.skipIf(process.platform !== "darwin")("matches TS naming with system Bash 3.2 and shasum", async () => {
+    const { result, hcLog, session } = herdrRun({ macosTools: true });
+    expect(result.status, result.stderr).toBe(0);
+    const { hcGroupName } = await import("../../src/team/herdr.js");
+    expect(readFileSync(hcLog, "utf8")).toContain(`--name ${hcGroupName(session)}-w1`);
   });
 
   it("monitor mode and the summary stay on herdr too", () => {

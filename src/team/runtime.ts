@@ -126,7 +126,7 @@ async function startTeamHerdr(opts: StartTeamOptions, cwd: string): Promise<Star
   const herdr = opts.herdr ?? makeHerdr();
   const paths = resolveTeamPaths(cwd, opts.name);
   ensureTeamDirs(paths);
-  const group = hcGroupName(opts.name);
+  const group = hcGroupName(opts.name, cwd);
   if (herdr.sessionExists(group)) {
     throw new Error(`hc terminals for team ${opts.name} (${group}-*) already exist; run \`omp team shutdown ${opts.name}\` first`);
   }
@@ -152,8 +152,10 @@ async function startTeamHerdr(opts: StartTeamOptions, cwd: string): Promise<Star
     }
     for (let i = 0; i < workers.length; i++) {
       const w = workers[i]!;
-      await waitForReady(herdr, w.paneId!);
-      await sendToWorker(herdr, w.paneId!, workerPrompt(paths, w, tasks[i]!));
+      if (!await waitForReady(herdr, w.paneId!)) throw new Error(`worker ${w.name} did not become ready`);
+      if (!await sendToWorker(herdr, w.paneId!, workerPrompt(paths, w, tasks[i]!))) {
+        throw new Error(`could not confirm task delivery to ${w.name}; not retrying`);
+      }
     }
     const config: TeamConfig = {
       name: opts.name,
@@ -424,12 +426,12 @@ export async function shutdownTeam(opts: ShutdownOptions): Promise<ShutdownResul
     const conventional = `omp-team-${opts.name}`;
     const exists = tmux.sessionExists(conventional);
     const session = exists ? tmux.killSession(conventional) : { status: 1, stdout: "", stderr: "" };
-    // herdr: worker names are deterministic (<omp-hash6(name)>-wN), so they can be swept without config.
+    // Recovery only sweeps this project's deterministic worker group.
     let herdrKilled = 0;
     const herdr = opts.herdr ?? (!opts.tmux && resolveHcBin() ? makeHerdr() : undefined);
     if (herdr) {
       try {
-        herdrKilled = herdr.closeGroup(hcGroupName(opts.name));
+        herdrKilled = herdr.closeGroup(hcGroupName(opts.name, cwd));
       } catch {
         herdrKilled = 0;
       }

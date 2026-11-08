@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { hcLaunchArgv, resolveExecutable, writeHcEnvFile } from "./hc-env.js";
 import { resolveHcBin } from "./mux.js";
 import { promptStillBuffered, type TmuxApi, type TmuxResult } from "./tmux.js";
@@ -33,9 +34,9 @@ export function validHcName(name: string): boolean {
   return HC_NAME_RE.test(name) && !HC_ADDRESS_RE.test(name);
 }
 
-/** Deterministic, hc-valid group name for a team/session name: `omp-<hash6>`. */
-export function hcGroupName(teamName: string): string {
-  return `omp-${createHash("sha256").update(teamName).digest("hex").slice(0, 6)}`;
+/** Project-scoped, hc-valid group name shared with team-launch.sh. */
+export function hcGroupName(teamName: string, cwd: string = process.cwd()): string {
+  return `omp-${createHash("sha256").update(`${realpathSync(cwd)}\0${teamName}`).digest("hex").slice(0, 12)}`;
 }
 
 export function hcWorkerName(group: string, index1: number): string {

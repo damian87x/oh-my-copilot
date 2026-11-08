@@ -292,3 +292,8 @@ ambiguity error lists candidates, send/recv round trip, and a worker name like `
    returns false for them; loop-monitor discovery got the explicit skip (mutation-tested).
 7. **hc resolution is lazy** inside `makeHerdr`: a missing `hc` degrades per call (alive → unknown, errors) instead
    of throwing, so `collect`/`status` keep working — found by the real-hc end-to-end run.
+8. **PR review corrections:** worker groups now hash `<physical cwd>\0<team/session name>` to 12 hex digits
+   (instead of the name-only 6-digit hash above), identically in TS and bash. Config-less recovery cannot sweep
+   another project's same-named team. Herdr startup rejects readiness or task-delivery failure without resending.
+   Comms discovers sessions across both backends and routes existing sessions by ownership, so changing the default
+   does not hide an existing session. Regression coverage includes macOS system Bash 3.2 with the `shasum` fallback.

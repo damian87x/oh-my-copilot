@@ -121,7 +121,7 @@ export interface StatusResult {
 }
 
 export async function commsStatus(session: string, deps: CommsDeps = {}): Promise<StatusResult> {
-  const tmux = deps.tmux ?? makeCommsMux();
+  const tmux = deps.tmux ?? makeCommsMux(process.env, session);
   const exists = tmux.sessionExists(session);
   const online = deps.isOnline ? await deps.isOnline() : await checkOnline();
   let ready = false;
@@ -211,7 +211,7 @@ export async function commsSend(
     // separate submissions — refuse rather than mis-submit a multi-line prompt.
     return { ok: false, error: "multi-line prompts are not supported; send a single line" };
   }
-  const tmux = deps.tmux ?? makeCommsMux();
+  const tmux = deps.tmux ?? makeCommsMux(process.env, session);
   if (!tmux.sessionExists(session)) {
     return { ok: false, error: `copilot session not running: ${session}` };
   }
@@ -320,7 +320,7 @@ export async function commsRecv(
   deps: CommsDeps = {},
   opts: RecvOptions = {},
 ): Promise<RecvResult> {
-  const tmux = deps.tmux ?? makeCommsMux();
+  const tmux = deps.tmux ?? makeCommsMux(process.env, session);
   if (!tmux.sessionExists(session)) {
     return { ok: false, error: `copilot session not running: ${session}` };
   }
@@ -407,7 +407,7 @@ export async function commsAsk(
   deps: CommsDeps = {},
   opts: AskOptions = {},
 ): Promise<AskResult> {
-  const tmux = deps.tmux ?? makeCommsMux();
+  const tmux = deps.tmux ?? makeCommsMux(process.env, session);
   if (!tmux.sessionExists(session)) {
     return { ok: false, error: `copilot session not running: ${session}`, sent: false };
   }

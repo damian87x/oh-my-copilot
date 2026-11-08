@@ -144,11 +144,12 @@ if [[ "$MUX" == "herdr" && -z "$CONTROL_CLI" ]]; then
   exit 1
 fi
 
+CWD=$(pwd -P)
 if [[ "$MUX" == "herdr" ]]; then
   if command -v sha256sum &>/dev/null; then
-    HC_GROUP="omp-$(printf '%s' "$SESSION" | sha256sum | cut -c1-6)"
+    HC_GROUP="omp-$(printf '%s\0%s' "$CWD" "$SESSION" | sha256sum | cut -c1-12)"
   else
-    HC_GROUP="omp-$(printf '%s' "$SESSION" | shasum -a 256 | cut -c1-6)"
+    HC_GROUP="omp-$(printf '%s\0%s' "$CWD" "$SESSION" | shasum -a 256 | cut -c1-12)"
   fi
 fi
 
@@ -168,7 +169,6 @@ if ! jq -e '
 fi
 LANE_COUNT=$(jq length "$LANES_FILE")
 
-CWD=$(pwd)
 # Each worker writes its final result here so the lead can collect deterministically
 # (`omp team collect --dir`), rather than scraping live panes.
 DELIVERY_DIR="/tmp/team-$SESSION"
