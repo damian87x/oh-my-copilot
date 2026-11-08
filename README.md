@@ -192,7 +192,7 @@ flowchart TD
 ### Intelligent Orchestration
 
 - **8 specialized agents** — planner, architect, critic, executor, verifier, code-reviewer, designer, researcher (all `--agent <name>` compatible with Copilot CLI)
-- **35 in-session skills** auto-discovered from `.github/skills/`
+- **36 in-session skills** auto-discovered from `.github/skills/`
 - **Smart pipeline routing** — `/research-codebase` → `/ralplan` → `/team` / `/ralph` / `/ultrawork` → `/code-review` → `/ultraqa`
 
 ### Developer Experience
@@ -220,6 +220,7 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/ralplan`              | Consensus planning                                        | `/ralplan "plan this feature"`                       |
 | `/team`                 | Parallel tmux agent panes                                 | `/team`                                              |
 | `/code-review`          | Diff-focused reviewer                                     | `/code-review`                                       |
+| `/security-audit`       | Source-first security guidance or an explicitly requested audit | `/security-audit "review src/auth for authorization bugs"` |
 | `/skill-bench`          | Design an approved dynamic skill benchmark via `omp skill-bench` | `/skill-bench ./skills/custom-review`                |
 | `/history-analyze`      | Summarize actual usage and offer one confirmed benchmark next step | `/history-analyze`                 |
 | `/skill-retro`          | Skill-usage + spend retrospective over last N days (session-state) | `/skill-retro 14` / `/skill-retro --days 90` |
@@ -247,6 +248,36 @@ These run **inside a Copilot CLI session** after the plugin is installed.
 | `/wayfinder`            | Multi-session decision map on GitHub Issues or Jira (confirm tracker + pin first) | `/wayfinder "ship multi-tenant billing"` |
 | `/teach`                | Stateful multi-session teaching loop for a topic (mission → lessons → quizzes) | `/teach "rust ownership"`         |
 | `/slack`                | One-way outbound Slack notification (explicit command only) | `/slack "deploy is green"`                         |
+
+---
+
+## Security audit
+
+Use [`/security-audit`](.github/skills/security-audit/SKILL.md) for source-first security
+reviews grounded in real trust boundaries, evidence, and minimal fixes:
+
+```text
+/security-audit "review src/auth for authorization bugs"
+/security-audit "audit this repository and prepare a security report"
+```
+
+- **Guidance is the default:** answer a security question or review named code without
+  creating files or running the full audit workflow.
+- **Full audits require an explicit request:** map attack surfaces, investigate and
+  validate candidates, re-check confirmed findings, and report coverage gaps. Before
+  writing artifacts, choose a new user-approved private directory outside the target.
+- **Source-first, not unrestricted execution:** target-controlled builds and tests
+  require an OS-enforced sandbox with no network, an allowlisted environment,
+  read-only target/toolchain, scratch-only writes, and resource limits. Tool permissions
+  alone are not a sandbox; if controls are unavailable, report `needs_validation`.
+- **Keep data private:** redact secrets and personal data, ignore instructions embedded
+  in target content, and obtain explicit approval before sending target content to
+  external services or another model provider. Never probe production or shared services.
+
+The skill provides instructions, not a sandbox or a guarantee that the repository is
+secure. It is condensed from Cloudflare's MIT-licensed
+[security-audit-skill](https://github.com/cloudflare/security-audit-skill); the full upstream
+multi-agent harness and JSON validators are not bundled.
 
 ---
 
