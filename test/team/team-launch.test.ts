@@ -27,6 +27,8 @@ interface LauncherHarnessOptions {
   control?: "success" | "failure" | "invalid" | "none" | "real";
   /** Provide a fake herdr-core binary (via OMP_HC_BIN). */
   hc?: boolean;
+  /** Fake `herdr` CLI on PATH. Requires HERDR_ENV=1 to be selected. */
+  herdrCli?: boolean;
   /** Extra env (e.g. OMP_MUX, TMUX: "" to run outside tmux). */
   env?: Record<string, string>;
   /** omp.json contents under the isolated COPILOT_HOME. */
@@ -95,6 +97,34 @@ esac
 if [[ "$1" == "version" ]]; then printf '{"package":"$OMP_MOCK_VERSION"}\n'; fi
 `,
   );
+
+  const herdrLog = path.join(logsDir, "herdr.log");
+  if (options.herdrCli) {
+    executable(
+      path.join(binDir, "herdr"),
+      `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HERDR_LOG"
+case "$1" in
+  --version) echo "herdr 0.6.10" ;;
+  agent)
+    case "$2" in
+      start)
+        n=$(grep -c 'agent start' "$HERDR_LOG" || true)
+        printf '{"result":{"agent":{"name":"w%s","pane_id":"w1:p%s"}}}\n' "$n" "$n"
+        ;;
+      wait|send) printf '{"result":{"type":"ok"}}\n' ;;
+    esac
+    ;;
+  pane)
+    case "$2" in
+      read) printf '/ commands\n' ;;
+      *) printf '{"result":{"type":"ok"}}\n' ;;
+    esac
+    ;;
+esac
+`,
+    );
+  }
 
   const fakeHc = path.join(binDir, "fake-hc");
   if (options.hc) {
@@ -197,6 +227,8 @@ printf '%s\n' "$*" >> "$CONTROL_LOG"
         ...process.env,
         OMP_MUX: "",
         HC_TERMINAL_ID: "",
+        HERDR_ENV: "",
+        HERDR_PANE_ID: "",
         OMP_HC_BIN: options.hc ? fakeHc : "",
         COPILOT_HOME: copilotHome,
         OMP_HOME_OVERRIDE: ompHome,
@@ -204,6 +236,7 @@ printf '%s\n' "$*" >> "$CONTROL_LOG"
         TMUX: "/tmp/fake,1,0",
         TMUX_LOG: tmuxLog,
         HC_LOG: hcLog,
+        HERDR_LOG: herdrLog,
         TEAM_MAX_COMPLETION_WAIT: "20",
         CONTROL_LOG: controlLog,
         OMP_MOCK_VERSION:
@@ -224,6 +257,7 @@ printf '%s\n' "$*" >> "$CONTROL_LOG"
     expectedControl,
     tmuxLog,
     hcLog,
+    herdrLog,
     ompHome,
     session,
   };
@@ -407,6 +441,23 @@ describe("team-launch.sh on herdr", () => {
     const r = herdrRun({ env: { TMUX: "/tmp/fake,1,0", OMP_MUX: "tmux" }, ompJson: '{"mux":"herdr"}' });
     expect(r.result.status, r.result.stderr).toBe(0);
     expect(readFileSync(r.tmuxLog, "utf8")).toContain("split-window");
+  });
+
+  it("inside a Herdr pane, missing hc uses the herdr CLI instead of tmux", () => {
+    const r = runLauncher({
+      control: "none",
+      herdrCli: true,
+      env: { HERDR_ENV: "1", TMUX: "", OMP_MUX: "herdr" },
+    });
+    expect(r.result.status, r.result.stderr).toBe(0);
+    const log = readFileSync(r.herdrLog, "utf8");
+    expect(log).toContain("agent start");
+    expect(log).toContain("--no-focus");
+    expect(log).toContain("env OMP_TEAM_WORKER=1 OMP_MUX=herdr");
+    expect(log).toContain("agent send");
+    expect(log).toContain("pane send-keys");
+    expect(existsSync(r.tmuxLog)).toBe(false);
+    expect(r.result.stdout).toMatch(/herdr agent focus/);
   });
 
   it("falls back to tmux with a notice when hc is missing", () => {

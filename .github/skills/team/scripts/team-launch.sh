@@ -70,7 +70,8 @@ mux_backend() {
   local cfg="${COPILOT_HOME:-$HOME/.copilot}/omp.json"
   if [[ -f "$cfg" ]]; then m=$(jq -r '.mux // empty' "$cfg" 2>/dev/null || true); fi
   if [[ "$m" == "herdr" || "$m" == "tmux" ]]; then printf '%s config\n' "$m"; return; fi
-  if [[ -n "${HC_TERMINAL_ID:-}" ]]; then m="herdr"
+  # HERDR_ENV=1 is the Herdr TUI pane (herdr CLI). HC_TERMINAL_ID is herdr-core.
+  if [[ -n "${HC_TERMINAL_ID:-}" || "${HERDR_ENV:-}" == "1" ]]; then m="herdr"
   elif [[ -n "${TMUX:-}" ]]; then m="tmux"
   else m="herdr"; fi
   printf '%s auto\n' "$m"
@@ -78,11 +79,18 @@ mux_backend() {
 
 read -r MUX MUX_SOURCE <<< "$(mux_backend)"
 HC=""
+HERDR_CLI=""
 if [[ "$MUX" == "herdr" ]]; then
   HC=$(hc_bin)
-  if [[ -z "$HC" && "$MUX_SOURCE" == "auto" ]]; then
+  if [[ -z "$HC" && "${HERDR_ENV:-}" == "1" ]]; then
+    HERDR_CLI=$(command -v herdr 2>/dev/null || true)
+    if [[ -n "$HERDR_CLI" ]] && ! "$HERDR_CLI" --version 2>/dev/null | grep -q '^herdr '; then
+      HERDR_CLI=""
+    fi
+  fi
+  if [[ -z "$HC" && -z "$HERDR_CLI" && "$MUX_SOURCE" == "auto" ]]; then
     MUX="tmux"
-  elif [[ -z "$HC" ]]; then
+  elif [[ -z "$HC" && -z "$HERDR_CLI" ]]; then
     echo "ℹ️  hc not found; using tmux. Install: https://herdr.dev or set \"mux\":\"tmux\" in ${COPILOT_HOME:-$HOME/.copilot}/omp.json" >&2
     MUX="tmux"
   fi
@@ -139,7 +147,7 @@ fi
 # herdr workers are started by the control CLI (`team hc-spawn`): it writes the
 # private env file (PATH, COPILOT_*, GitHub auth, OMP_TEAM_WORKER) so no secret
 # ever reaches hc's argv. Without it there is no safe way to launch on herdr.
-if [[ "$MUX" == "herdr" && -z "$CONTROL_CLI" ]]; then
+if [[ "$MUX" == "herdr" && -z "$HERDR_CLI" && -z "$CONTROL_CLI" ]]; then
   echo "herdr backend needs a matching omp control CLI (see warning above); rerun with OMP_MUX=tmux" >&2
   exit 1
 fi
@@ -194,6 +202,10 @@ fi
 # Capture visible pane content (last N lines). hc returns the whole screen plus
 # history, so trim trailing blank rows and keep the last N lines.
 pane_text() {
+  if [[ -n "$HERDR_CLI" ]]; then
+    "$HERDR_CLI" pane read "$1" --source recent-unwrapped --lines "${2:-20}" 2>/dev/null || true
+    return
+  fi
   if [[ "$MUX" == "herdr" ]]; then
     "$HC" read "$1" --lines "${2:-20}" 2>/dev/null \
       | awk -v n="${2:-20}" '{l[NR]=$0} END{e=NR; while(e>0 && l[e] ~ /^[[:space:]]*$/) e--; s=e-n+1; if(s<1)s=1; for(i=s;i<=e;i++) print l[i]}' \
@@ -205,7 +217,9 @@ pane_text() {
 
 # Press Enter in a pane.
 pane_enter() {
-  if [[ "$MUX" == "herdr" ]]; then
+  if [[ -n "$HERDR_CLI" ]]; then
+    "$HERDR_CLI" pane send-keys "$1" enter >/dev/null 2>&1 || true
+  elif [[ "$MUX" == "herdr" ]]; then
     "$HC" keys "$1" enter >/dev/null 2>&1 || true
   else
     tmux send-keys -t "$1" Enter
@@ -215,6 +229,10 @@ pane_enter() {
 # Is the pane/terminal still running? On herdr only finished/not_found is dead;
 # an unreachable core is not proof of death.
 pane_alive() {
+  if [[ -n "$HERDR_CLI" ]]; then
+    "$HERDR_CLI" pane get "$1" >/dev/null 2>&1
+    return
+  fi
   if [[ "$MUX" == "herdr" ]]; then
     local out rc=0
     out=$("$HC" get "$1" --json 2>/dev/null) || rc=$?
@@ -270,6 +288,25 @@ HC_NAMES=()
 for i in $(seq 0 $((LANE_COUNT - 1))); do
   LANE_NAME=$(jq -r ".[$i].name" "$LANES_FILE")
   LANE_ID=$(jq -r ".[$i].id" "$LANES_FILE")
+
+  if [[ -n "$HERDR_CLI" ]]; then
+    HC_NAME="${HC_GROUP}-w$((i + 1))"
+    DIR=right
+    (( i % 2 == 1 )) && DIR=down
+    if ! SPAWN_OUT=$("$HERDR_CLI" agent start "$HC_NAME" --cwd "$CWD" --split "$DIR" --no-focus -- env OMP_TEAM_WORKER=1 OMP_MUX=herdr "${AGENT_ARGV[@]}"); then
+      echo "  ❌ $LANE_NAME: herdr agent start failed" >&2
+      for started in ${PANE_IDS[@]+"${PANE_IDS[@]}"}; do "$HERDR_CLI" pane close "$started" >/dev/null 2>&1 || true; done
+      exit 1
+    fi
+    PANE_ID=$(printf '%s' "$SPAWN_OUT" | jq -r '.result.agent.pane_id // .address // empty')
+    if [[ -z "$PANE_ID" ]]; then
+      echo "  ❌ $LANE_NAME: unexpected herdr agent start output: $SPAWN_OUT" >&2; exit 1
+    fi
+    PANE_IDS+=("$PANE_ID")
+    HC_NAMES+=("$HC_NAME")
+    echo "  ✅ $HC_NAME ($PANE_ID) → $LANE_NAME"
+    continue
+  fi
 
   if [[ "$MUX" == "herdr" ]]; then
     HC_NAME="${HC_GROUP}-w$((i + 1))"
@@ -349,7 +386,14 @@ for i in $(seq 0 $((LANE_COUNT - 1))); do
   # -l = literal (no key interpretation), then submit. Use the `Enter` key NAME,
   # not C-m: Copilot CLI >=1.0.61 ignores a literal carriage return, so C-m left
   # the prompt sitting unsent in the input buffer and the agent never started.
-  if [[ "$MUX" == "herdr" ]]; then
+  if [[ -n "$HERDR_CLI" ]]; then
+    # 0.6.x agent send is literal text; Enter is a separate key. Do not resend.
+    if ! "$HERDR_CLI" agent send "${HC_NAMES[$i]}" "$LANE_PROMPT" >/dev/null 2>&1 \
+      || ! "$HERDR_CLI" pane send-keys "$PANE_ID" enter >/dev/null 2>&1; then
+      echo "  ⚠️  herdr send to $PANE_ID ($LANE_NAME) failed; check it with: $HERDR_CLI agent read ${HC_NAMES[$i]}" >&2
+      continue
+    fi
+  elif [[ "$MUX" == "herdr" ]]; then
     # One call: hc pastes and presses Enter. Never resend on failure — the core
     # may already have queued it.
     if ! "$HC" send "$PANE_ID" "$LANE_PROMPT" >/dev/null 2>&1; then
@@ -415,7 +459,9 @@ if [[ -n "$NO_MONITOR" ]]; then
   for i in $(seq 0 $((LANE_COUNT - 1))); do
     echo "   $(jq -r ".[$i].name" "$LANES_FILE") → ${PANE_IDS[$i]}"
   done
-  if [[ "$MUX" == "herdr" ]]; then
+  if [[ -n "$HERDR_CLI" ]]; then
+    echo "👀 Watch a lane: herdr agent focus <name>  (names: ${HC_NAMES[*]})"
+  elif [[ "$MUX" == "herdr" ]]; then
     echo "👀 Watch a lane: $HC attach <name>  (Ctrl+\\ detaches; names: ${HC_NAMES[*]})"
   fi
   echo ""
@@ -502,7 +548,9 @@ done
 
 echo ""
 echo "Pane IDs: ${PANE_IDS[*]}"
-if [[ "$MUX" == "herdr" ]]; then
+if [[ -n "$HERDR_CLI" ]]; then
+  echo "Watch: herdr agent focus <name> — names: ${HC_NAMES[*]}"
+elif [[ "$MUX" == "herdr" ]]; then
   echo "Watch: $HC attach <name> (Ctrl+\\ detaches) — names: ${HC_NAMES[*]}"
 else
   echo "Navigate: Ctrl-b + arrow keys"

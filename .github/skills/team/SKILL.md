@@ -13,8 +13,8 @@ terminals by default, or as panes in the current tmux window.
 
 1. `OMP_MUX=herdr|tmux` for one command
 2. `"mux": "herdr" | "tmux"` in `~/.copilot/omp.json` (or `omp.json` under `COPILOT_HOME` when set)
-3. otherwise auto: inside a herdr terminal ⇒ herdr; inside tmux ⇒ tmux; otherwise herdr
-4. herdr picked but `hc` not installed ⇒ tmux (a notice prints only if herdr was asked for explicitly)
+3. otherwise auto: inside a herdr terminal (`HERDR_ENV=1` or `HC_TERMINAL_ID`) ⇒ herdr; inside tmux ⇒ tmux; otherwise herdr
+4. herdr picked but `hc` not installed: inside a Herdr pane, `/team` uses the `herdr` CLI; otherwise tmux (a notice prints only if herdr was asked for explicitly)
 
 To always use tmux: `echo '{"mux":"tmux"}' > ~/.copilot/omp.json`. `omp doctor` shows the
 effective backend.
@@ -48,8 +48,7 @@ Use this unless the user asks for background execution.
 ### When to choose it
 
 - The user wants to **see** the agents working
-- On herdr: lanes show as agents in the user's Herdr tab (and as panes when `herdr-app` is
-  available); outside the Herdr app watch one with `hc attach <name>` (Ctrl+\ detaches)
+- On herdr: lanes show in the current Herdr tab when launched from a pane (`herdr agent focus <name>`); with `hc`, watch one with `hc attach <name>` (Ctrl+\ detaches)
 - On tmux: panes in the **current tmux window**
 - You are demoing or smoke-testing the skill
 

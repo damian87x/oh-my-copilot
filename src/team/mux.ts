@@ -88,7 +88,7 @@ export function resolveMux(opts: ResolveMuxOptions = {}): MuxSelection {
       source = "config";
     } else {
       source = "auto";
-      kind = env.HC_TERMINAL_ID ? "herdr" : env.TMUX ? "tmux" : "herdr";
+      kind = env.HC_TERMINAL_ID || env.HERDR_ENV === "1" ? "herdr" : env.TMUX ? "tmux" : "herdr";
     }
   }
 

@@ -19,6 +19,10 @@ describe("resolveMux", () => {
     expect(resolveMux({ env: { HC_TERMINAL_ID: "t3", TMUX: "x" }, hcAvailable: yes, readConfig: noConfig }).kind).toBe("herdr");
   });
 
+  it("auto: inside a Herdr TUI pane ⇒ herdr even if TMUX leaks in", () => {
+    expect(resolveMux({ env: { HERDR_ENV: "1", TMUX: "x" }, hcAvailable: yes, readConfig: noConfig }).kind).toBe("herdr");
+  });
+
   it("config overrides auto (herdr inside tmux)", () => {
     const sel = resolveMux({ env: { TMUX: "x" }, hcAvailable: yes, readConfig: () => '{"mux":"herdr"}' });
     expect(sel).toEqual({ kind: "herdr", source: "config" });

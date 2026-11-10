@@ -62,9 +62,9 @@ function isInsideTmux(env: NodeJS.ProcessEnv): boolean {
   return !!env.TMUX;
 }
 
-/** Already inside a multiplexer (tmux pane or herdr-core terminal) ⇒ never nest. */
+/** Already inside a multiplexer (tmux, herdr-core, or Herdr TUI) ⇒ never nest. */
 function isInsideMultiplexer(env: NodeJS.ProcessEnv): boolean {
-  return isInsideTmux(env) || !!env.HC_TERMINAL_ID;
+  return isInsideTmux(env) || !!env.HC_TERMINAL_ID || env.HERDR_ENV === "1";
 }
 
 /**
