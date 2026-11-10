@@ -37,7 +37,7 @@ Run `/ralplan` to produce an implementation plan with acceptance criteria. If a 
 ### Phase 3 — Execute
 
 Route based on plan shape:
-- **Independent parallel tasks** → `/team` (tmux panes)
+- **Independent parallel tasks** → `/team` (herdr terminals or tmux panes)
 - **Single linear task** → `/ralph` (persistence loop)
 - **Many mechanical items** → `/ultrawork` (batch execution)
 

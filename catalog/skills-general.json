@@ -91,8 +91,8 @@
       "source": ".github/skills/team/SKILL.md",
       "sourcePath": ".github/skills/team/SKILL.md",
       "canonicalPath": ".github/skills/team/SKILL.md",
-      "description": "Split approved plans into visible tmux lanes in the current window by default.",
-      "summary": "Split approved plans into visible tmux lanes by default.",
+      "description": "Split approved plans into visible agent lanes: herdr terminals by default, or tmux panes in the current window.",
+      "summary": "Split approved plans into visible herdr or tmux lanes by default.",
       "support": "project-skill",
       "aliases": [],
       "slashCommands": [

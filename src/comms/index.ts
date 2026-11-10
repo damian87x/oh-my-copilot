@@ -14,11 +14,11 @@
  */
 import { createConnection } from "node:net";
 import {
-  makeTmux,
   paneLooksReady,
   paneHasActiveTask,
   type TmuxApi,
 } from "../team/tmux.js";
+import { makeCommsMux } from "./resolve-session.js";
 
 /**
  * Strip ANSI escape sequences (OSC, CSI, and single-char Fe) from pane text.
@@ -121,7 +121,7 @@ export interface StatusResult {
 }
 
 export async function commsStatus(session: string, deps: CommsDeps = {}): Promise<StatusResult> {
-  const tmux = deps.tmux ?? makeTmux();
+  const tmux = deps.tmux ?? makeCommsMux(process.env, session);
   const exists = tmux.sessionExists(session);
   const online = deps.isOnline ? await deps.isOnline() : await checkOnline();
   let ready = false;
@@ -211,7 +211,7 @@ export async function commsSend(
     // separate submissions — refuse rather than mis-submit a multi-line prompt.
     return { ok: false, error: "multi-line prompts are not supported; send a single line" };
   }
-  const tmux = deps.tmux ?? makeTmux();
+  const tmux = deps.tmux ?? makeCommsMux(process.env, session);
   if (!tmux.sessionExists(session)) {
     return { ok: false, error: `copilot session not running: ${session}` };
   }
@@ -228,6 +228,14 @@ export async function commsSend(
   if (!opts.force && paneHasActiveTask(baseline)) {
     // Don't inject a prompt while Copilot is mid-response — pass force to override.
     return { ok: false, error: "copilot is busy (task in progress); retry or use --force" };
+  }
+  if (tmux.submit) {
+    // herdr-core: paste + Enter in one call; never retyped (a timed-out send may
+    // still be queued by the core).
+    const submitted = await tmux.submit(session, text);
+    return submitted
+      ? { ok: true, session, confirmed: true, submitted: true }
+      : { ok: false, session, confirmed: false, submitted: false, error: "hc send failed or timed out; check the session before resending" };
   }
   const sleep = deps.sleep ?? defaultSleep;
   const probe = text.slice(-Math.min(20, text.length));
@@ -312,7 +320,7 @@ export async function commsRecv(
   deps: CommsDeps = {},
   opts: RecvOptions = {},
 ): Promise<RecvResult> {
-  const tmux = deps.tmux ?? makeTmux();
+  const tmux = deps.tmux ?? makeCommsMux(process.env, session);
   if (!tmux.sessionExists(session)) {
     return { ok: false, error: `copilot session not running: ${session}` };
   }
@@ -399,7 +407,7 @@ export async function commsAsk(
   deps: CommsDeps = {},
   opts: AskOptions = {},
 ): Promise<AskResult> {
-  const tmux = deps.tmux ?? makeTmux();
+  const tmux = deps.tmux ?? makeCommsMux(process.env, session);
   if (!tmux.sessionExists(session)) {
     return { ok: false, error: `copilot session not running: ${session}`, sent: false };
   }

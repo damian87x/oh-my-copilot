@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -135,6 +135,8 @@ describe("launchCopilot tmux wrapping", () => {
   // -e passthrough args coming from the ambient (possibly BYOK) shell.
   const savedCopilotVars: Record<string, string | undefined> = {};
   const savedForceTmuxWrap = process.env.OMP_FORCE_TMUX_WRAP;
+  const savedOmpMux = process.env.OMP_MUX;
+  const savedHerdrEnv = process.env.HERDR_ENV;
 
   beforeEach(() => {
     for (const key of Object.keys(process.env)) {
@@ -169,9 +171,12 @@ describe("launchCopilot tmux wrapping", () => {
     process.env.OMP_TEST_TMUX_LOG = tmuxLog;
     process.env.OMP_TEST_COPILOT_LOG = copilotLog;
     process.env.OMP_FORCE_TMUX_WRAP = "1";
+    process.env.OMP_MUX = "tmux"; // this block covers the tmux backend
+    delete process.env.HERDR_ENV;
   });
 
   afterEach(() => {
+    restoreEnv("OMP_MUX", savedOmpMux);
     restoreEnv("PATH", savedPath);
     restoreEnv("TMUX", savedTmux);
     restoreEnv("OMP_TEST_TMUX_LOG", savedTmuxLogEnv);
@@ -181,6 +186,7 @@ describe("launchCopilot tmux wrapping", () => {
       delete savedCopilotVars[key];
     }
     restoreEnv("OMP_FORCE_TMUX_WRAP", savedForceTmuxWrap);
+    restoreEnv("HERDR_ENV", savedHerdrEnv);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -221,6 +227,84 @@ describe("launchCopilot tmux wrapping", () => {
     expect(result.ok).toBe(true);
     expect(() => readFileSync(tmuxLog, "utf8")).toThrow(); // tmux never invoked
     expect(JSON.parse(readFileSync(copilotLog, "utf8"))).toEqual(["probe", "--yolo"]);
+  });
+});
+
+describe("launchCopilot herdr wrapping", () => {
+  let dir: string;
+  let hcLog: string;
+  const saved: Record<string, string | undefined> = {};
+  const keys = ["OMP_MUX", "OMP_HC_BIN", "OMP_TEST_HC_LOG", "OMP_FORCE_TMUX_WRAP", "TMUX", "HC_TERMINAL_ID", "HERDR_ENV", "OMP_HOME_OVERRIDE", "GH_TOKEN"];
+
+  beforeEach(() => {
+    for (const k of keys) saved[k] = process.env[k];
+    dir = mkdtempSync(join(tmpdir(), "omp-launch-herdr-"));
+    hcLog = join(dir, "hc.jsonl");
+    const fakeHc = join(dir, "fake-hc");
+    writeFileSync(
+      fakeHc,
+      '#!/usr/bin/env node\n' +
+        'const a = process.argv.slice(2);\n' +
+        'require("node:fs").appendFileSync(process.env.OMP_TEST_HC_LOG, JSON.stringify(a) + "\\n");\n' +
+        'if (a[0] === "run") console.log(JSON.stringify({ address: "t9", state: "live" }));\n' +
+        'else if (a[0] === "get") console.log(JSON.stringify({ state: "finished" }));\n' +
+        'else if (a[0] === "attach") process.exit(3);\n' +
+        'else console.log("{}");\n',
+    );
+    chmodSync(fakeHc, 0o755);
+    process.env.OMP_HC_BIN = fakeHc;
+    process.env.OMP_TEST_HC_LOG = hcLog;
+    process.env.OMP_FORCE_TMUX_WRAP = "1";
+    process.env.OMP_HOME_OVERRIDE = dir;
+    process.env.GH_TOKEN = "ghp_launch_secret";
+    delete process.env.OMP_MUX;
+    delete process.env.TMUX;
+    delete process.env.HC_TERMINAL_ID;
+    delete process.env.HERDR_ENV;
+  });
+
+  afterEach(() => {
+    for (const k of keys) restoreEnv(k, saved[k]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const calls = () =>
+    readFileSync(hcLog, "utf8").trim().split("\n").map((l) => JSON.parse(l) as string[]);
+
+  it("defaults to herdr outside any multiplexer: hc run then hc attach, cleans up the finished terminal", async () => {
+    const copilot = join(dir, "copilot");
+    writeFileSync(copilot, "#!/bin/sh\n");
+    chmodSync(copilot, 0o755);
+    const result = await launchCopilot({ args: ["--madmax"], bin: copilot, cwd: dir });
+    expect(result).toMatchObject({ ok: false, exitCode: 3 }); // attach's exit code propagates
+    const log = calls();
+    const run = log.find((c) => c[0] === "run")!;
+    expect(run[run.indexOf("--name") + 1]).toMatch(/^omp-\d+$/);
+    expect(run).toEqual(expect.arrayContaining(["--no-parent", "--no-notify", "--cwd", dir]));
+    expect(run.slice(-2)).toEqual([copilot, "--yolo"]);
+    expect(JSON.stringify(log)).not.toContain("ghp_launch_secret");
+    expect(log.find((c) => c[0] === "attach")).toEqual(["attach", "t9"]);
+    expect(log.map((c) => c[0]).slice(-3)).toEqual(["get", "kill", "rm"]);
+  });
+
+  it("launches directly inside a Herdr TUI pane (no nesting)", async () => {
+    process.env.HERDR_ENV = "1";
+    const copilot = join(dir, "copilot");
+    writeFileSync(copilot, "#!/bin/sh\nexit 0\n");
+    chmodSync(copilot, 0o755);
+    const result = await launchCopilot({ args: [], bin: copilot, cwd: dir });
+    expect(result.ok).toBe(true);
+    expect(existsSync(hcLog)).toBe(false);
+  });
+
+  it("launches directly inside an hc terminal (no nesting)", async () => {
+    process.env.HC_TERMINAL_ID = "t1";
+    const copilot = join(dir, "copilot");
+    writeFileSync(copilot, "#!/bin/sh\nexit 0\n");
+    chmodSync(copilot, 0o755);
+    const result = await launchCopilot({ args: [], bin: copilot, cwd: dir });
+    expect(result.ok).toBe(true);
+    expect(existsSync(hcLog)).toBe(false);
   });
 });
 

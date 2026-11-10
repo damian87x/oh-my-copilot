@@ -120,6 +120,15 @@ function safeTargetId(parts: string[]): string {
   return createHash("sha256").update(parts.join("\0")).digest("hex").slice(0, 32);
 }
 
+function isHerdrTeamConfig(path: string): boolean {
+  try {
+    const value = JSON.parse(readFileSync(path, "utf8")) as Partial<TeamConfig> | null;
+    return value?.mux?.kind === "herdr";
+  } catch {
+    return false;
+  }
+}
+
 function parseTeamConfig(path: string): TeamConfig {
   const value = JSON.parse(readFileSync(path, "utf8")) as TeamConfig;
   const identity = value?.tmuxIdentity;
@@ -172,6 +181,8 @@ function discoverRuntimeTargets(
       continue;
     }
     if (existsSync(paths.shutdownFile)) continue;
+    // herdr teams have no tmux socket identity; loop nudges are tmux-only for now.
+    if (isHerdrTeamConfig(paths.configFile)) continue;
     let config: TeamConfig;
     try {
       config = parseTeamConfig(paths.configFile);

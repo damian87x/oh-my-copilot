@@ -1607,7 +1607,7 @@ async function handleCommsCommand(argv: string[], json: boolean): Promise<CliRes
   }
   const resolved = resolveSession({
     flag: flagSession,
-    env: process.env.COPILOT_TMUX_SESSION,
+    env: process.env.COPILOT_SESSION || process.env.COPILOT_TMUX_SESSION,
   });
   if (!resolved.ok) {
     return json
@@ -1830,7 +1830,7 @@ async function handleSlackCommand(argv: string[], json: boolean): Promise<CliRes
     const hasBot = !!process.env.SLACK_BOT_TOKEN;
     const hasApp = !!process.env.SLACK_APP_TOKEN;
     const { resolveSession } = await import("./comms/resolve-session.js");
-    const resolved = resolveSession({ env: process.env.COPILOT_TMUX_SESSION });
+    const resolved = resolveSession({ env: process.env.COPILOT_SESSION || process.env.COPILOT_TMUX_SESSION });
     const startable = hasBot && hasApp;
     const ready = startable && resolved.ok;
     const output = {
@@ -2121,7 +2121,9 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
         ? { ok: true, output: result }
         : {
             ok: true,
-            message: `started team ${name} session=${result.tmuxSession} workers=${result.config.workers
+            message: `started team ${name} ${result.config.mux?.kind === "herdr" ? "backend=herdr" : "session="}${
+              result.config.mux?.kind === "herdr" ? "" : result.tmuxSession
+            } workers=${result.config.workers
               .map((w) => `${w.name}(${w.paneId ?? "?"})`)
               .join(",")}`,
           };
@@ -2262,6 +2264,42 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
         };
   }
 
+  if (command === "hc-spawn") {
+    // Used by team-launch.sh: start one hc terminal through the private env-file
+    // launcher, so secrets never reach argv and quoting lives in one place.
+    const sep = argv.indexOf("--");
+    const agentArgv = sep >= 0 ? argv.slice(sep + 1) : [];
+    const flags = sep >= 0 ? argv.slice(0, sep) : argv;
+    const name = flagValue(flags, "--name");
+    const spawnCwd = flagValue(flags, "--cwd") ?? process.cwd();
+    if (!name || agentArgv.length === 0) {
+      return { ok: false, exitCode: 1, message: "team hc-spawn requires --name <hc-name> and -- <command> [args]" };
+    }
+    const pairs = (flag: string) =>
+      flags.flatMap((arg, i) => (arg === flag && flags[i + 1] ? [flags[i + 1]!] : []));
+    const toRecord = (items: string[]) =>
+      Object.fromEntries(items.filter((kv) => kv.includes("=")).map((kv) => [kv.slice(0, kv.indexOf("=")), kv.slice(kv.indexOf("=") + 1)]));
+    const { makeHerdr } = await import("./team/herdr.js");
+    let result;
+    try {
+      result = makeHerdr().spawnWorker({
+        name,
+        cwd: spawnCwd,
+        argv: agentArgv,
+        labels: toRecord(pairs("--label")),
+        extraEnv: toRecord(pairs("--set")),
+        keepParent: flags.includes("--keep-parent"),
+      });
+    } catch (error) {
+      result = { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
+    return result.ok
+      ? json
+        ? { ok: true, output: result }
+        : { ok: true, message: `${result.name} ${result.address}` }
+      : { ok: false, exitCode: 1, output: json ? result : undefined, message: result.error };
+  }
+
   if (command === "monitor-panes") {
     const leaderPaneId = flagValue(argv, "--leader-pane");
     const workerPaneIds = argv
@@ -2284,10 +2322,20 @@ async function handleTeamCommand(argv: string[], json: boolean): Promise<CliResu
     } catch (err) {
       return { ok: false, exitCode: 1, message: String(err instanceof Error ? err.message : err) };
     }
+    const muxFlag = flagValue(argv, "--mux");
+    if (muxFlag !== undefined && muxFlag !== "tmux" && muxFlag !== "herdr") {
+      return { ok: false, exitCode: 1, message: "team monitor-panes --mux must be herdr or tmux" };
+    }
+    const { inferMuxFromPaneIds } = await import("./team/pane-backend.js");
+    const inferred = muxFlag ?? inferMuxFromPaneIds([leaderPaneId, ...workerPaneIds]);
+    if (typeof inferred !== "string") {
+      return { ok: false, exitCode: 1, message: `team monitor-panes: ${inferred.error}` };
+    }
     const { monitorPanes } = await import("./team/pane-monitor.js");
     const result = await monitorPanes({
       leaderPaneId,
       workerPaneIds,
+      mux: inferred,
       sessionLabel: flagValue(argv, "--session-label"),
       config: {
         pollIntervalMs,

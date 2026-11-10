@@ -1,4 +1,6 @@
 import { makeTmux, paneHasActiveTask, paneLooksReady, sendToWorker, type TmuxApi } from "./tmux.js";
+import { makeHerdr } from "./herdr.js";
+import type { MuxKind } from "./mux.js";
 
 export interface PaneMonitorConfig {
   pollIntervalMs: number;
@@ -41,6 +43,9 @@ export interface MonitorPanesOptions {
   workerPaneIds: string[];
   sessionLabel?: string;
   tmux?: TmuxApi;
+  herdr?: TmuxApi;
+  /** Backend owning the pane ids (default tmux). */
+  mux?: MuxKind;
   config?: Partial<PaneMonitorConfig>;
 }
 
@@ -136,7 +141,7 @@ export function evaluatePaneState(
 }
 
 export async function monitorPanes(opts: MonitorPanesOptions): Promise<PaneMonitorResult> {
-  const tmux = opts.tmux ?? makeTmux();
+  const tmux = opts.mux === "herdr" ? (opts.herdr ?? makeHerdr()) : (opts.tmux ?? makeTmux());
   const config: PaneMonitorConfig = {
     pollIntervalMs: opts.config?.pollIntervalMs ?? DEFAULT_PANE_MONITOR_CONFIG.pollIntervalMs,
     readySamples: opts.config?.readySamples ?? DEFAULT_PANE_MONITOR_CONFIG.readySamples,
@@ -165,11 +170,15 @@ export async function monitorPanes(opts: MonitorPanesOptions): Promise<PaneMonit
       states.set(paneId, result.state);
       if (result.event) {
         events.push(result.event);
+        let delivered: boolean;
         try {
-          await sendToWorker(tmux, opts.leaderPaneId, result.event.message, { rounds: 4, delayMs: 100 });
+          delivered = await sendToWorker(tmux, opts.leaderPaneId, result.event.message, { rounds: 4, delayMs: 100 });
         } catch {
-          tmux.displayMessage(opts.leaderPaneId, result.event.message);
+          delivered = false;
         }
+        // tmux falls back to a status-line message; herdr has none, so the event
+        // stays only in `events` (returned to the caller), never silently dropped.
+        if (!delivered && tmux.kind !== "herdr") tmux.displayMessage(opts.leaderPaneId, result.event.message);
         remaining--;
       }
     }

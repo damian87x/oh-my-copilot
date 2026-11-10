@@ -13,6 +13,9 @@ import { buildInboxMarkdown } from "./worker-bootstrap.js";
 import { peekNewOutbox, readNewOutbox } from "./outbox.js";
 import { isHeartbeatStale, readHeartbeat } from "./heartbeat.js";
 import { makeTmux, sendToWorker, waitForReady, type TmuxApi } from "./tmux.js";
+import { hcGroupName, hcWorkerName, makeHerdr, type HerdrApi } from "./herdr.js";
+import { resolveHcBin, resolveMux, type MuxKind } from "./mux.js";
+import { backendForConfig } from "./pane-backend.js";
 import { NudgeTracker, type NudgeAttempt, type NudgeConfig, type NudgeSummaryEntry } from "./idle-nudge.js";
 import { loadTeamConfig } from "./config.js";
 import { isLoopModeActive } from "../mode-state/paths.js";
@@ -46,6 +49,10 @@ export interface StartTeamOptions {
   workerCount: number;
   task: string;
   tmux?: TmuxApi;
+  /** Injected herdr client (tests). */
+  herdr?: HerdrApi;
+  /** Backend; default resolveMux(). An injected `tmux` without `mux` means tmux. */
+  mux?: MuxKind;
   workerBinOverride?: string;
 }
 
@@ -82,12 +89,17 @@ function captureTeamTmuxIdentity(
   };
 }
 
-export async function startTeam(opts: StartTeamOptions): Promise<StartTeamResult> {
-  const cwd = resolve(opts.cwd ?? process.cwd());
-  const tmux = opts.tmux ?? makeTmux();
-  const paths = resolveTeamPaths(cwd, opts.name);
-  ensureTeamDirs(paths);
+function chooseStartMux(opts: StartTeamOptions): MuxKind {
+  if (opts.mux) return opts.mux;
+  if (opts.herdr) return "herdr";
+  if (opts.tmux) return "tmux";
+  const selection = resolveMux();
+  if (selection.notice) console.error(`omp: ${selection.notice}`);
+  if (selection.warning) console.error(`omp: ${selection.warning}`);
+  return selection.kind;
+}
 
+function createTasks(paths: TeamStatePaths, opts: StartTeamOptions): Task[] {
   const tasks: Task[] = [];
   for (let i = 0; i < opts.workerCount; i++) {
     const id = String(i + 1);
@@ -102,6 +114,79 @@ export async function startTeam(opts: StartTeamOptions): Promise<StartTeamResult
     writeTask(taskFilePath(paths.tasksDir, id), task);
     tasks.push(task);
   }
+  return tasks;
+}
+
+function workerPrompt(paths: TeamStatePaths, worker: Worker, task: Task): string {
+  return `Read your inbox at ${resolve(paths.workersDir, worker.name, "inbox.md")} and follow the instructions exactly. Your task: ${task.description}`;
+}
+
+/** herdr-core start: one named hc terminal per worker, pinned in config.mux. */
+async function startTeamHerdr(opts: StartTeamOptions, cwd: string): Promise<StartTeamResult> {
+  const herdr = opts.herdr ?? makeHerdr();
+  const paths = resolveTeamPaths(cwd, opts.name);
+  ensureTeamDirs(paths);
+  const group = hcGroupName(opts.name, cwd);
+  if (herdr.sessionExists(group)) {
+    throw new Error(`hc terminals for team ${opts.name} (${group}-*) already exist; run \`omp team shutdown ${opts.name}\` first`);
+  }
+  const tasks = createTasks(paths, opts);
+  const argv = (opts.workerBinOverride ?? resolveWorkerBin(opts.role)).split(/\s+/).filter(Boolean);
+  const workers: Worker[] = [];
+  try {
+    for (let i = 0; i < opts.workerCount; i++) {
+      const workerName = `worker-${i + 1}`;
+      const task = tasks[i]!;
+      const wp = resolveWorkerPaths(paths, workerName);
+      ensureWorkerDirs(wp);
+      writeInbox(wp.inboxFile, buildInboxMarkdown({ teamName: opts.name, workerName, task, cwd }));
+      const spawned = herdr.spawnWorker({
+        name: hcWorkerName(group, i + 1),
+        cwd,
+        argv,
+        labels: { "omp.team": opts.name, "omp.worker": workerName },
+        extraEnv: { OMP_TEAM_WORKER: "1", OMP_MUX: "herdr" },
+      });
+      if (!spawned.ok) throw new Error(spawned.error);
+      workers.push({ name: workerName, role: opts.role, paneId: spawned.address, taskId: task.id });
+    }
+    for (let i = 0; i < workers.length; i++) {
+      const w = workers[i]!;
+      if (!await waitForReady(herdr, w.paneId!)) throw new Error(`worker ${w.name} did not become ready`);
+      if (!await sendToWorker(herdr, w.paneId!, workerPrompt(paths, w, tasks[i]!))) {
+        throw new Error(`could not confirm task delivery to ${w.name}; not retrying`);
+      }
+    }
+    const config: TeamConfig = {
+      name: opts.name,
+      task: opts.task,
+      role: opts.role,
+      workerCount: opts.workerCount,
+      tmuxSession: group,
+      mux: { kind: "herdr", group },
+      workers,
+      cwd,
+      createdAt: new Date().toISOString(),
+    };
+    writeFileSync(paths.configFile, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+    return { ok: true, config, tmuxSession: group, paths };
+  } catch (err) {
+    try {
+      herdr.closeGroup(group);
+    } catch {
+      // best effort — surface the original error
+    }
+    throw err;
+  }
+}
+
+export async function startTeam(opts: StartTeamOptions): Promise<StartTeamResult> {
+  const cwd = resolve(opts.cwd ?? process.cwd());
+  if (chooseStartMux(opts) === "herdr") return startTeamHerdr(opts, cwd);
+  const tmux = opts.tmux ?? makeTmux();
+  const paths = resolveTeamPaths(cwd, opts.name);
+  ensureTeamDirs(paths);
+  const tasks = createTasks(paths, opts);
 
   const sessionName = `omp-team-${opts.name}`;
   if (tmux.sessionExists(sessionName)) {
@@ -137,7 +222,8 @@ export async function startTeam(opts: StartTeamOptions): Promise<StartTeamResult
       ensureWorkerDirs(wp);
       writeInbox(wp.inboxFile, buildInboxMarkdown({ teamName: opts.name, workerName, task, cwd }));
       tmux.sendText(paneId, bin);
-      tmux.sendKeys(paneId, "C-m");
+      // `Enter` key name: Copilot CLI (>=1.0.61) ignores a literal C-m.
+      tmux.sendKeys(paneId, "Enter");
     }
 
     // Wait for all workers to be ready (handles trust dialog), then send prompts
@@ -146,8 +232,7 @@ export async function startTeam(opts: StartTeamOptions): Promise<StartTeamResult
       const task = tasks[i]!;
       if (!w.paneId) continue;
       await waitForReady(tmux, w.paneId);
-      const prompt = `Read your inbox at ${resolve(paths.workersDir, w.name, "inbox.md")} and follow the instructions exactly. Your task: ${task.description}`;
-      await sendToWorker(tmux, w.paneId, prompt);
+      await sendToWorker(tmux, w.paneId, workerPrompt(paths, w, task));
     }
 
     const tmuxIdentity = captureTeamTmuxIdentity(tmux, workers);
@@ -178,6 +263,7 @@ export interface MonitorOptions {
   cwd?: string;
   name: string;
   tmux?: TmuxApi;
+  herdr?: TmuxApi;
   pollIntervalMs?: number;
   timeoutMs?: number;
   onTick?: (snapshot: MonitorSnapshot) => void;
@@ -255,10 +341,10 @@ export function resolveNudgeEnabled(opts: MonitorOptions, cwd: string): boolean 
 
 export async function monitorTeam(opts: MonitorOptions): Promise<MonitorResult> {
   const cwd = resolve(opts.cwd ?? process.cwd());
-  const tmux = opts.tmux ?? makeTmux();
   const paths = resolveTeamPaths(cwd, opts.name);
   const config = loadTeamConfig(paths);
   if (!config) throw new Error(`team ${opts.name} not found at ${paths.configFile}`);
+  const tmux = backendForConfig(config, { tmux: opts.tmux, herdr: opts.herdr });
 
   const pollInterval = opts.pollIntervalMs ?? 1000;
   const timeoutMs = opts.timeoutMs ?? 600_000;
@@ -316,6 +402,7 @@ export interface ShutdownOptions {
   cwd?: string;
   name: string;
   tmux?: TmuxApi;
+  herdr?: HerdrApi;
 }
 
 export interface ShutdownResult {
@@ -327,7 +414,6 @@ export interface ShutdownResult {
 
 export async function shutdownTeam(opts: ShutdownOptions): Promise<ShutdownResult> {
   const cwd = resolve(opts.cwd ?? process.cwd());
-  const tmux = opts.tmux ?? makeTmux();
   const paths = resolveTeamPaths(cwd, opts.name);
   const config = loadTeamConfig(paths);
 
@@ -336,18 +422,30 @@ export async function shutdownTeam(opts: ShutdownOptions): Promise<ShutdownResul
   // crashed before writing config (pre-cleanup behaviour from the
   // try/catch above).
   if (!config) {
+    const tmux = opts.tmux ?? makeTmux();
     const conventional = `omp-team-${opts.name}`;
     const exists = tmux.sessionExists(conventional);
     const session = exists ? tmux.killSession(conventional) : { status: 1, stdout: "", stderr: "" };
+    // Recovery only sweeps this project's deterministic worker group.
+    let herdrKilled = 0;
+    const herdr = opts.herdr ?? (!opts.tmux && resolveHcBin() ? makeHerdr() : undefined);
+    if (herdr) {
+      try {
+        herdrKilled = herdr.closeGroup(hcGroupName(opts.name, cwd));
+      } catch {
+        herdrKilled = 0;
+      }
+    }
     const clearedLocks = clearAllLocks(paths.tasksDir);
     return {
-      ok: exists || clearedLocks > 0,
-      killedPanes: 0,
-      killedSession: exists && session.status === 0,
+      ok: exists || herdrKilled > 0 || clearedLocks > 0,
+      killedPanes: herdrKilled,
+      killedSession: (exists && session.status === 0) || herdrKilled > 0,
       clearedLocks,
     };
   }
 
+  const tmux = backendForConfig(config, { tmux: opts.tmux, herdr: opts.herdr });
   let killedPanes = 0;
   for (const w of config.workers) {
     if (w.paneId) {
@@ -358,13 +456,16 @@ export async function shutdownTeam(opts: ShutdownOptions): Promise<ShutdownResul
   const session = tmux.killSession(config.tmuxSession);
   const clearedLocks = clearAllLocks(paths.tasksDir);
   writeFileSync(paths.shutdownFile, `${JSON.stringify({ shutdownAt: new Date().toISOString() })}\n`, "utf8");
-  return { ok: true, killedPanes, killedSession: session.status === 0, clearedLocks };
+  // herdr: workers were already killed+removed above, so the group sweep finds nothing left.
+  const killedSession = session.status === 0 || (config.mux?.kind === "herdr" && killedPanes > 0);
+  return { ok: true, killedPanes, killedSession, clearedLocks };
 }
 
 export interface StatusOptions {
   cwd?: string;
   name: string;
   tmux?: TmuxApi;
+  herdr?: TmuxApi;
 }
 
 export interface StatusReport {
@@ -376,10 +477,10 @@ export interface StatusReport {
 
 export function statusTeam(opts: StatusOptions): StatusReport {
   const cwd = resolve(opts.cwd ?? process.cwd());
-  const tmux = opts.tmux ?? makeTmux();
   const paths = resolveTeamPaths(cwd, opts.name);
   const config = loadTeamConfig(paths);
   if (!config) return { ok: false, reason: `team ${opts.name} not found` };
+  const tmux = backendForConfig(config, { tmux: opts.tmux, herdr: opts.herdr });
   const snapshot = pollSnapshot(paths, config, tmux);
   return { ok: true, config, snapshot };
 }
@@ -388,7 +489,9 @@ export function formatStatus(report: StatusReport): string {
   if (!report.ok || !report.config || !report.snapshot) return `team status: ${report.reason ?? "unknown"}`;
   const lines = [
     `team ${report.config.name} (${report.config.role}, ${report.config.workerCount} workers)`,
-    `session ${report.config.tmuxSession}`,
+    report.config.mux?.kind === "herdr"
+      ? `backend herdr (hc terminals ${report.config.mux.group}-w*; watch: hc attach <name>) — monitor: unavailable on herdr`
+      : `session ${report.config.tmuxSession}`,
     "",
     "Tasks:",
   ];
