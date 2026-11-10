@@ -10,8 +10,9 @@ import { resolveExecutable } from "./hc-env.js";
  * Precedence:
  *   1. OMP_MUX=herdr|tmux
  *   2. <copilot home>/omp.json  { "mux": "herdr" | "tmux" }   (COPILOT_HOME or ~/.copilot)
- *   3. auto: inside hc ⇒ herdr; inside tmux ⇒ tmux; otherwise herdr
+ *   3. auto: inside hc or HERDR_ENV=1 ⇒ herdr; inside tmux ⇒ tmux; otherwise herdr
  *   4. herdr selected but hc missing ⇒ tmux, with a one-line notice
+ *      (`/team` inside HERDR_ENV=1 uses the herdr CLI instead; see team-launch.sh)
  */
 export type MuxKind = "tmux" | "herdr";
 

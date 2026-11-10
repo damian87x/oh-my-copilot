@@ -432,22 +432,30 @@ uninstalled cleanly.
 
 ### Terminal backend: herdr (default) or tmux
 
-`omp`, `/team`, `omp team` and `omp comms` run agents in [herdr](https://herdr.dev)
-(`hc`, herdr-core) terminals by default, and in tmux on opt-out:
+Two different Herdr binaries exist. Do not mix them up:
+
+| Binary | What it is | Used by |
+| --- | --- | --- |
+| `hc` | herdr-core. Background terminals. | `omp`, `omp team`, `omp comms`, and `/team` when `hc` is installed |
+| `herdr` | Herdr TUI CLI. The pane you are sitting in (`HERDR_ENV=1`). | `/team` only, and only when `hc` is missing |
+
+Selection, same order for every command:
 
 1. `OMP_MUX=herdr|tmux` — one command
-2. `~/.copilot/omp.json` (or `$COPILOT_HOME/omp.json`): `{ "mux": "tmux" }` — always tmux
-3. otherwise auto: inside a herdr terminal ⇒ herdr, inside tmux ⇒ tmux, otherwise herdr
-4. herdr picked but `hc` not installed ⇒ tmux
+2. `~/.copilot/omp.json` (or `$COPILOT_HOME/omp.json`): `{ "mux": "tmux" }` — always tmux. `{ "mux": "herdr" }` forces herdr even inside tmux
+3. otherwise auto: `HC_TERMINAL_ID` or `HERDR_ENV=1` ⇒ herdr; inside tmux ⇒ tmux; otherwise herdr
+4. herdr picked but `hc` missing: `/team` inside a Herdr pane uses the `herdr` CLI. Everywhere else (`omp`, `omp team`, `omp comms`, and `/team` outside a pane) falls back to tmux. A notice prints only when herdr was asked for explicitly
 
-Each team remembers the backend it started with, so `status`/`shutdown`/messaging keep
-working even if the setting changes later. On herdr, secrets (`COPILOT_*`, `GH_TOKEN`, …)
-reach workers through a private 0600 env file, never the command line. Watch a worker with
-`hc attach <name>` (Ctrl+\ detaches); the Herdr app shows lanes as agents in your tab.
-Loop-mode idle nudges are tmux-only for now. `omp doctor` prints the effective backend.
+`/team` on the `herdr` CLI follows the installed version:
 
-**Upgrading:** if `hc` is installed and you are not inside tmux, `omp` now opens Copilot in
-a herdr terminal. To keep the old behavior, write `{"mux":"tmux"}` to `~/.copilot/omp.json`.
+- **0.6.x:** `agent start --split`, then `agent send` plus Enter. This CLI cannot pass env into the new pane, so `OMP_TEAM_WORKER` is unset.
+- **0.7+:** `pane split --env` (worker flags only), `agent start --kind`, then `agent prompt`. `COPILOT_*` and `GH_TOKEN` are not put on the command line.
+
+`omp team collect` for a CLI launch tracks result files, not pane ids. Herdr TUI pane ids (`w…:p…`) are not `hc` addresses (`t1`) and are left out of the manifest.
+
+Each `hc` team remembers the backend it started with, so later `status` / `shutdown` / messaging keep working if the setting changes. On `hc`, secrets reach workers through a private 0600 env file, never argv. Watch an `hc` worker with `hc attach <name>` (Ctrl+\ detaches). Watch a CLI lane with `herdr agent focus <name>`. Loop-mode idle nudges are tmux-only. `omp doctor` prints the effective backend.
+
+**Upgrading:** if `hc` is installed and you are not already inside tmux or a Herdr pane, `omp` opens Copilot in an `hc` terminal. To keep the old behavior, write `{"mux":"tmux"}` to `~/.copilot/omp.json`.
 
 ### Chat bridge: drive Copilot from Slack
 

@@ -28,7 +28,7 @@ interface LauncherHarnessOptions {
   /** Provide a fake herdr-core binary (via OMP_HC_BIN). */
   hc?: boolean;
   /** Fake `herdr` CLI on PATH. Requires HERDR_ENV=1 to be selected. */
-  herdrCli?: boolean;
+  herdrCli?: boolean | "0.9.5";
   /** Extra env (e.g. OMP_MUX, TMUX: "" to run outside tmux). */
   env?: Record<string, string>;
   /** omp.json contents under the isolated COPILOT_HOME. */
@@ -105,18 +105,22 @@ if [[ "$1" == "version" ]]; then printf '{"package":"$OMP_MOCK_VERSION"}\n'; fi
       `#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$HERDR_LOG"
 case "$1" in
-  --version) echo "herdr 0.6.10" ;;
+  --version) echo "herdr \${HERDR_FAKE_VERSION:-0.6.10}" ;;
   agent)
     case "$2" in
       start)
         n=$(grep -c 'agent start' "$HERDR_LOG" || true)
         printf '{"result":{"agent":{"name":"w%s","pane_id":"w1:p%s"}}}\n' "$n" "$n"
         ;;
-      wait|send) printf '{"result":{"type":"ok"}}\n' ;;
+      prompt|send) printf '{"result":{"type":"ok"}}\n' ;;
     esac
     ;;
   pane)
     case "$2" in
+      split)
+        n=$(grep -c 'pane split' "$HERDR_LOG" || true)
+        printf '{"result":{"pane":{"pane_id":"w9:p%s"}}}\n' "$n"
+        ;;
       read) printf '/ commands\n' ;;
       *) printf '{"result":{"type":"ok"}}\n' ;;
     esac
@@ -237,6 +241,7 @@ printf '%s\n' "$*" >> "$CONTROL_LOG"
         TMUX_LOG: tmuxLog,
         HC_LOG: hcLog,
         HERDR_LOG: herdrLog,
+        HERDR_FAKE_VERSION: options.herdrCli === "0.9.5" ? "0.9.5" : "0.6.10",
         TEAM_MAX_COMPLETION_WAIT: "20",
         CONTROL_LOG: controlLog,
         OMP_MOCK_VERSION:
@@ -452,12 +457,37 @@ describe("team-launch.sh on herdr", () => {
     expect(r.result.status, r.result.stderr).toBe(0);
     const log = readFileSync(r.herdrLog, "utf8");
     expect(log).toContain("agent start");
+    expect(log).toContain("--split");
     expect(log).toContain("--no-focus");
-    expect(log).toContain("env OMP_TEAM_WORKER=1 OMP_MUX=herdr");
+    expect(log).not.toContain("env OMP_TEAM_WORKER");
     expect(log).toContain("agent send");
     expect(log).toContain("pane send-keys");
     expect(existsSync(r.tmuxLog)).toBe(false);
     expect(r.result.stdout).toMatch(/herdr agent focus/);
+    const manifest = JSON.parse(readFileSync(path.join(r.deliveryDir, "manifest.json"), "utf8"));
+    expect(manifest[0].paneId).toBeUndefined();
+    expect(manifest[0].mux).toBe("herdr");
+  });
+
+  it("herdr 0.9 uses pane split, --kind, and agent prompt", () => {
+    const r = runLauncher({
+      control: "none",
+      herdrCli: "0.9.5",
+      env: { HERDR_ENV: "1", TMUX: "", OMP_MUX: "herdr" },
+    });
+    expect(r.result.status, r.result.stderr).toBe(0);
+    const log = readFileSync(r.herdrLog, "utf8");
+    expect(log).toContain("pane split --current --direction right");
+    expect(log).toContain("--env OMP_TEAM_WORKER=1");
+    expect(log).toContain("--env OMP_MUX=herdr");
+    expect(log).toContain("agent start");
+    expect(log).toContain("--kind omp");
+    expect(log).not.toContain("--split");
+    expect(log).not.toContain(" env ");
+    expect(log).toContain("agent prompt");
+    expect(log).not.toContain("agent send");
+    const manifest = JSON.parse(readFileSync(path.join(r.deliveryDir, "manifest.json"), "utf8"));
+    expect(manifest[0].paneId).toBeUndefined();
   });
 
   it("falls back to tmux with a notice when hc is missing", () => {

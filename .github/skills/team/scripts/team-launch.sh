@@ -80,12 +80,18 @@ mux_backend() {
 read -r MUX MUX_SOURCE <<< "$(mux_backend)"
 HC=""
 HERDR_CLI=""
+HERDR_CLI_MODE=""
 if [[ "$MUX" == "herdr" ]]; then
   HC=$(hc_bin)
   if [[ -z "$HC" && "${HERDR_ENV:-}" == "1" ]]; then
-    HERDR_CLI=$(command -v herdr 2>/dev/null || true)
-    if [[ -n "$HERDR_CLI" ]] && ! "$HERDR_CLI" --version 2>/dev/null | grep -q '^herdr '; then
-      HERDR_CLI=""
+    candidate=$(command -v herdr 2>/dev/null || true)
+    if [[ -n "$candidate" ]]; then
+      ver=$("$candidate" --version 2>/dev/null | awk 'NR==1 && $1=="herdr" {print $2}')
+      case "$ver" in
+        0.6.*) HERDR_CLI="$candidate"; HERDR_CLI_MODE=legacy ;;
+        # 0.7+ uses pane split + agent start --kind + agent prompt. A bare '^herdr ' banner is not 0.6.
+        0.[7-9]*|0.[1-9][0-9]*|[1-9]*) HERDR_CLI="$candidate"; HERDR_CLI_MODE=modern ;;
+      esac
     fi
   fi
   if [[ -z "$HC" && -z "$HERDR_CLI" && "$MUX_SOURCE" == "auto" ]]; then
@@ -215,6 +221,13 @@ pane_text() {
   fi
 }
 
+herdr_cli_close() {
+  local started
+  for started in ${PANE_IDS[@]+"${PANE_IDS[@]}"}; do
+    "$HERDR_CLI" pane close "$started" >/dev/null 2>&1 || true
+  done
+}
+
 # Press Enter in a pane.
 pane_enter() {
   if [[ -n "$HERDR_CLI" ]]; then
@@ -293,16 +306,37 @@ for i in $(seq 0 $((LANE_COUNT - 1))); do
     HC_NAME="${HC_GROUP}-w$((i + 1))"
     DIR=right
     (( i % 2 == 1 )) && DIR=down
-    if ! SPAWN_OUT=$("$HERDR_CLI" agent start "$HC_NAME" --cwd "$CWD" --split "$DIR" --no-focus -- env OMP_TEAM_WORKER=1 OMP_MUX=herdr "${AGENT_ARGV[@]}"); then
-      echo "  ❌ $LANE_NAME: herdr agent start failed" >&2
-      for started in ${PANE_IDS[@]+"${PANE_IDS[@]}"}; do "$HERDR_CLI" pane close "$started" >/dev/null 2>&1 || true; done
-      exit 1
+    if [[ "$HERDR_CLI_MODE" == "modern" ]]; then
+      if (( i == 0 )); then SPLIT_ARGS=(--current); else SPLIT_ARGS=("${PANE_IDS[$((i - 1))]}"); fi
+      if ! SPLIT_OUT=$("$HERDR_CLI" pane split "${SPLIT_ARGS[@]}" --direction "$DIR" --cwd "$CWD" --no-focus --env OMP_TEAM_WORKER=1 --env OMP_MUX=herdr); then
+        echo "  ❌ $LANE_NAME: herdr pane split failed" >&2
+        herdr_cli_close; exit 1
+      fi
+      PANE_ID=$(printf '%s' "$SPLIT_OUT" | jq -r '.result.pane.pane_id // empty')
+      if [[ -z "$PANE_ID" ]]; then
+        echo "  ❌ $LANE_NAME: unexpected herdr pane split output" >&2
+        herdr_cli_close; exit 1
+      fi
+      PANE_IDS+=("$PANE_ID")
+      KIND=copilot
+      [[ "${AGENT_ARGV[0]}" == "omp" ]] && KIND=omp
+      if ! "$HERDR_CLI" agent start "$HC_NAME" --kind "$KIND" --pane "$PANE_ID" --timeout 90000 -- "${AGENT_ARGV[@]:1}"; then
+        echo "  ❌ $LANE_NAME: herdr agent start failed" >&2
+        herdr_cli_close; exit 1
+      fi
+    else
+      # ponytail: 0.6 agent start has no --env; OMP_TEAM_WORKER is unset until herdr >= 0.7
+      if ! SPAWN_OUT=$("$HERDR_CLI" agent start "$HC_NAME" --cwd "$CWD" --split "$DIR" --no-focus -- "${AGENT_ARGV[@]}"); then
+        echo "  ❌ $LANE_NAME: herdr agent start failed" >&2
+        herdr_cli_close; exit 1
+      fi
+      PANE_ID=$(printf '%s' "$SPAWN_OUT" | jq -r '.result.agent.pane_id // .address // empty')
+      if [[ -z "$PANE_ID" ]]; then
+        echo "  ❌ $LANE_NAME: unexpected herdr agent start output" >&2
+        herdr_cli_close; exit 1
+      fi
+      PANE_IDS+=("$PANE_ID")
     fi
-    PANE_ID=$(printf '%s' "$SPAWN_OUT" | jq -r '.result.agent.pane_id // .address // empty')
-    if [[ -z "$PANE_ID" ]]; then
-      echo "  ❌ $LANE_NAME: unexpected herdr agent start output: $SPAWN_OUT" >&2; exit 1
-    fi
-    PANE_IDS+=("$PANE_ID")
     HC_NAMES+=("$HC_NAME")
     echo "  ✅ $HC_NAME ($PANE_ID) → $LANE_NAME"
     continue
@@ -386,11 +420,16 @@ for i in $(seq 0 $((LANE_COUNT - 1))); do
   # -l = literal (no key interpretation), then submit. Use the `Enter` key NAME,
   # not C-m: Copilot CLI >=1.0.61 ignores a literal carriage return, so C-m left
   # the prompt sitting unsent in the input buffer and the agent never started.
-  if [[ -n "$HERDR_CLI" ]]; then
+  if [[ "$HERDR_CLI_MODE" == "modern" ]]; then
+    if ! "$HERDR_CLI" agent prompt "${HC_NAMES[$i]}" "$LANE_PROMPT" >/dev/null 2>&1; then
+      echo "  ⚠️  herdr prompt to ${HC_NAMES[$i]} ($LANE_NAME) failed" >&2
+      continue
+    fi
+  elif [[ -n "$HERDR_CLI" ]]; then
     # 0.6.x agent send is literal text; Enter is a separate key. Do not resend.
     if ! "$HERDR_CLI" agent send "${HC_NAMES[$i]}" "$LANE_PROMPT" >/dev/null 2>&1 \
       || ! "$HERDR_CLI" pane send-keys "$PANE_ID" enter >/dev/null 2>&1; then
-      echo "  ⚠️  herdr send to $PANE_ID ($LANE_NAME) failed; check it with: $HERDR_CLI agent read ${HC_NAMES[$i]}" >&2
+      echo "  ⚠️  herdr send to ${HC_NAMES[$i]} ($LANE_NAME) failed" >&2
       continue
     fi
   elif [[ "$MUX" == "herdr" ]]; then
@@ -418,9 +457,9 @@ for i in $(seq 0 $((LANE_COUNT - 1))); do
   MANIFEST=$(echo "$MANIFEST" | jq \
     --arg id "$(jq -r ".[$i].id" "$LANES_FILE")" \
     --arg name "$(jq -r ".[$i].name" "$LANES_FILE")" \
-    --arg pane "${PANE_IDS[$i]}" \
+    --arg pane "$([[ -n "$HERDR_CLI" ]] && printf '' || printf '%s' "${PANE_IDS[$i]}")" \
     --arg mux "$MUX" \
-    'if $mux == "herdr" then . + [{id:$id,name:$name,paneId:$pane,mux:"herdr"}] else . + [{id:$id,name:$name,paneId:$pane}] end')
+    'if $mux == "herdr" and $pane != "" then . + [{id:$id,name:$name,paneId:$pane,mux:"herdr"}] elif $mux == "herdr" then . + [{id:$id,name:$name,mux:"herdr"}] else . + [{id:$id,name:$name,paneId:$pane}] end')
 done
 echo "$MANIFEST" > "$DELIVERY_DIR/manifest.json"
 
