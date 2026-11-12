@@ -12,7 +12,7 @@ flag for Agent Skills).
 
 | Job | What it runs |
 | --- | --- |
-| `build-test` | `npm ci` → `npm run build` (tsc) → `npm run lint` (eslint) → `npm test` (vitest), on Node 20 & 22 |
+| `build-test` | `npm ci` → `npm run build` (tsc) → `npm run lint` (eslint) on Node 20 & 22; `npm test` (vitest) on Node 22 only (Vitest 5 needs Node >= 22.12) |
 | `skills` | `npm run lint:skills` (omp's own validator) + `npm run check:catalog` |
 
 ### `.github/workflows/security.yml` — security scanners
