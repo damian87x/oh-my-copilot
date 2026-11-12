@@ -45,7 +45,10 @@ jobs:
       - name: Lint (eslint)
         run: npm run lint
 
+      # Vitest 5 requires Node >= 22.12 (it calls Map.groupBy). Node 20 still
+      # installs, builds, and lints so the runtime floor stays >=20.
       - name: Unit tests (vitest)
+        if: matrix.node >= 22
         run: npm test
 
   skills:
